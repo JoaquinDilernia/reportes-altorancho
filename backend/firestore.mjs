@@ -42,8 +42,11 @@ export async function saveSalesDocs(docs) {
 
 export async function querySalesByRange(channels, startDate, endDate) {
   const firestore = getDb();
-  const start = admin.firestore.Timestamp.fromDate(new Date(`${startDate}T00:00:00Z`));
-  const end = admin.firestore.Timestamp.fromDate(new Date(`${endDate}T23:59:59Z`));
+  // Argentina is UTC-3, no DST: local midnight for a calendar date is
+  // UTC 03:00 of that same date, and the day ends at UTC 03:00 of the
+  // next date, minus 1ms.
+  const start = admin.firestore.Timestamp.fromDate(new Date(`${startDate}T03:00:00.000Z`));
+  const end = admin.firestore.Timestamp.fromDate(new Date(new Date(`${endDate}T03:00:00.000Z`).getTime() + 24 * 3600 * 1000 - 1));
 
   const snap = await firestore.collection(SALES_COL)
     .where('channel', 'in', channels)

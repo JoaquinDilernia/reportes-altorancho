@@ -10,7 +10,13 @@ export function computeTotals(salesDocs) {
   const orders = completed.length;
   const avgTicket = orders ? revenue / orders : 0;
 
-  const uniqueDays = new Set(completed.map(s => s.date.slice(0, 10)));
+  // Argentina is UTC-3, no DST: shift each UTC timestamp back 3 hours before
+  // slicing out the calendar date, so a sale after ~21:00 ART doesn't get
+  // bucketed into the next UTC calendar day.
+  const uniqueDays = new Set(completed.map(s => {
+    const d = new Date(new Date(s.date).getTime() - 3 * 3600 * 1000);
+    return d.toISOString().slice(0, 10);
+  }));
   const daysInRange = uniqueDays.size;
   const avgDailyRevenue = daysInRange ? revenue / daysInRange : 0;
 
