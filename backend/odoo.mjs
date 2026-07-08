@@ -56,3 +56,12 @@ export async function fetchAll(model, domain, fields, pageSize = 1000) {
   }
   return results;
 }
+
+// Splits an array into fixed-size chunks. Used to keep id-list RPC calls
+// (read / search_read with `in [...]`) under Odoo's request size/time limits
+// at full 14-month-backfill scale (hundreds of thousands of ids).
+export function chunk(array, size) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) chunks.push(array.slice(i, i + size));
+  return chunks;
+}

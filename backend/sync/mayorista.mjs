@@ -1,8 +1,13 @@
-import { authenticate, callKw, fetchAll } from '../odoo.mjs';
+import { authenticate, callKw, fetchAll, chunk } from '../odoo.mjs';
 import { normalizeOdooSaleOrder } from '../normalize.mjs';
 import { saveSalesDocs, getSyncMetadata, setSyncMetadata } from '../firestore.mjs';
 
 const MAYORISTA_TEAM_ID = 8;
+
+// Odoo RPC has a ~30s timeout and practical request-size limits, so id-list
+// calls covering the full 14-month backfill (hundreds of thousands of ids)
+// must be chunked into multiple sequential requests.
+const CHUNK_SIZE = 2000;
 
 export async function syncMayorista(categoryBySku, sinceOverride) {
   await authenticate();
@@ -14,17 +19,17 @@ export async function syncMayorista(categoryBySku, sinceOverride) {
   const orders = await fetchAll('sale.order', domain, ['id', 'date_order', 'amount_total', 'state', 'order_line']);
 
   const allLineIds = orders.flatMap(o => o.order_line);
-  const lines = allLineIds.length
-    ? await callKw('sale.order.line', 'read', [allLineIds], {
-        fields: ['order_id', 'product_id', 'product_uom_qty', 'price_unit'],
-      })
-    : [];
   const linesByOrderId = new Map();
-  for (const line of lines) {
-    if (!line.product_id) continue; // note/section lines (display_type set, no actual product)
-    const orderId = line.order_id[0];
-    if (!linesByOrderId.has(orderId)) linesByOrderId.set(orderId, []);
-    linesByOrderId.get(orderId).push(line);
+  for (const idChunk of chunk(allLineIds, CHUNK_SIZE)) {
+    const lines = await callKw('sale.order.line', 'read', [idChunk], {
+      fields: ['order_id', 'product_id', 'product_uom_qty', 'price_unit'],
+    });
+    for (const line of lines) {
+      if (!line.product_id) continue; // note/section lines (display_type set, no actual product)
+      const orderId = line.order_id[0];
+      if (!linesByOrderId.has(orderId)) linesByOrderId.set(orderId, []);
+      linesByOrderId.get(orderId).push(line);
+    }
   }
 
   const docs = orders.map(order => normalizeOdooSaleOrder(

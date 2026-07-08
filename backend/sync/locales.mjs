@@ -1,4 +1,4 @@
-import { authenticate, callKw, fetchAll } from '../odoo.mjs';
+import { authenticate, callKw, fetchAll, chunk } from '../odoo.mjs';
 import { normalizeOdooPosOrder } from '../normalize.mjs';
 import { saveSalesDocs, getSyncMetadata, setSyncMetadata } from '../firestore.mjs';
 
@@ -8,16 +8,23 @@ const STORES = [
   { configId: 7, channel: 'local_alcorta' },
 ];
 
+// Odoo RPC has a ~30s timeout and practical request-size limits, so id-list
+// calls covering the full 14-month backfill (hundreds of thousands of ids)
+// must be chunked into multiple sequential requests.
+const CHUNK_SIZE = 2000;
+
 async function fetchPaymentMethodByOrderId(orderIds) {
   const methodByOrderId = new Map();
   if (!orderIds.length) return methodByOrderId;
 
-  const payments = await callKw('pos.payment', 'search_read', [[['pos_order_id', 'in', orderIds]]], {
-    fields: ['pos_order_id', 'payment_method_id'],
-  });
-  for (const p of payments) {
-    if (!methodByOrderId.has(p.pos_order_id[0])) {
-      methodByOrderId.set(p.pos_order_id[0], p.payment_method_id[1]);
+  for (const idChunk of chunk(orderIds, CHUNK_SIZE)) {
+    const payments = await callKw('pos.payment', 'search_read', [[['pos_order_id', 'in', idChunk]]], {
+      fields: ['pos_order_id', 'payment_method_id'],
+    });
+    for (const p of payments) {
+      if (!methodByOrderId.has(p.pos_order_id[0])) {
+        methodByOrderId.set(p.pos_order_id[0], p.payment_method_id[1]);
+      }
     }
   }
   return methodByOrderId;
@@ -27,13 +34,15 @@ async function fetchLinesByOrderId(lineIds) {
   const linesByOrderId = new Map();
   if (!lineIds.length) return linesByOrderId;
 
-  const lines = await callKw('pos.order.line', 'read', [lineIds], {
-    fields: ['order_id', 'product_id', 'qty', 'price_unit'],
-  });
-  for (const line of lines) {
-    const orderId = line.order_id[0];
-    if (!linesByOrderId.has(orderId)) linesByOrderId.set(orderId, []);
-    linesByOrderId.get(orderId).push(line);
+  for (const idChunk of chunk(lineIds, CHUNK_SIZE)) {
+    const lines = await callKw('pos.order.line', 'read', [idChunk], {
+      fields: ['order_id', 'product_id', 'qty', 'price_unit'],
+    });
+    for (const line of lines) {
+      const orderId = line.order_id[0];
+      if (!linesByOrderId.has(orderId)) linesByOrderId.set(orderId, []);
+      linesByOrderId.get(orderId).push(line);
+    }
   }
   return linesByOrderId;
 }
