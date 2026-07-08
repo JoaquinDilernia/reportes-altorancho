@@ -62,7 +62,8 @@ export async function saveProducts(docs) {
   for (let i = 0; i < docs.length; i += BATCH_SIZE) {
     const batch = firestore.batch();
     for (const doc of docs.slice(i, i + BATCH_SIZE)) {
-      batch.set(firestore.collection(PRODUCTS_COL).doc(doc.sku), doc);
+      const docId = doc.sku.replace(/\//g, '__');
+      batch.set(firestore.collection(PRODUCTS_COL).doc(docId), doc);
     }
     await batch.commit();
   }
