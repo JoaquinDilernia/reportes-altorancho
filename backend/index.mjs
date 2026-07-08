@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'node:url';
+import cron from 'node-cron';
 import { requireAuth, generateToken } from './auth.mjs';
 import { getPeriodRanges } from './periods.mjs';
 import { querySalesByRange, getProductsBySku } from './firestore.mjs';
@@ -9,6 +10,10 @@ import {
   computeTotals, computeTopProducts, computeCategoryBreakdown,
   computePaymentMethods, computeProvinces, computeDelta,
 } from './aggregate.mjs';
+import { syncProducts } from './sync/products.mjs';
+import { syncEcommerce } from './sync/ecommerce.mjs';
+import { syncLocales } from './sync/locales.mjs';
+import { syncMayorista } from './sync/mayorista.mjs';
 
 export const app = express();
 
@@ -84,6 +89,28 @@ function diffTotals(current, previous) {
 }
 
 const PORT = process.env.PORT || 3000;
+
+const SYNC_HOURS = parseInt(process.env.SYNC_INTERVAL_HOURS || '4', 10);
+let syncRunning = false;
+
+async function runFullSync() {
+  if (syncRunning) { console.log('[cron] sync already running, skipping'); return; }
+  syncRunning = true;
+  try {
+    const { categoryBySku } = await syncProducts();
+    await syncEcommerce(categoryBySku);
+    await syncLocales(categoryBySku);
+    await syncMayorista(categoryBySku);
+    console.log('[cron] full sync complete');
+  } catch (err) {
+    console.error('[cron] sync error:', err.message);
+  } finally {
+    syncRunning = false;
+  }
+}
+
+cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
+console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
