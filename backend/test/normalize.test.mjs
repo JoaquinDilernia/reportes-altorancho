@@ -46,6 +46,17 @@ test('normalizeTiendanubeOrder maps a cancelled order regardless of payment_stat
   assert.equal(normalizeTiendanubeOrder(order, categoryBySku).status, 'cancelled');
 });
 
+test('normalizeTiendanubeOrder coerces a string quantity to a number', () => {
+  const order = {
+    id: 3, status: 'open', payment_status: 'paid', created_at: '2026-01-01T00:00:00Z',
+    total: '100.00', gateway_name: null, shipping_address: null,
+    products: [{ sku: 'A', name: 'A', quantity: '3', price: '100.00' }],
+  };
+  const doc = normalizeTiendanubeOrder(order, categoryBySku);
+  assert.equal(doc.items[0].qty, 3);
+  assert.equal(typeof doc.items[0].qty, 'number');
+});
+
 test('normalizeTiendanubeOrder maps a pending payment to pending', () => {
   const order = {
     id: 2, status: 'open', payment_status: 'pending', created_at: '2026-01-01T00:00:00Z',

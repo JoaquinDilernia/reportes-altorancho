@@ -26,7 +26,7 @@ export function normalizeTiendanubeOrder(order, categoryBySku) {
       sku: p.sku,
       name: p.name,
       category: categoryBySku.get(p.sku) || null,
-      qty: p.quantity,
+      qty: Number(p.quantity),
       unitPrice: Number(p.price),
     })),
   };
