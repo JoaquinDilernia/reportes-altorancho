@@ -2,6 +2,13 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'node:url';
+import { requireAuth, generateToken } from './auth.mjs';
+import { getPeriodRanges } from './periods.mjs';
+import { querySalesByRange, getProductsBySku } from './firestore.mjs';
+import {
+  computeTotals, computeTopProducts, computeCategoryBreakdown,
+  computePaymentMethods, computeProvinces, computeDelta,
+} from './aggregate.mjs';
 
 export const app = express();
 
@@ -11,6 +18,70 @@ app.use(express.json());
 app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
+
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body;
+  if (password !== process.env.DASHBOARD_PASSWORD) {
+    return res.status(401).json({ ok: false, error: 'Invalid password' });
+  }
+  res.json({ ok: true, token: generateToken() });
+});
+
+const ALL_CHANNELS = ['ecommerce', 'local_lomas', 'local_belgrano', 'local_alcorta', 'mayorista'];
+
+async function buildTotalsSection(channels, range, productsBySku) {
+  const sales = await querySalesByRange(channels, range.start, range.end);
+  return {
+    totals: computeTotals(sales),
+    topProductsByUnits: computeTopProducts(sales, productsBySku, { by: 'units', limit: 10 }),
+    topProductsByRevenue: computeTopProducts(sales, productsBySku, { by: 'revenue', limit: 10 }),
+    categories: computeCategoryBreakdown(sales),
+    paymentMethods: computePaymentMethods(sales),
+    provinces: computeProvinces(sales),
+  };
+}
+
+app.get('/api/report', requireAuth, async (req, res) => {
+  try {
+    const { period = 'week', date, channels } = req.query;
+    if (!date) return res.status(400).json({ ok: false, error: 'Missing date' });
+
+    const requestedChannels = channels ? channels.split(',') : ALL_CHANNELS;
+    const ranges = getPeriodRanges(date, period);
+    const productsBySku = await getProductsBySku();
+
+    const [current, prevPeriod, prevMonth, prevYear] = await Promise.all([
+      buildTotalsSection(requestedChannels, ranges.current, productsBySku),
+      buildTotalsSection(requestedChannels, ranges.prevPeriod, productsBySku),
+      buildTotalsSection(requestedChannels, ranges.prevMonth, productsBySku),
+      buildTotalsSection(requestedChannels, ranges.prevYear, productsBySku),
+    ]);
+
+    res.json({
+      ok: true,
+      range: ranges.current,
+      current,
+      comparisons: {
+        prevPeriod: { range: ranges.prevPeriod, totals: prevPeriod.totals, deltas: diffTotals(current.totals, prevPeriod.totals) },
+        prevMonth:  { range: ranges.prevMonth,  totals: prevMonth.totals,  deltas: diffTotals(current.totals, prevMonth.totals) },
+        prevYear:   { range: ranges.prevYear,   totals: prevYear.totals,   deltas: diffTotals(current.totals, prevYear.totals) },
+      },
+    });
+  } catch (err) {
+    console.error('[server] report error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+function diffTotals(current, previous) {
+  return {
+    revenue: computeDelta(current.revenue, previous.revenue),
+    units: computeDelta(current.units, previous.units),
+    orders: computeDelta(current.orders, previous.orders),
+    avgTicket: computeDelta(current.avgTicket, previous.avgTicket),
+    avgDailyRevenue: computeDelta(current.avgDailyRevenue, previous.avgDailyRevenue),
+  };
+}
 
 const PORT = process.env.PORT || 3000;
 
