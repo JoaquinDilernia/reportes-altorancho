@@ -30,15 +30,34 @@ test('verifyToken returns false (not throws) when AUTH_SECRET is unset', async (
   // SECRET is captured into a module-level const at import time, so we must
   // load a fresh module instance (via a cache-busting query string) while
   // AUTH_SECRET is unset, rather than mutating the already-imported module.
-  const savedSecret = process.env.AUTH_SECRET;
+  //
+  // auth.mjs does `import 'dotenv/config'`, and backend/.env defines a real
+  // AUTH_SECRET. dotenv only skips keys already present in process.env, so a
+  // bare `delete process.env.AUTH_SECRET` would get silently repopulated from
+  // .env when the fresh module's own dotenv preload re-runs. Pointing
+  // DOTENV_CONFIG_PATH at a nonexistent file prevents that reload from
+  // finding anything, so AUTH_SECRET genuinely stays unset.
+  const originalPath = process.env.DOTENV_CONFIG_PATH;
+  const originalSecret = process.env.AUTH_SECRET;
+  process.env.DOTENV_CONFIG_PATH = '/nonexistent/path/.env.does-not-exist';
   delete process.env.AUTH_SECRET;
 
-  const { verifyToken: verifyTokenNoSecret } = await import(
-    `../auth.mjs?no-secret-test=${Date.now()}`
-  );
+  try {
+    const { verifyToken: verifyTokenNoSecret } = await import(
+      `../auth.mjs?no-secret-test=${Date.now()}`
+    );
 
-  process.env.AUTH_SECRET = savedSecret;
+    // Concrete proof dotenv did NOT repopulate AUTH_SECRET from backend/.env
+    // during the fresh module's `import 'dotenv/config'` line above. Without
+    // this assertion the test would silently pass for the wrong reason (a
+    // real secret mismatch) instead of exercising the catch-guarded path.
+    assert.equal(process.env.AUTH_SECRET, undefined);
 
-  assert.doesNotThrow(() => verifyTokenNoSecret('anything.tokenlike'));
-  assert.equal(verifyTokenNoSecret('anything.tokenlike'), false);
+    assert.doesNotThrow(() => verifyTokenNoSecret('anything.tokenlike'));
+    assert.equal(verifyTokenNoSecret('anything.tokenlike'), false);
+  } finally {
+    if (originalPath === undefined) delete process.env.DOTENV_CONFIG_PATH;
+    else process.env.DOTENV_CONFIG_PATH = originalPath;
+    process.env.AUTH_SECRET = originalSecret;
+  }
 });
