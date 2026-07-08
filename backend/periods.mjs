@@ -18,11 +18,17 @@ function lastDayOfMonth(d) {
 }
 
 function shiftMonths(d, delta) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + delta, d.getUTCDate()));
+  const targetMonthIndex = d.getUTCMonth() + delta;
+  const daysInTarget = new Date(Date.UTC(d.getUTCFullYear(), targetMonthIndex + 1, 0)).getUTCDate();
+  const day = Math.min(d.getUTCDate(), daysInTarget);
+  return new Date(Date.UTC(d.getUTCFullYear(), targetMonthIndex, day));
 }
 
 function shiftYears(d, delta) {
-  return new Date(Date.UTC(d.getUTCFullYear() + delta, d.getUTCMonth(), d.getUTCDate()));
+  const targetYear = d.getUTCFullYear() + delta;
+  const daysInTarget = new Date(Date.UTC(targetYear, d.getUTCMonth() + 1, 0)).getUTCDate();
+  const day = Math.min(d.getUTCDate(), daysInTarget);
+  return new Date(Date.UTC(targetYear, d.getUTCMonth(), day));
 }
 
 export function getPeriodRanges(dateStr, period) {
