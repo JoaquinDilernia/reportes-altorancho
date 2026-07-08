@@ -8,6 +8,13 @@ function sign(payload) {
   return crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
 }
 
+function safeEqual(a, b) {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 export function generateToken(expiresInSeconds = DEFAULT_TTL_SECONDS) {
   const exp = Date.now() + expiresInSeconds * 1000;
   const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
@@ -19,9 +26,9 @@ export function verifyToken(token) {
   if (!token || typeof token !== 'string' || !token.includes('.')) return false;
 
   const [payload, signature] = token.split('.');
-  if (sign(payload) !== signature) return false;
 
   try {
+    if (!safeEqual(sign(payload), signature)) return false;
     const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     return typeof exp === 'number' && Date.now() < exp;
   } catch {

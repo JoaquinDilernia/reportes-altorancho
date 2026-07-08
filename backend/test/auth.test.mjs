@@ -25,3 +25,20 @@ test('garbage input fails verification without throwing', () => {
   assert.equal(verifyToken(''), false);
   assert.equal(verifyToken(undefined), false);
 });
+
+test('verifyToken returns false (not throws) when AUTH_SECRET is unset', async () => {
+  // SECRET is captured into a module-level const at import time, so we must
+  // load a fresh module instance (via a cache-busting query string) while
+  // AUTH_SECRET is unset, rather than mutating the already-imported module.
+  const savedSecret = process.env.AUTH_SECRET;
+  delete process.env.AUTH_SECRET;
+
+  const { verifyToken: verifyTokenNoSecret } = await import(
+    `../auth.mjs?no-secret-test=${Date.now()}`
+  );
+
+  process.env.AUTH_SECRET = savedSecret;
+
+  assert.doesNotThrow(() => verifyTokenNoSecret('anything.tokenlike'));
+  assert.equal(verifyTokenNoSecret('anything.tokenlike'), false);
+});
