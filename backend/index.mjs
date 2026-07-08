@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { fileURLToPath } from 'node:url';
 
 export const app = express();
 
@@ -13,6 +14,6 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
 }
