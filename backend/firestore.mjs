@@ -62,8 +62,7 @@ export async function saveProducts(docs) {
   for (let i = 0; i < docs.length; i += BATCH_SIZE) {
     const batch = firestore.batch();
     for (const doc of docs.slice(i, i + BATCH_SIZE)) {
-      const docId = doc.sku.replace(/\//g, '__');
-      batch.set(firestore.collection(PRODUCTS_COL).doc(docId), doc);
+      batch.set(firestore.collection(PRODUCTS_COL).doc(encodeURIComponent(doc.sku)), doc);
     }
     await batch.commit();
   }
@@ -74,7 +73,10 @@ export async function getProductsBySku() {
   const firestore = getDb();
   const snap = await firestore.collection(PRODUCTS_COL).get();
   const map = new Map();
-  for (const doc of snap.docs) map.set(doc.id, doc.data());
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    map.set(data.sku, data);
+  }
   return map;
 }
 
