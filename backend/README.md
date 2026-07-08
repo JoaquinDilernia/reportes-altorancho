@@ -23,6 +23,19 @@ ser reemplazados por valores aleatorios seguros:
 
 Sin estos cambios, el backend será vulnerable a autenticación débil.
 
+## Firestore: índice compuesto requerido
+
+`querySalesByRange` (usado por `/api/report`) combina `.where('channel', 'in', channels)`
+con un rango en `.where('date', ...)`, lo cual requiere un índice compuesto en
+`altorancho_reportes_sales`: `channel` (Arrays/IN) + `date` (Ascending). Está
+descripto en `firestore.indexes.json` (`firebase deploy --only firestore:indexes`
+lo crea).
+
+En un proyecto de Firebase nuevo, si no se desplegó ese índice, el primer
+llamado a `/api/report` va a devolver un error 500 de Firestore que incluye un
+link directo a la consola para crear el índice. Basta con abrir ese link una
+vez, esperar ~1 minuto a que el índice termine de construirse, y reintentar.
+
 ## Backfill inicial
 
 Una sola vez, después del primer deploy, correr localmente (no como parte del
