@@ -55,7 +55,10 @@ export async function syncLocales(categoryBySku, sinceOverride) {
     const meta = await getSyncMetadata(store.channel);
     const since = sinceOverride || meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') || '2000-01-01 00:00:00';
 
-    const domain = [['config_id', '=', store.configId], ['date_order', '>=', since]];
+    // Filter on write_date (last-modified), not date_order (creation time):
+    // an order created in one sync window but confirmed/updated later would
+    // otherwise never be re-fetched once its date_order falls before `since`.
+    const domain = [['config_id', '=', store.configId], ['write_date', '>=', since]];
     const orders = await fetchAll('pos.order', domain, ['id', 'date_order', 'amount_total', 'state', 'lines']);
 
     const [paymentByOrderId, linesByOrderId] = await Promise.all([

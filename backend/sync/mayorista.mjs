@@ -15,7 +15,11 @@ export async function syncMayorista(categoryBySku, sinceOverride) {
   const meta = await getSyncMetadata('mayorista');
   const since = sinceOverride || meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') || '2000-01-01 00:00:00';
 
-  const domain = [['team_id', '=', MAYORISTA_TEAM_ID], ['date_order', '>=', since]];
+  // Filter on write_date (last-modified), not date_order (creation time):
+  // an order created in draft in one sync window but confirmed to `sale`
+  // later would otherwise never be re-fetched once its date_order falls
+  // before `since`, leaving it stuck as pending forever.
+  const domain = [['team_id', '=', MAYORISTA_TEAM_ID], ['write_date', '>=', since]];
   const orders = await fetchAll('sale.order', domain, ['id', 'date_order', 'amount_total', 'state', 'order_line']);
 
   const allLineIds = orders.flatMap(o => o.order_line);
