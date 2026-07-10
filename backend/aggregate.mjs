@@ -2,6 +2,13 @@ function completedOnly(salesDocs) {
   return salesDocs.filter(s => s.status === 'completed');
 }
 
+// Argentina is UTC-3, no DST: shift each UTC timestamp back 3 hours before
+// slicing out the calendar date, so a sale after ~21:00 ART doesn't get
+// bucketed into the next UTC calendar day.
+function argDayBucket(isoDate) {
+  return new Date(new Date(isoDate).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 export function computeTotals(salesDocs) {
   const completed = completedOnly(salesDocs);
 
@@ -10,17 +17,27 @@ export function computeTotals(salesDocs) {
   const orders = completed.length;
   const avgTicket = orders ? revenue / orders : 0;
 
-  // Argentina is UTC-3, no DST: shift each UTC timestamp back 3 hours before
-  // slicing out the calendar date, so a sale after ~21:00 ART doesn't get
-  // bucketed into the next UTC calendar day.
-  const uniqueDays = new Set(completed.map(s => {
-    const d = new Date(new Date(s.date).getTime() - 3 * 3600 * 1000);
-    return d.toISOString().slice(0, 10);
-  }));
+  const uniqueDays = new Set(completed.map(s => argDayBucket(s.date)));
   const daysInRange = uniqueDays.size;
   const avgDailyRevenue = daysInRange ? revenue / daysInRange : 0;
 
   return { revenue, units, orders, avgTicket, daysInRange, avgDailyRevenue };
+}
+
+export function computeDailyBreakdown(salesDocs) {
+  const completed = completedOnly(salesDocs);
+  const byDay = new Map();
+
+  for (const sale of completed) {
+    const day = argDayBucket(sale.date);
+    if (!byDay.has(day)) byDay.set(day, { date: day, revenue: 0, units: 0, orders: 0 });
+    const entry = byDay.get(day);
+    entry.revenue += sale.total;
+    entry.orders += 1;
+    entry.units += sale.items.reduce((u, i) => u + i.qty, 0);
+  }
+
+  return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function computeTopProducts(salesDocs, productsBySku, { by = 'units', limit = 10 } = {}) {

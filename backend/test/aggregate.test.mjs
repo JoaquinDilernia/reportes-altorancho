@@ -7,6 +7,7 @@ import {
   computePaymentMethods,
   computeProvinces,
   computeDelta,
+  computeDailyBreakdown,
 } from '../aggregate.mjs';
 
 function makeSale(overrides) {
@@ -120,4 +121,34 @@ test('computeDelta returns absolute and percent change', () => {
 
 test('computeDelta handles a zero baseline without dividing by zero', () => {
   assert.deepEqual(computeDelta(150, 0), { value: 150, pct: null });
+});
+
+test('computeDailyBreakdown groups revenue/units/orders by Argentina calendar day, sorted ascending', () => {
+  const sales = [
+    makeSale({ date: '2026-07-02T15:00:00Z', total: 1000, items: [{ sku: 'A', name: 'A', category: 'Sillas', qty: 2, unitPrice: 500 }] }),
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 500, items: [{ sku: 'B', name: 'B', category: 'Mesas', qty: 1, unitPrice: 500 }] }),
+    makeSale({ date: '2026-07-01T18:00:00Z', total: 300, items: [{ sku: 'C', name: 'C', category: 'Mesas', qty: 1, unitPrice: 300 }] }),
+  ];
+
+  const daily = computeDailyBreakdown(sales);
+
+  assert.deepEqual(daily, [
+    { date: '2026-07-01', revenue: 800, units: 2, orders: 2 },
+    { date: '2026-07-02', revenue: 1000, units: 2, orders: 1 },
+  ]);
+});
+
+test('computeDailyBreakdown excludes non-completed orders', () => {
+  const sales = [
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 1000 }),
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 9999, status: 'cancelled' }),
+  ];
+  const daily = computeDailyBreakdown(sales);
+  assert.deepEqual(daily, [{ date: '2026-07-01', revenue: 1000, units: 1, orders: 1 }]);
+});
+
+test('computeDailyBreakdown buckets a UTC-midnight sale into the previous Argentina calendar day', () => {
+  const sales = [makeSale({ date: '2026-07-01T00:00:00Z', total: 1000 })];
+  const daily = computeDailyBreakdown(sales);
+  assert.deepEqual(daily, [{ date: '2026-06-30', revenue: 1000, units: 1, orders: 1 }]);
 });
