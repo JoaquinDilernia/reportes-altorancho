@@ -171,30 +171,99 @@ guarda y envía en cada request subsiguiente (mismo patrón de "Bearer secret" q
 
 ## Frontend
 
+> Actualizado 2026-07-10, después de tener el backend funcionando en local con datos
+> reales — la forma exacta de `/api/report` ya está confirmada (ver más abajo), y se
+> definió la identidad visual completa con la skill de dataviz.
+
 React + Vite (JSX + CSS plano). Gráficos con **Recharts**. Sin librería de manejo de estado
 (alcanza con hooks de React dado el uso: una sola persona, un par de veces por semana).
 
+### Forma real de la respuesta de `/api/report` (confirmada contra datos reales)
+
+```js
+{
+  ok: true,
+  range: { start: '2026-07-06', end: '2026-07-12' },
+  current: {
+    totals: { revenue, units, orders, avgTicket, daysInRange, avgDailyRevenue },
+    topProductsByUnits: [{ sku, name, unitsSold, revenue, currentStock }],
+    topProductsByRevenue: [{ sku, name, unitsSold, revenue, currentStock }],
+    categories: [{ category, units, revenue }],
+    paymentMethods: [{ method, revenue }],
+    provinces: [{ province, orders }],
+  },
+  comparisons: {
+    prevPeriod: { range, totals, deltas: { revenue: {value,pct}, units, orders, avgTicket, avgDailyRevenue } },
+    prevMonth:  { range, totals, deltas },
+    prevYear:   { range, totals, deltas },
+  },
+}
+```
+
+`deltas.*.pct` es `null` cuando el período anterior fue 0 (evita división por cero) — el
+componente que muestra el badge debe contemplar ese caso (mostrar "—" o similar en vez de
+un porcentaje).
+
+### Identidad visual
+
+Paleta validada con la skill de `dataviz` (contraste y separación segura para daltonismo,
+no elegida a ojo) a partir de los colores de marca (blanco, `#353434`, beige) + Poppins.
+
+**Tokens de diseño** (como variables CSS, ver `frontend/src/styles/tokens.css` en el plan
+de implementación):
+
+| Rol | Hex | Uso |
+|---|---|---|
+| `--surface-page` | `#FFFFFF` | fondo general |
+| `--surface-card` | `#F0E6D8` | fondo de tarjetas/secciones (el beige de marca) |
+| `--ink-primary` | `#353434` | texto principal, títulos |
+| `--ink-secondary` | `#6B6968` | texto secundario, ejes, labels |
+| `--delta-positive` | `#0CA30C` | badge de variación positiva |
+| `--delta-negative` | `#D03B3B` | badge de variación negativa |
+| `--channel-mayorista` | `#2A78D6` | acento canal Mayorista |
+| `--channel-ecommerce` | `#1BAF7A` | acento canal Ecommerce |
+| `--channel-lomas` | `#008300` | acento canal Lomas |
+| `--channel-belgrano` | `#4A3AA7` | acento canal Belgrano |
+| `--channel-alcorta` | `#EB6834` | acento canal Alcorta |
+
+`--channel-ecommerce` y `--channel-alcorta` dan por debajo de 3:1 de contraste sobre el
+beige de fondo — por eso ningún componente puede depender solo del color: siempre van con
+label de texto visible al lado (nombre del canal, no solo un punto de color), tal como ya
+estaba planeado en los componentes de abajo.
+
+Tipografía: **Poppins** en todo (Google Fonts), peso 600/700 para títulos y números
+grandes (KPIs), 400/500 para el resto.
+
 ### Páginas
-- `Login` — contraseña.
+- `Login` — logo centrado sobre fondo beige, tarjeta blanca con el campo de contraseña.
 - `Dashboard` — la vista principal.
 
-### Controles del dashboard
-- Selector de período: **Semana** / **Mes**, con navegación al período anterior/siguiente.
-- Tabs de canal: **Consolidado** / Ecommerce / Lomas / Belgrano / Alcorta / Mayorista.
-- Las 3 comparativas (vs período anterior, vs mismo período mes anterior, vs mismo período
-  año anterior) se muestran siempre juntas, igual que en el reporte actual.
+### Layout del Dashboard
+- Header fijo: logo + selector de período (semana/mes, con flechas prev/next) + tabs de
+  canal (Consolidado / Ecommerce / Lomas / Belgrano / Alcorta / Mayorista), cada tab usa
+  el color de canal correspondiente como acento cuando está activo.
+- Fondo de página blanco, cada sección en una tarjeta con fondo `--surface-card` (beige) y
+  borde sutil.
+- Las 3 comparativas se muestran siempre juntas como badges verde/rojo al lado de cada KPI.
 
 ### Secciones (componentes)
 - `KpiCards` — facturación total, facturación promedio diaria, ventas/órdenes, unidades,
-  ticket promedio, productos por venta, cada una con badge de variación % (verde/rojo).
-- `DailyChart` — barras de facturación por día del período.
+  ticket promedio, productos por venta, cada una con badge de variación % (verde/rojo,
+  usando `--delta-positive`/`--delta-negative`, mostrando "—" cuando `pct` es `null`).
+- `DailyChart` — barras de facturación por día del período. En la vista "Consolidado" las
+  barras usan `--ink-primary` (neutro); al elegir un canal específico, toman el color de
+  ese canal. Barras finas, puntas redondeadas, tooltip al pasar el mouse.
 - `TopProductsTable` — ordenable por vendidos o por facturación, con stock y velocidad de
-  venta.
-- `CategoryBreakdown` — desglose por categoría/subcategoría.
-- `PaymentMethodsChart` — donut de medios de pago.
-- `ProvincesChart` — top provincias (ecommerce).
-- `LocalesPanel` — una tarjeta por local para compararlos entre sí.
-- `MayoristaPanel` — mismo esquema para mayorista.
+  venta (`currentStock` puede ser `null` para productos que no están en Tienda Nube — mostrar
+  "—", no "0").
+- `CategoryBreakdown` — desglose por categoría (lista `categories`, ya viene ordenada por
+  facturación desde el backend).
+- `PaymentMethodsChart` — donut de medios de pago, con leyenda de texto (no solo colores).
+- `ProvincesChart` — top provincias (solo tiene datos en ecommerce; ocultar la sección si
+  `provinces` viene vacío, por ejemplo al mirar un canal que no es ecommerce).
+- `LocalesPanel` — una tarjeta por local (Lomas/Belgrano/Alcorta), cada una con el color de
+  ese canal, para comparar entre sí.
+- `MayoristaPanel` — mismo esquema para mayorista, en azul.
 
 ### Estructura de carpetas
 
@@ -202,6 +271,7 @@ React + Vite (JSX + CSS plano). Gráficos con **Recharts**. Sin librería de man
 /frontend/src
   api/report.js          # fetch al backend + manejo de token
   auth/                  # login + guardado de token (localStorage)
+  styles/tokens.css       # variables CSS de la tabla de arriba
   components/            # los componentes de arriba
   pages/Login.jsx
   pages/Dashboard.jsx
@@ -217,13 +287,16 @@ React + Vite (JSX + CSS plano). Gráficos con **Recharts**. Sin librería de man
 
 ## Riesgos y puntos a confirmar en la implementación
 
-1. **Embudo de conversión de Tienda Nube**: confirmar si la API pública lo expone; si no,
-   queda fuera del alcance de v1.
-2. **Modelo exacto de locales en Odoo**: confirmar que cada local es un `pos.order.config_id`
-   distinto explorando la API antes de escribir el sync de locales.
-3. **Distinción de mayorista en Odoo**: confirmar el campo/filtro exacto (lista de precios,
-   equipo de ventas, o etiqueta de cliente) explorando la API antes de escribir el sync de
-   mayorista.
-4. **Volumen de backfill**: 13-14 meses de histórico en 5 canales — estimar tiempo real de
-   backfill contra las APIs (especialmente Odoo, que pagina de a 1000 registros) antes de
-   asumir que corre en un solo batch corto.
+1. ~~**Embudo de conversión de Tienda Nube**~~ — confirmado que la API de Órdenes/Productos
+   no lo expone. Queda fuera de alcance, como estaba previsto.
+2. ~~**Modelo exacto de locales en Odoo**~~ — confirmado en vivo: `pos.order.config_id`
+   2=Lomas, 5=Belgrano, 7=Alcorta.
+3. ~~**Distinción de mayorista en Odoo**~~ — confirmado en vivo: `sale.order.team_id` = 8.
+4. **Volumen de backfill** — resuelto parcialmente: se detectó y corrigió un bug real donde
+   el backfill completo (14 meses) hubiera fallado por llamadas RPC sin loteo a Odoo: ver
+   `docs/superpowers/plans/2026-07-08-backend-pipeline-plan.md`. **El backfill completo de
+   14 meses todavía no se corrió** (solo se probó a 1 mes) — hacerlo una vez antes de ir a
+   producción, para que las comparativas de "año anterior" tengan datos.
+5. **Backend está terminado y verificado en local con datos reales** (2026-07-08/10). El
+   frontend es el trabajo pendiente — ver la sección "Frontend" arriba para el diseño ya
+   validado con el usuario.
