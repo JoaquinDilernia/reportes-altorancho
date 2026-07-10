@@ -186,6 +186,7 @@ React + Vite (JSX + CSS plano). Gráficos con **Recharts**. Sin librería de man
   range: { start: '2026-07-06', end: '2026-07-12' },
   current: {
     totals: { revenue, units, orders, avgTicket, daysInRange, avgDailyRevenue },
+    dailyBreakdown: [{ date: '2026-07-06', revenue, units, orders }],
     topProductsByUnits: [{ sku, name, unitsSold, revenue, currentStock }],
     topProductsByRevenue: [{ sku, name, unitsSold, revenue, currentStock }],
     categories: [{ category, units, revenue }],
