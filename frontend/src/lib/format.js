@@ -7,7 +7,10 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
 const numberFormatter = new Intl.NumberFormat('es-AR');
 
 export function formatCurrency(amount) {
-  return currencyFormatter.format(amount).replace(' ', ' ');
+  // Intl.NumberFormat inserts a non-breaking space between the currency
+  // symbol and the amount (ICU currency-spacing) — normalize to a regular
+  // space so it matches the rest of the UI's typography.
+  return currencyFormatter.format(amount).replace(/\u00A0/g, ' ');
 }
 
 export function formatNumber(n) {
