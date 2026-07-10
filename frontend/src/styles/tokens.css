@@ -1,0 +1,16 @@
+:root {
+  --surface-page: #FFFFFF;
+  --surface-card: #F0E6D8;
+  --ink-primary: #353434;
+  --ink-secondary: #6B6968;
+  --delta-positive: #0CA30C;
+  --delta-negative: #D03B3B;
+  --channel-mayorista: #2A78D6;
+  --channel-ecommerce: #1BAF7A;
+  --channel-lomas: #008300;
+  --channel-belgrano: #4A3AA7;
+  --channel-alcorta: #EB6834;
+  --border-subtle: rgba(53, 52, 52, 0.12);
+  --font-family: 'Poppins', sans-serif;
+  --radius: 12px;
+}
