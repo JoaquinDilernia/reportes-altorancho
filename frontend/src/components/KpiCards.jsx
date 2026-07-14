@@ -1,0 +1,37 @@
+import { formatCurrency, formatNumber } from '../lib/format.js';
+import DeltaBadge from './DeltaBadge.jsx';
+
+const METRICS = [
+  { key: 'revenue', label: 'Facturación', format: formatCurrency },
+  { key: 'avgDailyRevenue', label: 'Facturación promedio diaria', format: formatCurrency },
+  { key: 'orders', label: 'Ventas', format: formatNumber },
+  { key: 'units', label: 'Unidades', format: formatNumber },
+  { key: 'avgTicket', label: 'Ticket promedio', format: formatCurrency },
+];
+
+const COMPARISON_LABELS = {
+  prevPeriod: 'vs. período anterior',
+  prevMonth: 'vs. mes anterior',
+  prevYear: 'vs. año anterior',
+};
+
+export default function KpiCards({ current, comparisons }) {
+  return (
+    <div className="kpi-cards">
+      {METRICS.map((metric) => (
+        <div className="kpi-card" key={metric.key}>
+          <div className="kpi-label">{metric.label}</div>
+          <div className="kpi-value">{metric.format(current[metric.key])}</div>
+          <div className="kpi-deltas">
+            {Object.entries(COMPARISON_LABELS).map(([key, label]) => (
+              <div className="kpi-delta-row" key={key}>
+                <span className="kpi-delta-label">{label}</span>
+                <DeltaBadge pct={comparisons[key].deltas[metric.key]?.pct} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
