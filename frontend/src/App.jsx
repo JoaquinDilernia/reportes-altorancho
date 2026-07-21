@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from './auth/useAuth.js';
 import Login from './pages/Login.jsx';
+import Dashboard from './pages/Dashboard.jsx';
 
 export default function App() {
   const { isAuthenticated, login, logout } = useAuth();
@@ -22,10 +23,5 @@ export default function App() {
     );
   }
 
-  return (
-    <div style={{ padding: 24 }}>
-      Logged in. Dashboard page comes in a later task.
-      <button onClick={logout}>Salir</button>
-    </div>
-  );
+  return <Dashboard onLogout={logout} />;
 }
