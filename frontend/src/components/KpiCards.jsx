@@ -1,4 +1,4 @@
-import { formatCurrency, formatNumber } from '../lib/format.js';
+import { formatCurrency, formatNumber, formatRate } from '../lib/format.js';
 import DeltaBadge from './DeltaBadge.jsx';
 
 const METRICS = [
@@ -7,6 +7,7 @@ const METRICS = [
   { key: 'orders', label: 'Ventas', format: formatNumber },
   { key: 'units', label: 'Unidades', format: formatNumber },
   { key: 'avgTicket', label: 'Ticket promedio', format: formatCurrency },
+  { key: 'cancellationRate', label: 'Tasa de cancelación', format: formatRate, invert: true },
 ];
 
 const COMPARISON_LABELS = {
@@ -26,7 +27,7 @@ export default function KpiCards({ current, comparisons }) {
             {Object.entries(COMPARISON_LABELS).map(([key, label]) => (
               <div className="kpi-delta-row" key={key}>
                 <span className="kpi-delta-label">{label}</span>
-                <DeltaBadge pct={comparisons[key].deltas[metric.key]?.pct} />
+                <DeltaBadge pct={comparisons[key].deltas[metric.key]?.pct} invert={metric.invert} />
               </div>
             ))}
           </div>

@@ -22,3 +22,8 @@ export function formatPercent(pct) {
   const sign = pct > 0 ? '+' : '';
   return `${sign}${pct.toFixed(1)}%`;
 }
+
+export function formatRate(pct) {
+  if (pct === null || pct === undefined) return '—';
+  return `${pct.toFixed(1)}%`;
+}

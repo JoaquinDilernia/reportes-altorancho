@@ -11,6 +11,7 @@ function argDayBucket(isoDate) {
 
 export function computeTotals(salesDocs) {
   const completed = completedOnly(salesDocs);
+  const cancelled = salesDocs.filter(s => s.status === 'cancelled');
 
   const revenue = completed.reduce((sum, s) => sum + s.total, 0);
   const units = completed.reduce((sum, s) => sum + s.items.reduce((u, i) => u + i.qty, 0), 0);
@@ -21,7 +22,13 @@ export function computeTotals(salesDocs) {
   const daysInRange = uniqueDays.size;
   const avgDailyRevenue = daysInRange ? revenue / daysInRange : 0;
 
-  return { revenue, units, orders, avgTicket, daysInRange, avgDailyRevenue };
+  // Rate is of orders that reached a final state (completed or cancelled) —
+  // pending orders are still in flight and would just water down the signal.
+  const finalized = orders + cancelled.length;
+  const cancelledOrders = cancelled.length;
+  const cancellationRate = finalized ? Math.round((cancelledOrders / finalized) * 10000) / 100 : 0;
+
+  return { revenue, units, orders, avgTicket, daysInRange, avgDailyRevenue, cancelledOrders, cancellationRate };
 }
 
 export function computeDailyBreakdown(salesDocs) {

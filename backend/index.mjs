@@ -91,6 +91,7 @@ function diffTotals(current, previous) {
     orders: computeDelta(current.orders, previous.orders),
     avgTicket: computeDelta(current.avgTicket, previous.avgTicket),
     avgDailyRevenue: computeDelta(current.avgDailyRevenue, previous.avgDailyRevenue),
+    cancellationRate: computeDelta(current.cancellationRate, previous.cancellationRate),
   };
 }
 

@@ -42,6 +42,21 @@ test('computeTotals handles an empty period without dividing by zero', () => {
   assert.equal(totals.orders, 0);
   assert.equal(totals.avgTicket, 0);
   assert.equal(totals.avgDailyRevenue, 0);
+  assert.equal(totals.cancelledOrders, 0);
+  assert.equal(totals.cancellationRate, 0);
+});
+
+test('computeTotals computes cancellationRate over completed+cancelled, ignoring pending', () => {
+  const sales = [
+    makeSale({ status: 'completed' }),
+    makeSale({ status: 'completed' }),
+    makeSale({ status: 'completed' }),
+    makeSale({ status: 'cancelled' }),
+    makeSale({ status: 'pending' }),
+  ];
+  const totals = computeTotals(sales);
+  assert.equal(totals.cancelledOrders, 1);
+  assert.equal(totals.cancellationRate, 25); // 1 of 4 finalized (3 completed + 1 cancelled)
 });
 
 test('computeTopProducts ranks by units sold', () => {

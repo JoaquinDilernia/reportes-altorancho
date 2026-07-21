@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { formatCurrency, formatNumber, formatPercent } from './format.js';
+import { formatCurrency, formatNumber, formatPercent, formatRate } from './format.js';
 
 test('formatCurrency formats ARS with no decimals and thousands separators', () => {
   expect(formatCurrency(105653226.14)).toBe('$ 105.653.226');
@@ -31,4 +31,12 @@ test('formatPercent returns an em dash for null (no comparison baseline)', () =>
 
 test('formatPercent returns an em dash for undefined', () => {
   expect(formatPercent(undefined)).toBe('—');
+});
+
+test('formatRate shows a plain percentage with no forced sign, one decimal place', () => {
+  expect(formatRate(4.2)).toBe('4.2%');
+});
+
+test('formatRate returns an em dash for null', () => {
+  expect(formatRate(null)).toBe('—');
 });
