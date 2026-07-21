@@ -73,6 +73,16 @@ button {
 .period-nav { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .period-nav button { border: none; background: none; font-size: 18px; color: var(--ink-primary); }
 
+.period-range { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.period-range input[type="date"] {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink-primary);
+}
+
 .channel-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .channel-tab {
   border: none;

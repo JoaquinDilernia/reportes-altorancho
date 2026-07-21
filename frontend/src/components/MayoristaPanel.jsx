@@ -3,17 +3,19 @@ import { getReport } from '../api/client.js';
 import { formatCurrency, formatNumber } from '../lib/format.js';
 import { getChannelColor, getChannelLabel } from '../lib/channels.js';
 
-export default function MayoristaPanel({ period, date }) {
+export default function MayoristaPanel({ period, date, customStart, customEnd }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
+    if (period === 'custom' && customStart > customEnd) { setData(null); return; }
     let cancelled = false;
     setData(null);
-    getReport({ period, date, channel: 'mayorista' })
+    const base = period === 'custom' ? { period, start: customStart, end: customEnd } : { period, date };
+    getReport({ ...base, channel: 'mayorista' })
       .then((result) => { if (!cancelled) setData(result); })
       .catch(() => { if (!cancelled) setData(null); });
     return () => { cancelled = true; };
-  }, [period, date]);
+  }, [period, date, customStart, customEnd]);
 
   if (!data) return null;
 

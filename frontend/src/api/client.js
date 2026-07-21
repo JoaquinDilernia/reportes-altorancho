@@ -25,11 +25,13 @@ export async function login(password) {
   return data.token;
 }
 
-export async function getReport({ period, date, channel }) {
+export async function getReport({ period, date, start, end, channel }) {
   const token = getToken();
   if (!token) throw new Error('Not authenticated');
 
-  const params = new URLSearchParams({ period, date });
+  const params = period === 'custom'
+    ? new URLSearchParams({ period, start, end })
+    : new URLSearchParams({ period, date });
   if (channel) params.set('channels', channel);
 
   const res = await fetch(`${API_URL}/api/report?${params.toString()}`, {

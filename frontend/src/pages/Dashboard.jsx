@@ -20,16 +20,28 @@ function todayISO() {
 export default function Dashboard({ onLogout }) {
   const [period, setPeriod] = useState('week');
   const [date, setDate] = useState(todayISO());
+  const [customStart, setCustomStart] = useState(todayISO());
+  const [customEnd, setCustomEnd] = useState(todayISO());
   const [channel, setChannel] = useState(null);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const rangeInvalid = period === 'custom' && customStart > customEnd;
+
   useEffect(() => {
+    if (rangeInvalid) {
+      setLoading(false);
+      setError('El rango de fechas es inválido');
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getReport({ period, date, channel })
+    const params = period === 'custom'
+      ? { period, start: customStart, end: customEnd, channel }
+      : { period, date, channel };
+    getReport(params)
       .then((data) => { if (!cancelled) setReport(data); })
       .catch((err) => {
         if (cancelled) return;
@@ -38,7 +50,7 @@ export default function Dashboard({ onLogout }) {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period, date, channel, onLogout]);
+  }, [period, date, customStart, customEnd, rangeInvalid, channel, onLogout]);
 
   return (
     <div className="dashboard">
@@ -49,6 +61,9 @@ export default function Dashboard({ onLogout }) {
           date={date}
           onPeriodChange={setPeriod}
           onNavigate={(direction) => setDate((prev) => shiftPeriod(prev, period, direction))}
+          customStart={customStart}
+          customEnd={customEnd}
+          onCustomChange={(start, end) => { setCustomStart(start); setCustomEnd(end); }}
         />
         <ChannelTabs channel={channel} onChannelChange={setChannel} />
       </header>
@@ -73,8 +88,8 @@ export default function Dashboard({ onLogout }) {
           </div>
           {channel === null && (
             <div className="dashboard-grid">
-              <LocalesPanel period={period} date={date} />
-              <MayoristaPanel period={period} date={date} />
+              <LocalesPanel period={period} date={date} customStart={customStart} customEnd={customEnd} />
+              <MayoristaPanel period={period} date={date} customStart={customStart} customEnd={customEnd} />
             </div>
           )}
         </main>

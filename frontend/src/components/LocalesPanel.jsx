@@ -5,17 +5,19 @@ import { getChannelColor, getChannelLabel } from '../lib/channels.js';
 
 const LOCAL_CHANNELS = ['local_lomas', 'local_belgrano', 'local_alcorta'];
 
-export default function LocalesPanel({ period, date }) {
+export default function LocalesPanel({ period, date, customStart, customEnd }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
+    if (period === 'custom' && customStart > customEnd) { setData(null); return; }
     let cancelled = false;
     setData(null);
-    Promise.all(LOCAL_CHANNELS.map((channel) => getReport({ period, date, channel })))
+    const base = period === 'custom' ? { period, start: customStart, end: customEnd } : { period, date };
+    Promise.all(LOCAL_CHANNELS.map((channel) => getReport({ ...base, channel })))
       .then((results) => { if (!cancelled) setData(results); })
       .catch(() => { if (!cancelled) setData(null); });
     return () => { cancelled = true; };
-  }, [period, date]);
+  }, [period, date, customStart, customEnd]);
 
   if (!data) return null;
 
