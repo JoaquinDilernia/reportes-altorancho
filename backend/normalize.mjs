@@ -87,3 +87,49 @@ export function normalizeOdooSaleOrder(order, lines, categoryBySku) {
     }),
   };
 }
+
+const SHIPPING_SKU = 'Delivery_007';
+
+function stripCountrySuffix(name) {
+  return name.replace(/\s*\([A-Z]{2}\)$/, '');
+}
+
+export function normalizeOdooEcommerceOrder(order, lines, categoryBySku, provinceName) {
+  const status =
+    order.state === 'cancel' ? 'cancelled' :
+    order.tiendanube_order_payment_status === 'paid' ? 'completed' :
+    'pending';
+
+  const productLines = [];
+  let shippingRevenue = 0;
+  for (const l of lines) {
+    const sku = extractSkuFromDisplayName(l.product_id[1]);
+    if (sku === SHIPPING_SKU) {
+      shippingRevenue += l.price_subtotal;
+    } else {
+      productLines.push(l);
+    }
+  }
+
+  return {
+    id: `ecommerce_${order.tiendanube_order_id}`,
+    channel: 'ecommerce',
+    sourceId: String(order.tiendanube_order_id),
+    date: order.date_order,
+    status,
+    total: order.amount_untaxed - shippingRevenue,
+    shippingRevenue,
+    paymentMethod: order.tiendanube_gateway_name || null,
+    shippingProvince: provinceName ? stripCountrySuffix(provinceName) : null,
+    items: productLines.map(l => {
+      const sku = extractSkuFromDisplayName(l.product_id[1]);
+      return {
+        sku,
+        name: stripSkuFromDisplayName(l.product_id[1]),
+        category: categoryBySku.get(sku) || null,
+        qty: l.product_uom_qty,
+        unitPrice: l.product_uom_qty ? l.price_subtotal / l.product_uom_qty : 0,
+      };
+    }),
+  };
+}

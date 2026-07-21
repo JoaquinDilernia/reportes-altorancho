@@ -4,6 +4,7 @@ import {
   normalizeTiendanubeOrder,
   normalizeOdooPosOrder,
   normalizeOdooSaleOrder,
+  normalizeOdooEcommerceOrder,
   extractSkuFromDisplayName,
   stripSkuFromDisplayName,
 } from '../normalize.mjs';
@@ -117,4 +118,74 @@ test('normalizeOdooSaleOrder maps sale/done to completed and uses product_uom_qt
 test('normalizeOdooSaleOrder maps draft state to pending', () => {
   const order = { id: 1, date_order: '2026-01-01 00:00:00', amount_total: 0, state: 'draft' };
   assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku).status, 'pending');
+});
+
+test('normalizeOdooEcommerceOrder maps a paid order to completed and splits out net shipping', () => {
+  const order = {
+    tiendanube_order_id: '2024692415',
+    date_order: '2026-07-08 14:33:14',
+    amount_untaxed: 27100.82,
+    state: 'sale',
+    tiendanube_order_payment_status: 'paid',
+    tiendanube_gateway_name: 'Mercado Pago',
+  };
+  const lines = [
+    { product_id: [57353, '[BCV187BO] SET X4 BOWLS DE CERÁMICA APILABLES BORDO 14x7 CM'], product_uom_qty: 1, price_subtotal: 27100.82 },
+    { product_id: [4, '[Delivery_007] Entrega gratuita'], product_uom_qty: 1, price_subtotal: 3000 },
+  ];
+
+  const doc = normalizeOdooEcommerceOrder(order, lines, categoryBySku, 'Ciudad Autonoma De Buenos Aires (AR)');
+
+  assert.equal(doc.id, 'ecommerce_2024692415');
+  assert.equal(doc.channel, 'ecommerce');
+  assert.equal(doc.sourceId, '2024692415');
+  assert.equal(doc.status, 'completed');
+  assert.equal(doc.total, 24100.82);
+  assert.equal(doc.shippingRevenue, 3000);
+  assert.equal(doc.paymentMethod, 'Mercado Pago');
+  assert.equal(doc.shippingProvince, 'Ciudad Autonoma De Buenos Aires');
+  assert.deepEqual(doc.items, [
+    { sku: 'BCV187BO', name: 'SET X4 BOWLS DE CERÁMICA APILABLES BORDO 14x7 CM', category: null, qty: 1, unitPrice: 27100.82 },
+  ]);
+});
+
+test('normalizeOdooEcommerceOrder maps cancel state to cancelled regardless of payment status', () => {
+  const order = {
+    tiendanube_order_id: '1', date_order: '2026-01-01 00:00:00', amount_untaxed: 100,
+    state: 'cancel', tiendanube_order_payment_status: 'paid', tiendanube_gateway_name: null,
+  };
+  assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).status, 'cancelled');
+});
+
+test('normalizeOdooEcommerceOrder maps a pending payment status to pending', () => {
+  const order = {
+    tiendanube_order_id: '2', date_order: '2026-01-01 00:00:00', amount_untaxed: 100,
+    state: 'sale', tiendanube_order_payment_status: 'pending', tiendanube_gateway_name: null,
+  };
+  assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).status, 'pending');
+});
+
+test('normalizeOdooEcommerceOrder defaults shippingRevenue to 0 when there is no shipping line', () => {
+  const order = {
+    tiendanube_order_id: '3', date_order: '2026-01-01 00:00:00', amount_untaxed: 500,
+    state: 'sale', tiendanube_order_payment_status: 'paid', tiendanube_gateway_name: 'Pago Nube',
+  };
+  const lines = [{ product_id: [1, '[MSI018GR] SILLA CHICAGO GRIS'], product_uom_qty: 2, price_subtotal: 500 }];
+
+  const doc = normalizeOdooEcommerceOrder(order, lines, categoryBySku, null);
+
+  assert.equal(doc.shippingRevenue, 0);
+  assert.equal(doc.total, 500);
+  assert.deepEqual(doc.items, [
+    { sku: 'MSI018GR', name: 'SILLA CHICAGO GRIS', category: 'Sillas', qty: 2, unitPrice: 250 },
+  ]);
+});
+
+test('normalizeOdooEcommerceOrder strips the country-code suffix from the province name, and passes through null', () => {
+  const order = {
+    tiendanube_order_id: '4', date_order: '2026-01-01 00:00:00', amount_untaxed: 0,
+    state: 'sale', tiendanube_order_payment_status: 'paid', tiendanube_gateway_name: null,
+  };
+  assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, 'Santa Fe (AR)').shippingProvince, 'Santa Fe');
+  assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).shippingProvince, null);
 });
