@@ -63,7 +63,11 @@ export function computeTopProducts(salesDocs, productsBySku, { by = 'units', lim
   }
 
   const ranked = [...bySku.values()]
-    .map(entry => ({ ...entry, currentStock: productsBySku.get(entry.sku)?.currentStock ?? null }))
+    .map(entry => ({
+      ...entry,
+      currentStock: productsBySku.get(entry.sku)?.currentStock ?? null,
+      stockByLocation: productsBySku.get(entry.sku)?.stockByLocation ?? null,
+    }))
     .sort((a, b) => (by === 'revenue' ? b.revenue - a.revenue : b.unitsSold - a.unitsSold));
 
   return ranked.slice(0, limit);

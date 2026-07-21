@@ -78,6 +78,23 @@ test('computeTopProducts ranks by units sold', () => {
   assert.equal(top[1].sku, 'B');
 });
 
+test('computeTopProducts carries stockByLocation through from the product catalog', () => {
+  const sales = [makeSale({ items: [{ sku: 'A', name: 'Silla', category: 'Sillas', qty: 1, unitPrice: 100 }] })];
+  const productsBySku = new Map([
+    ['A', { currentStock: 0, stockByLocation: { local_lomas: 20, ecommerce_odoo: 0 } }],
+  ]);
+
+  const top = computeTopProducts(sales, productsBySku, { by: 'units', limit: 1 });
+
+  assert.deepEqual(top[0].stockByLocation, { local_lomas: 20, ecommerce_odoo: 0 });
+});
+
+test('computeTopProducts sets stockByLocation to null when the catalog has no per-location data', () => {
+  const sales = [makeSale({ items: [{ sku: 'A', name: 'Silla', category: 'Sillas', qty: 1, unitPrice: 100 }] })];
+  const top = computeTopProducts(sales, new Map(), { by: 'units', limit: 1 });
+  assert.equal(top[0].stockByLocation, null);
+});
+
 test('computeTopProducts ranks by revenue', () => {
   const sales = [
     makeSale({ items: [{ sku: 'A', name: 'Silla', category: 'Sillas', qty: 5, unitPrice: 100 }] }),
