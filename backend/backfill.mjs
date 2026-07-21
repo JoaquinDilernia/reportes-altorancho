@@ -4,12 +4,6 @@ import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 
-function monthsAgoISO(months) {
-  const d = new Date();
-  d.setUTCMonth(d.getUTCMonth() - months);
-  return d.toISOString();
-}
-
 function monthsAgoOdoo(months) {
   const d = new Date();
   d.setUTCMonth(d.getUTCMonth() - months);
@@ -22,7 +16,7 @@ async function backfill() {
 
   const { categoryBySku } = await syncProducts();
 
-  const ecommerceResult = await syncEcommerce(categoryBySku, monthsAgoISO(months));
+  const ecommerceResult = await syncEcommerce(categoryBySku, monthsAgoOdoo(months));
   console.log('[backfill] ecommerce:', ecommerceResult);
 
   const localesResult = await syncLocales(categoryBySku, monthsAgoOdoo(months));
