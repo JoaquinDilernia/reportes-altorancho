@@ -68,7 +68,13 @@ export function computeCategoryBreakdown(salesDocs) {
 
   for (const sale of completed) {
     for (const item of sale.items) {
-      const category = item.category || 'Sin categoría';
+      // Some historical sale docs (synced before a fix to the product-category
+      // lookup) stored the whole product object here instead of its category
+      // string — recover the real category from it rather than crash on render.
+      const rawCategory = typeof item.category === 'object' && item.category !== null
+        ? item.category.category
+        : item.category;
+      const category = rawCategory || 'Sin categoría';
       if (!byCategory.has(category)) byCategory.set(category, { category, units: 0, revenue: 0 });
       const entry = byCategory.get(category);
       entry.units += item.qty;

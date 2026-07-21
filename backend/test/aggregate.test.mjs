@@ -91,6 +91,20 @@ test('computeCategoryBreakdown groups missing category as "Sin categoría"', () 
   assert.equal(breakdown[0].category, 'Sin categoría');
 });
 
+test('computeCategoryBreakdown recovers the category string from legacy docs where category was stored as a product object', () => {
+  const sales = [makeSale({
+    items: [{
+      sku: 'A',
+      name: 'A',
+      category: { sku: 'A', name: 'A', category: 'Muebles', currentStock: 2 },
+      qty: 1,
+      unitPrice: 100,
+    }],
+  })];
+  const breakdown = computeCategoryBreakdown(sales);
+  assert.equal(breakdown[0].category, 'Muebles');
+});
+
 test('computePaymentMethods groups revenue by payment method', () => {
   const sales = [
     makeSale({ paymentMethod: 'Mercado Pago', total: 1000 }),
