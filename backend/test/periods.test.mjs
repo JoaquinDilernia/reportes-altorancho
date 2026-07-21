@@ -42,6 +42,30 @@ test('unknown period throws', () => {
   assert.throws(() => getPeriodRanges('2024-01-15', 'day'));
 });
 
+test('custom period: current is the given start/end verbatim', () => {
+  const { current } = getPeriodRanges('2024-01-10', 'custom', '2024-01-16');
+  assert.deepEqual(current, { start: '2024-01-10', end: '2024-01-16' });
+});
+
+test('custom period: prevPeriod is the preceding window of the same length', () => {
+  const { prevPeriod } = getPeriodRanges('2024-01-10', 'custom', '2024-01-16');
+  assert.deepEqual(prevPeriod, { start: '2024-01-03', end: '2024-01-09' });
+});
+
+test('custom period: prevMonth shifts both ends back one calendar month', () => {
+  const { prevMonth } = getPeriodRanges('2024-01-10', 'custom', '2024-01-16');
+  assert.deepEqual(prevMonth, { start: '2023-12-10', end: '2023-12-16' });
+});
+
+test('custom period: prevYear shifts both ends back one year', () => {
+  const { prevYear } = getPeriodRanges('2024-01-10', 'custom', '2024-01-16');
+  assert.deepEqual(prevYear, { start: '2023-01-10', end: '2023-01-16' });
+});
+
+test('custom period without an end date throws', () => {
+  assert.throws(() => getPeriodRanges('2024-01-10', 'custom'));
+});
+
 test('month period: prevMonth clamps to the shorter target month (31-day month anchor)', () => {
   const { prevMonth } = getPeriodRanges('2024-03-15', 'month');
   assert.deepEqual(prevMonth, { start: '2024-02-01', end: '2024-02-29' });

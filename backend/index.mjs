@@ -49,11 +49,16 @@ async function buildTotalsSection(channels, range, productsBySku) {
 
 app.get('/api/report', requireAuth, async (req, res) => {
   try {
-    const { period = 'week', date, channels } = req.query;
-    if (!date) return res.status(400).json({ ok: false, error: 'Missing date' });
+    const { period = 'week', date, start, end, channels } = req.query;
+
+    if (period === 'custom') {
+      if (!start || !end) return res.status(400).json({ ok: false, error: 'Missing start/end' });
+    } else if (!date) {
+      return res.status(400).json({ ok: false, error: 'Missing date' });
+    }
 
     const requestedChannels = channels ? channels.split(',') : ALL_CHANNELS;
-    const ranges = getPeriodRanges(date, period);
+    const ranges = period === 'custom' ? getPeriodRanges(start, period, end) : getPeriodRanges(date, period);
     const productsBySku = await getProductsBySku();
 
     const [current, prevPeriod, prevMonth, prevYear] = await Promise.all([

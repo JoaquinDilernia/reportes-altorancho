@@ -31,7 +31,7 @@ function shiftYears(d, delta) {
   return new Date(Date.UTC(targetYear, d.getUTCMonth(), day));
 }
 
-export function getPeriodRanges(dateStr, period) {
+export function getPeriodRanges(dateStr, period, endDateStr) {
   const date = new Date(`${dateStr}T00:00:00Z`);
 
   let start, end;
@@ -42,6 +42,10 @@ export function getPeriodRanges(dateStr, period) {
   } else if (period === 'month') {
     start = firstDayOfMonth(date);
     end = lastDayOfMonth(date);
+  } else if (period === 'custom') {
+    if (!endDateStr) throw new Error('custom period requires an end date');
+    start = date;
+    end = new Date(`${endDateStr}T00:00:00Z`);
   } else {
     throw new Error(`Unknown period: ${period}`);
   }
@@ -49,9 +53,10 @@ export function getPeriodRanges(dateStr, period) {
   const current = { start: toISODate(start), end: toISODate(end) };
 
   let prevPeriod;
-  if (period === 'week') {
-    const ps = new Date(start); ps.setUTCDate(start.getUTCDate() - 7);
-    const pe = new Date(end);   pe.setUTCDate(end.getUTCDate() - 7);
+  if (period === 'week' || period === 'custom') {
+    const rangeDays = Math.round((end - start) / 86400000) + 1;
+    const ps = new Date(start); ps.setUTCDate(start.getUTCDate() - rangeDays);
+    const pe = new Date(end);   pe.setUTCDate(end.getUTCDate() - rangeDays);
     prevPeriod = { start: toISODate(ps), end: toISODate(pe) };
   } else {
     const prevMonthAnchor = shiftMonths(start, -1);
