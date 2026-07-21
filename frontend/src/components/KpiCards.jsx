@@ -3,6 +3,7 @@ import DeltaBadge from './DeltaBadge.jsx';
 
 const METRICS = [
   { key: 'revenue', label: 'Facturación', format: formatCurrency },
+  { key: 'shippingRevenue', label: 'Envíos facturados', format: formatCurrency },
   { key: 'avgDailyRevenue', label: 'Facturación promedio diaria', format: formatCurrency },
   { key: 'orders', label: 'Ventas', format: formatNumber },
   { key: 'units', label: 'Unidades', format: formatNumber },
