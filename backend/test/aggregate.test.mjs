@@ -46,6 +46,19 @@ test('computeTotals handles an empty period without dividing by zero', () => {
   assert.equal(totals.cancellationRate, 0);
 });
 
+test('computeTotals sums shippingRevenue over completed sales, defaulting missing values to 0', () => {
+  const sales = [
+    makeSale({ shippingRevenue: 500 }),
+    makeSale({ shippingRevenue: 300 }),
+    makeSale({ status: 'cancelled', shippingRevenue: 9999 }),
+    makeSale({}), // Locales/Mayorista-style doc with no shippingRevenue field at all
+  ];
+
+  const totals = computeTotals(sales);
+
+  assert.equal(totals.shippingRevenue, 800);
+});
+
 test('computeTotals computes cancellationRate over completed+cancelled, ignoring pending', () => {
   const sales = [
     makeSale({ status: 'completed' }),

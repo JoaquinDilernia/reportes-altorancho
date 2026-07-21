@@ -87,6 +87,7 @@ app.get('/api/report', requireAuth, async (req, res) => {
 function diffTotals(current, previous) {
   return {
     revenue: computeDelta(current.revenue, previous.revenue),
+    shippingRevenue: computeDelta(current.shippingRevenue, previous.shippingRevenue),
     units: computeDelta(current.units, previous.units),
     orders: computeDelta(current.orders, previous.orders),
     avgTicket: computeDelta(current.avgTicket, previous.avgTicket),

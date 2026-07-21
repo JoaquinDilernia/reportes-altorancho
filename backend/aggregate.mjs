@@ -14,6 +14,7 @@ export function computeTotals(salesDocs) {
   const cancelled = salesDocs.filter(s => s.status === 'cancelled');
 
   const revenue = completed.reduce((sum, s) => sum + s.total, 0);
+  const shippingRevenue = completed.reduce((sum, s) => sum + (s.shippingRevenue || 0), 0);
   const units = completed.reduce((sum, s) => sum + s.items.reduce((u, i) => u + i.qty, 0), 0);
   const orders = completed.length;
   const avgTicket = orders ? revenue / orders : 0;
@@ -28,7 +29,7 @@ export function computeTotals(salesDocs) {
   const cancelledOrders = cancelled.length;
   const cancellationRate = finalized ? Math.round((cancelledOrders / finalized) * 10000) / 100 : 0;
 
-  return { revenue, units, orders, avgTicket, daysInRange, avgDailyRevenue, cancelledOrders, cancellationRate };
+  return { revenue, shippingRevenue, units, orders, avgTicket, daysInRange, avgDailyRevenue, cancelledOrders, cancellationRate };
 }
 
 export function computeDailyBreakdown(salesDocs) {
