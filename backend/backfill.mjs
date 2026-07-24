@@ -11,7 +11,10 @@ function monthsAgoOdoo(months) {
 }
 
 async function backfill() {
-  const months = parseInt(process.argv.find(a => a.startsWith('--months='))?.split('=')[1] || '14', 10);
+  // Default covers the full available history: real ecommerce orders in Odoo go
+  // back to 2023-03 (~40 months), and a too-short window would leave older docs
+  // stuck in a stale/pre-migration shape. Override with --months=N for a shorter run.
+  const months = parseInt(process.argv.find(a => a.startsWith('--months='))?.split('=')[1] || '48', 10);
   console.log(`[backfill] starting, ${months} months of history`);
 
   const { categoryBySku } = await syncProducts();
