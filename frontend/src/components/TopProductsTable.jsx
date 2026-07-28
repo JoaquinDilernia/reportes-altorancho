@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { formatCurrency, formatNumber } from '../lib/format.js';
+import { API_URL } from '../api/client.js';
 
 const STOCK_LOCATION_LABELS = {
   local_lomas: 'Lomas',
@@ -19,6 +20,21 @@ function StockBreakdown({ stockByLocation }) {
   return <div className="stock-breakdown">{parts.join(' · ')}</div>;
 }
 
+function ProductThumb({ sku, name }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <img
+      className="product-thumb"
+      src={`${API_URL}/api/product-image/${encodeURIComponent(sku)}`}
+      alt=""
+      loading="lazy"
+      title={name}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export default function TopProductsTable({ byUnits, byRevenue }) {
   const [sortBy, setSortBy] = useState('units');
   const rows = sortBy === 'units' ? byUnits : byRevenue;
@@ -35,21 +51,25 @@ export default function TopProductsTable({ byUnits, byRevenue }) {
       <table className="data-table">
         <thead>
           <tr>
-            <th>SKU</th>
-            <th>Producto</th>
-            <th>Vendidos</th>
-            <th>Facturación</th>
-            <th>Stock</th>
+            <th className="product-thumb-col"></th>
+            <th className="sku-col">SKU</th>
+            <th className="product-col">Producto</th>
+            <th className="numeric-col">Vendidos</th>
+            <th className="numeric-col">Facturación</th>
+            <th className="stock-col">Stock</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((p) => (
             <tr key={p.sku}>
-              <td>{p.sku}</td>
-              <td>{p.name}</td>
-              <td>{formatNumber(p.unitsSold)}</td>
-              <td>{formatCurrency(p.revenue)}</td>
-              <td>
+              <td className="product-thumb-col">
+                <ProductThumb sku={p.sku} name={p.name} />
+              </td>
+              <td className="sku-col">{p.sku}</td>
+              <td className="product-col" title={p.name}>{p.nombreModeloAr || p.name}</td>
+              <td className="numeric-col">{formatNumber(p.unitsSold)}</td>
+              <td className="numeric-col">{formatCurrency(p.revenue)}</td>
+              <td className="stock-col">
                 {p.currentStock === null ? '—' : formatNumber(p.currentStock)}
                 <StockBreakdown stockByLocation={p.stockByLocation} />
               </td>

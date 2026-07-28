@@ -60,21 +60,38 @@ export async function syncProducts() {
   const odooProducts = await fetchAll(
     'product.template',
     [['default_code', '!=', false]],
-    ['default_code', 'name', 'categ_id'],
+    ['id', 'default_code', 'name', 'categ_id', 'nombre_modelo_ar'],
   );
 
   const knownSkus = new Set(productDocs.map(d => d.sku));
+  const odooBySku = new Map();
   for (const p of odooProducts) {
     const sku = p.default_code.trim();
+    odooBySku.set(sku, p);
     if (knownSkus.has(sku)) continue; // ya cargado desde Tienda Nube, con su stock real
     const category = leafOdooCategoryName(p.categ_id?.[1]);
     categoryBySku.set(sku, category);
     productDocs.push({ sku, name: p.name.trim(), category, currentStock: null });
   }
 
+  // "Nombre Modelo AR" is a short model-name tag (e.g. "CARDONA") kept in
+  // Odoo as a many2many to nombre.modelo.ar — resolve the tag ids to their
+  // display names in one bulk call rather than per product.
+  const modeloIds = [...new Set(odooProducts.flatMap(p => p.nombre_modelo_ar || []))];
+  const modeloNameById = new Map();
+  if (modeloIds.length > 0) {
+    const modelos = await fetchAll('nombre.modelo.ar', [['id', 'in', modeloIds]], ['id', 'name']);
+    for (const m of modelos) modeloNameById.set(m.id, m.name);
+  }
+
   const stockByLocationBySku = await fetchStockByLocation();
   for (const doc of productDocs) {
     doc.stockByLocation = stockByLocationBySku.get(doc.sku) || null;
+    const odooProduct = odooBySku.get(doc.sku);
+    doc.odooTemplateId = odooProduct?.id ?? null;
+    doc.nombreModeloAr = odooProduct?.nombre_modelo_ar?.length
+      ? odooProduct.nombre_modelo_ar.map(id => modeloNameById.get(id)).filter(Boolean).join(', ')
+      : null;
   }
 
   console.log(`[sync:products] ${productDocs.length} productos (${knownSkus.size} desde Tienda Nube)`);

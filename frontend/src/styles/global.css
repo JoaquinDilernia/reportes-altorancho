@@ -29,15 +29,27 @@ button {
   gap: 20px;
 }
 
+/* Flex-wrap instead of grid auto-fit: with a handful of cards (4, 7...),
+   grid's auto-fit computes ONE column count for the whole container, so a
+   short last row leaves orphaned empty tracks instead of reflowing — the
+   classic "lone card stranded on its own row" bug. Flex-wrap distributes
+   leftover space per-line instead, so each row (full or partial) fills
+   itself evenly. */
 .dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 20px;
+  align-items: flex-start;
+}
+.dashboard-grid > * {
+  flex: 1 1 440px;
+  max-width: 640px;
+  min-width: 0;
 }
 
 .kpi-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
@@ -48,8 +60,21 @@ button {
   border: 1px solid var(--border-subtle);
 }
 
+.kpi-card {
+  flex: 1 1 220px;
+  max-width: 320px;
+  min-width: 0;
+}
+
 .kpi-label { font-size: 13px; color: var(--ink-secondary); margin-bottom: 4px; }
-.kpi-value { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
+.kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .kpi-deltas { display: flex; flex-direction: column; gap: 4px; }
 .kpi-delta-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
 .kpi-delta-label { color: var(--ink-secondary); }
@@ -101,7 +126,10 @@ button {
 
 .chart-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
 
-.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* table-layout: fixed so columns get predictable widths instead of the
+   Producto/Stock text forcing the table wider than its card — that's what
+   was pushing the stock breakdown past the card edge instead of wrapping. */
+.data-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .data-table th {
   text-align: left;
   color: var(--ink-secondary);
@@ -109,10 +137,35 @@ button {
   padding: 6px 8px;
   border-bottom: 1px solid var(--border-subtle);
 }
-.data-table td { padding: 8px; border-bottom: 1px solid var(--border-subtle); }
+.data-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-wrap: break-word;
+}
 .table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 
-.stock-breakdown { font-size: 11px; color: var(--ink-secondary); margin-top: 2px; }
+/* Percentage widths, not px: this table's card can be anywhere from ~400px
+   (several cards sharing a wide row) to ~640px (alone on its own row) — see
+   .dashboard-grid — so fixed px columns could add up to more than a narrow
+   card's actual width and squeeze .product-col to 0, which made every
+   character of the product name wrap onto its own line. Percentages keep
+   each column's share stable across that whole range. */
+.product-thumb-col { width: 11%; }
+.product-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+  background: var(--surface-page);
+  border: 1px solid var(--border-subtle);
+}
+.sku-col { width: 15%; }
+.product-col { width: 28%; }
+.stock-col { width: 16%; }
+.numeric-col { width: 15%; }
+
+.stock-breakdown { font-size: 11px; color: var(--ink-secondary); margin-top: 2px; overflow-wrap: break-word; }
 
 .bar-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .bar-list-row { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 10px; font-size: 13px; }

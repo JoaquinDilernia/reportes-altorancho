@@ -109,6 +109,25 @@ test('computeTopProducts sets stockByLocation to null when the catalog has no pe
   assert.equal(top[0].stockByLocation, null);
 });
 
+test('computeTopProducts carries nombreModeloAr and odooTemplateId through from the product catalog', () => {
+  const sales = [makeSale({ items: [{ sku: 'A', name: 'Silla', category: 'Sillas', qty: 1, unitPrice: 100 }] })];
+  const productsBySku = new Map([
+    ['A', { currentStock: 0, nombreModeloAr: 'CARDONA', odooTemplateId: 40990 }],
+  ]);
+
+  const top = computeTopProducts(sales, productsBySku, { by: 'units', limit: 1 });
+
+  assert.equal(top[0].nombreModeloAr, 'CARDONA');
+  assert.equal(top[0].odooTemplateId, 40990);
+});
+
+test('computeTopProducts sets nombreModeloAr and odooTemplateId to null when the catalog has no match', () => {
+  const sales = [makeSale({ items: [{ sku: 'A', name: 'Silla', category: 'Sillas', qty: 1, unitPrice: 100 }] })];
+  const top = computeTopProducts(sales, new Map(), { by: 'units', limit: 1 });
+  assert.equal(top[0].nombreModeloAr, null);
+  assert.equal(top[0].odooTemplateId, null);
+});
+
 test('computeTopProducts ranks by revenue', () => {
   const sales = [
     makeSale({ items: [{ sku: 'A', name: 'Silla', category: 'Sillas', qty: 5, unitPrice: 100 }] }),

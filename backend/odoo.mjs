@@ -57,6 +57,23 @@ export async function fetchAll(model, domain, fields, pageSize = 1000) {
   return results;
 }
 
+// Odoo's /web/image endpoint silently serves a generic placeholder to
+// unauthenticated requests instead of erroring (it checks read access on
+// the underlying record) — so this always needs the session cookie, not a
+// plain fetch of the URL.
+export async function fetchProductImage(templateId, field = 'image_128') {
+  if (!sessionCookie) await authenticate();
+  const res = await fetch(`${BASE_URL}/web/image/product.template/${templateId}/${field}`, {
+    headers: { Cookie: sessionCookie },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) return null;
+  return {
+    buffer: Buffer.from(await res.arrayBuffer()),
+    contentType: res.headers.get('content-type') || 'image/png',
+  };
+}
+
 // Splits an array into fixed-size chunks. Used to keep id-list RPC calls
 // (read / search_read with `in [...]`) under Odoo's request size/time limits
 // at full 14-month-backfill scale (hundreds of thousands of ids).

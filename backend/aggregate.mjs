@@ -86,6 +86,8 @@ export function computeTopProducts(salesDocs, productsBySku, { by = 'units', lim
       ...entry,
       currentStock: productsBySku.get(entry.sku)?.currentStock ?? null,
       stockByLocation: productsBySku.get(entry.sku)?.stockByLocation ?? null,
+      nombreModeloAr: productsBySku.get(entry.sku)?.nombreModeloAr ?? null,
+      odooTemplateId: productsBySku.get(entry.sku)?.odooTemplateId ?? null,
     }))
     .sort((a, b) => (by === 'revenue' ? b.revenue - a.revenue : b.unitsSold - a.unitsSold));
 

@@ -72,6 +72,12 @@ export async function saveProducts(docs) {
   return { written: docs.length };
 }
 
+export async function getProductBySku(sku) {
+  const firestore = getDb();
+  const snap = await firestore.collection(PRODUCTS_COL).doc(encodeURIComponent(sku)).get();
+  return snap.exists ? snap.data() : null;
+}
+
 export async function getProductsBySku() {
   const firestore = getDb();
   const snap = await firestore.collection(PRODUCTS_COL).get();

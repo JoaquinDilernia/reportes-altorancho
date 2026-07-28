@@ -7,15 +7,20 @@ export default function PaymentMethodsChart({ paymentMethods }) {
   return (
     <div className="chart-card">
       <h3 className="chart-title">Medios de pago</h3>
+      {/* Vertical legend on the right instead of the default horizontal/
+          bottom layout: with many payment methods the horizontal legend
+          wraps to several rows and, at narrower card widths, overlaps the
+          donut instead of pushing it up. A side legend scales with row
+          count instead of colliding with the chart. */}
       <ResponsiveContainer width="100%" height={260}>
         <PieChart>
-          <Pie data={paymentMethods} dataKey="revenue" nameKey="method" innerRadius={60} outerRadius={90}>
+          <Pie data={paymentMethods} dataKey="revenue" nameKey="method" cx="38%" cy="50%" innerRadius={55} outerRadius={80}>
             {paymentMethods.map((entry, i) => (
               <Cell key={entry.method} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
             ))}
           </Pie>
           <Tooltip formatter={(value) => formatCurrency(value)} />
-          <Legend />
+          <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: 12, lineHeight: '20px' }} />
         </PieChart>
       </ResponsiveContainer>
     </div>

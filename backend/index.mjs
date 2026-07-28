@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { requireAuth, generateToken } from './auth.mjs';
 import { getPeriodRanges } from './periods.mjs';
-import { querySalesByRange, getProductsBySku } from './firestore.mjs';
+import { querySalesByRange, getProductsBySku, getProductBySku } from './firestore.mjs';
 import {
   computeTotals, computeTopProducts, computeCategoryBreakdown,
   computePaymentMethods, computeProvinces, computeDelta, computeDailyBreakdown,
   computeDailyBreakdownByChannel,
 } from './aggregate.mjs';
+import { fetchProductImage } from './odoo.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
@@ -83,6 +84,28 @@ app.get('/api/report', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[server] report error:', err);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Not behind requireAuth: a plain <img src> can't send an Authorization
+// header, and product photos aren't sensitive data (unlike the sales
+// figures /api/report guards). Odoo itself requires an authenticated
+// session to serve the real image (see fetchProductImage), so this still
+// isn't reachable without the backend's own Odoo credentials.
+app.get('/api/product-image/:sku', async (req, res) => {
+  try {
+    const product = await getProductBySku(req.params.sku);
+    if (!product?.odooTemplateId) return res.status(404).end();
+
+    const image = await fetchProductImage(product.odooTemplateId);
+    if (!image) return res.status(404).end();
+
+    res.set('Content-Type', image.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(image.buffer);
+  } catch (err) {
+    console.error('[server] product-image error:', err.message);
+    res.status(500).end();
   }
 });
 
