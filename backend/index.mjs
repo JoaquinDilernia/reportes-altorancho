@@ -9,6 +9,7 @@ import { querySalesByRange, getProductsBySku } from './firestore.mjs';
 import {
   computeTotals, computeTopProducts, computeCategoryBreakdown,
   computePaymentMethods, computeProvinces, computeDelta, computeDailyBreakdown,
+  computeDailyBreakdownByChannel,
 } from './aggregate.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
@@ -39,6 +40,7 @@ async function buildTotalsSection(channels, range, productsBySku) {
   return {
     totals: computeTotals(sales),
     dailyBreakdown: computeDailyBreakdown(sales),
+    dailyBreakdownByChannel: computeDailyBreakdownByChannel(sales, channels),
     topProductsByUnits: computeTopProducts(sales, productsBySku, { by: 'units', limit: 10 }),
     topProductsByRevenue: computeTopProducts(sales, productsBySku, { by: 'revenue', limit: 10 }),
     categories: computeCategoryBreakdown(sales),

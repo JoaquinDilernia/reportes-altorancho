@@ -8,6 +8,7 @@ import {
   computeProvinces,
   computeDelta,
   computeDailyBreakdown,
+  computeDailyBreakdownByChannel,
 } from '../aggregate.mjs';
 
 function makeSale(overrides) {
@@ -210,4 +211,28 @@ test('computeDailyBreakdown buckets a UTC-midnight sale into the previous Argent
   const sales = [makeSale({ date: '2026-07-01T00:00:00Z', total: 1000 })];
   const daily = computeDailyBreakdown(sales);
   assert.deepEqual(daily, [{ date: '2026-06-30', revenue: 1000, units: 1, orders: 1 }]);
+});
+
+test('computeDailyBreakdownByChannel groups revenue by day and channel, zero-filling absent channels', () => {
+  const sales = [
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 1000, channel: 'ecommerce' }),
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 500, channel: 'local_lomas' }),
+    makeSale({ date: '2026-07-02T15:00:00Z', total: 300, channel: 'ecommerce' }),
+  ];
+
+  const daily = computeDailyBreakdownByChannel(sales, ['ecommerce', 'local_lomas']);
+
+  assert.deepEqual(daily, [
+    { date: '2026-07-01', ecommerce: 1000, local_lomas: 500 },
+    { date: '2026-07-02', ecommerce: 300, local_lomas: 0 },
+  ]);
+});
+
+test('computeDailyBreakdownByChannel excludes non-completed orders', () => {
+  const sales = [
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 1000, channel: 'ecommerce' }),
+    makeSale({ date: '2026-07-01T15:00:00Z', total: 9999, channel: 'ecommerce', status: 'cancelled' }),
+  ];
+  const daily = computeDailyBreakdownByChannel(sales, ['ecommerce']);
+  assert.deepEqual(daily, [{ date: '2026-07-01', ecommerce: 1000 }]);
 });

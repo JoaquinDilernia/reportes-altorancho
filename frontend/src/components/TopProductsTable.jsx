@@ -35,6 +35,7 @@ export default function TopProductsTable({ byUnits, byRevenue }) {
       <table className="data-table">
         <thead>
           <tr>
+            <th>SKU</th>
             <th>Producto</th>
             <th>Vendidos</th>
             <th>Facturación</th>
@@ -44,6 +45,7 @@ export default function TopProductsTable({ byUnits, byRevenue }) {
         <tbody>
           {rows.map((p) => (
             <tr key={p.sku}>
+              <td>{p.sku}</td>
               <td>{p.name}</td>
               <td>{formatNumber(p.unitsSold)}</td>
               <td>{formatCurrency(p.revenue)}</td>

@@ -48,6 +48,24 @@ export function computeDailyBreakdown(salesDocs) {
   return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+export function computeDailyBreakdownByChannel(salesDocs, channels) {
+  const completed = completedOnly(salesDocs);
+  const byDay = new Map();
+
+  for (const sale of completed) {
+    const day = argDayBucket(sale.date);
+    if (!byDay.has(day)) {
+      const entry = { date: day };
+      for (const ch of channels) entry[ch] = 0;
+      byDay.set(day, entry);
+    }
+    const entry = byDay.get(day);
+    entry[sale.channel] = (entry[sale.channel] || 0) + sale.total;
+  }
+
+  return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function computeTopProducts(salesDocs, productsBySku, { by = 'units', limit = 10 } = {}) {
   const completed = completedOnly(salesDocs);
   const bySku = new Map();

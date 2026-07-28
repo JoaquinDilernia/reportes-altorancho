@@ -5,6 +5,7 @@ import PeriodSelector from '../components/PeriodSelector.jsx';
 import ChannelTabs from '../components/ChannelTabs.jsx';
 import KpiCards from '../components/KpiCards.jsx';
 import DailyChart from '../components/DailyChart.jsx';
+import DailyChartByChannel from '../components/DailyChartByChannel.jsx';
 import TopProductsTable from '../components/TopProductsTable.jsx';
 import CategoryBreakdown from '../components/CategoryBreakdown.jsx';
 import PaymentMethodsChart from '../components/PaymentMethodsChart.jsx';
@@ -75,6 +76,9 @@ export default function Dashboard({ onLogout }) {
         <main className="dashboard-body">
           <KpiCards current={report.current.totals} comparisons={report.comparisons} />
           <DailyChart data={report.current.dailyBreakdown} channel={channel} />
+          {channel === null && (
+            <DailyChartByChannel data={report.current.dailyBreakdownByChannel} />
+          )}
           <div className="dashboard-grid">
             <TopProductsTable
               byUnits={report.current.topProductsByUnits}
