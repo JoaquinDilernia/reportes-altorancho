@@ -46,15 +46,19 @@ Se generó un token de **System User** en el Business Manager de Meta con permis
 Dos colecciones nuevas en Firestore (mismo proyecto `pedidos-lett-2`, prefijo
 `altorancho_reportes_` ya usado por el resto del proyecto):
 
-- **`altorancho_reportes_meta_ads_daily`** — un doc por día (`YYYY-MM-DD` como id) con
-  totales de cuenta: `spend`, `impressions`, `reach`, `clicks`, `ctr`, `cpc`, `purchases`
-  (de `omni_purchase`), `purchaseValue` (de `action_values.omni_purchase`), `roas` (de
-  `purchase_roas.omni_purchase`), `addToCart`, `initiateCheckout`, `landingPageViews`,
-  `currency`.
+- **`altorancho_reportes_meta_ads_daily`** — un doc por día (`YYYY-MM-DD` como id, también
+  guardado como campo `date` para poder hacer range queries) con solo los totales de cuenta
+  *sumables*: `spend`, `impressions`, `reach`, `clicks`, `purchases` (de `omni_purchase`),
+  `purchaseValue` (de `action_values.omni_purchase`), `addToCart`, `initiateCheckout`,
+  `landingPageViews`, `currency`. `ctr`/`cpc`/`roas` deliberadamente NO se guardan por día —
+  son ratios, y sumar/promediar ratios diarios da un número distinto (e incorrecto) al ratio
+  del período completo; se recalculan siempre a partir de los totales ya sumados en
+  `computeAdTotals`.
 - **`altorancho_reportes_meta_ads_ad_daily`** — un doc por anuncio+día (id
-  `{adId}_{YYYY-MM-DD}`) con las mismas métricas más `adId`, `adName`, `campaignName`,
-  `adsetName`, `status`. Solo se sincroniza para una ventana móvil reciente (ver más abajo);
-  no hace falta histórico completo de anuncios viejos para el "top de anuncios" semanal.
+  `{adId}_{YYYY-MM-DD}`) con las mismas métricas sumables más `adId`, `adName`,
+  `campaignName`, `adsetName`. Solo se sincroniza para una ventana móvil reciente (ver más
+  abajo); no hace falta histórico completo de anuncios viejos para el "top de anuncios"
+  semanal.
 
 No se persiste `thumbnail_url` (expira) — se resuelve en el momento vía endpoint propio (ver
 "Imagen del anuncio").
@@ -123,6 +127,12 @@ desglosado por canal de venta — pero sí respeta el mismo `PeriodSelector` de 
 - Rate limits de la Marketing API: para una sola cuenta con sync cada pocas horas, el volumen
   es bajo (insights diarios de cuenta + de un puñado de anuncios); no se anticipa problema,
   no se agrega manejo especial de rate limiting en esta primera versión.
+- **"Alcance" está sumado por día, no es alcance único del período.** Meta's `reach` es
+  personas únicas, no un evento sumable — sumar 7 días de `reach` sobrescuenta a cualquiera
+  que haya visto el anuncio más de un día esa semana (potencialmente varias veces el número
+  real). Se etiqueta como "Alcance (suma diaria)" en el frontend para no inducir a error. El
+  fix correcto (una consulta aparte a nivel cuenta sin `time_increment` para el rango
+  completo) queda como mejora futura, no bloqueante para esta primera versión.
 - Si en el futuro se gestiona más de una cuenta publicitaria (por ejemplo, otra marca), el
   modelo de datos actual asume una sola `META_AD_ACCOUNT_ID` — habría que agregar un campo
   `accountId` a los documentos. No se resuelve ahora (YAGNI), se deja anotado.
