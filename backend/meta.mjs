@@ -39,3 +39,36 @@ export function extractActionValue(actions, actionType) {
   const match = actions.find(a => a.action_type === actionType);
   return match ? Number(match.value) : 0;
 }
+
+// Converts a Meta Ads Insights API row (account-level or ad-level) to the
+// normalized shape for storage: string dates and spend become Date and Number,
+// action arrays flatten to named fields, and field names follow our storage
+// naming conventions (camelCase, omni_* → specific names).
+export function normalizeDailyInsightRow(row, currency) {
+  return {
+    date: row.date_start,
+    spend: Number(row.spend || 0),
+    impressions: Number(row.impressions || 0),
+    reach: Number(row.reach || 0),
+    clicks: Number(row.clicks || 0),
+    purchases: extractActionValue(row.actions, 'omni_purchase'),
+    purchaseValue: extractActionValue(row.action_values, 'omni_purchase'),
+    addToCart: extractActionValue(row.actions, 'omni_add_to_cart'),
+    initiateCheckout: extractActionValue(row.actions, 'omni_initiated_checkout'),
+    landingPageViews: extractActionValue(row.actions, 'omni_landing_page_view'),
+    currency,
+  };
+}
+
+// Adds ad identity fields (adId, adName, campaignName, adsetName) on top of
+// the normalized daily shape, spreading normalizeDailyInsightRow to avoid
+// duplicating conversion logic.
+export function normalizeAdDailyInsightRow(row, currency) {
+  return {
+    ...normalizeDailyInsightRow(row, currency),
+    adId: row.ad_id,
+    adName: row.ad_name,
+    campaignName: row.campaign_name,
+    adsetName: row.adset_name,
+  };
+}
