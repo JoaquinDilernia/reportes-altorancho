@@ -23,6 +23,8 @@ const SALES_COL    = 'altorancho_reportes_sales';
 const PRODUCTS_COL = 'altorancho_reportes_products';
 const METADATA_COL = 'altorancho_reportes_sync_metadata';
 const BATCH_SIZE   = 500;
+const META_ADS_DAILY_COL = 'altorancho_reportes_meta_ads_daily';
+const META_ADS_AD_DAILY_COL = 'altorancho_reportes_meta_ads_ad_daily';
 
 export async function saveSalesDocs(docs) {
   const firestore = getDb();
@@ -101,4 +103,52 @@ export async function setSyncMetadata(channel, data) {
     ...data,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+}
+
+export async function saveMetaAdsDailyDocs(docs) {
+  const firestore = getDb();
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const batch = firestore.batch();
+    for (const doc of docs.slice(i, i + BATCH_SIZE)) {
+      batch.set(firestore.collection(META_ADS_DAILY_COL).doc(doc.date), {
+        ...doc,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+  return { written: docs.length };
+}
+
+export async function saveMetaAdsAdDailyDocs(docs) {
+  const firestore = getDb();
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const batch = firestore.batch();
+    for (const doc of docs.slice(i, i + BATCH_SIZE)) {
+      batch.set(firestore.collection(META_ADS_AD_DAILY_COL).doc(`${doc.adId}_${doc.date}`), {
+        ...doc,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+  return { written: docs.length };
+}
+
+export async function queryMetaAdsDailyByRange(startDate, endDate) {
+  const firestore = getDb();
+  const snap = await firestore.collection(META_ADS_DAILY_COL)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
+  return snap.docs.map(d => d.data());
+}
+
+export async function queryMetaAdsAdDailyByRange(startDate, endDate) {
+  const firestore = getDb();
+  const snap = await firestore.collection(META_ADS_AD_DAILY_COL)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
+  return snap.docs.map(d => d.data());
 }
