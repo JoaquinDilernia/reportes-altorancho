@@ -12,6 +12,8 @@ import PaymentMethodsChart from '../components/PaymentMethodsChart.jsx';
 import ProvincesChart from '../components/ProvincesChart.jsx';
 import LocalesPanel from '../components/LocalesPanel.jsx';
 import MayoristaPanel from '../components/MayoristaPanel.jsx';
+import TopAdsTable from '../components/TopAdsTable.jsx';
+import { META_ADS_METRICS } from '../lib/metaAdsMetrics.js';
 
 function todayISO() {
   const d = new Date();
@@ -90,6 +92,20 @@ export default function Dashboard({ onLogout }) {
               <ProvincesChart provinces={report.current.provinces} />
             )}
           </div>
+          <h2 className="chart-title">Meta Ads</h2>
+          <KpiCards
+            current={report.current.metaAds.totals}
+            comparisons={report.comparisons}
+            metrics={META_ADS_METRICS}
+            deltasKey="metaAdsDeltas"
+          />
+          <DailyChart
+            data={report.current.metaAds.dailyBreakdown}
+            dataKey="spend"
+            title="Gasto en Meta Ads por día"
+            color="#1877F2"
+          />
+          <TopAdsTable ads={report.current.metaAds.topAds} />
           {channel === null && (
             <div className="dashboard-grid">
               <LocalesPanel period={period} date={date} customStart={customStart} customEnd={customEnd} />
