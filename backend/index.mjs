@@ -62,7 +62,11 @@ async function buildAdsSection(range) {
     return {
       totals: computeAdTotals(dailyRows),
       dailyBreakdown: computeAdDailyBreakdown(dailyRows),
-      topAds: computeTopAds(adDailyRows, { limit: 10 }),
+      // Higher than the ~10 the UI shows at once: the frontend re-sorts this
+      // same list into "más gasto"/"mejores"/"peores" tabs client-side, so it
+      // needs enough ads to make each ranking meaningful, not just the top
+      // spenders.
+      topAds: computeTopAds(adDailyRows, { limit: 50 }),
     };
   } catch (err) {
     console.error('[server] metaAds section error:', err.message);
@@ -192,6 +196,8 @@ function diffAdTotals(current, previous) {
     addToCart: computeDelta(current.addToCart, previous.addToCart),
     initiateCheckout: computeDelta(current.initiateCheckout, previous.initiateCheckout),
     landingPageViews: computeDelta(current.landingPageViews, previous.landingPageViews),
+    costPerPurchase: computeDelta(current.costPerPurchase, previous.costPerPurchase),
+    costPerAddToCart: computeDelta(current.costPerAddToCart, previous.costPerAddToCart),
   };
 }
 

@@ -79,6 +79,19 @@ test('computeTopAds groups by adId across days and sorts by spend descending', (
   assert.equal(top[1].roas, 7000 / 1500);
 });
 
+test('computeTopAds derives ctr, cpc and costPerPurchase per ad from its own summed totals', () => {
+  const rows = [
+    makeAdDailyRow({ adId: 'A', spend: 1000, impressions: 10000, clicks: 100, purchases: 2, purchaseValue: 5000 }),
+    makeAdDailyRow({ adId: 'A', date: '2026-08-19', spend: 1000, impressions: 10000, clicks: 100, purchases: 2, purchaseValue: 5000 }),
+  ];
+  const [top] = computeTopAds(rows, { limit: 10 });
+  assert.equal(top.impressions, 20000);
+  assert.equal(top.clicks, 200);
+  assert.equal(top.ctr, 1); // 200/20000 * 100
+  assert.equal(top.cpc, 10); // 2000/200
+  assert.equal(top.costPerPurchase, 500); // 2000/4
+});
+
 test('computeTopAds respects the limit', () => {
   const rows = [
     makeAdDailyRow({ adId: 'A', spend: 100 }),

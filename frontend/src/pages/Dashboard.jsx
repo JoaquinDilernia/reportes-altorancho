@@ -20,6 +20,19 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Joins the sales daily series (revenue) and the Meta Ads daily series
+// (spend) by date so the Meta Ads chart can show both bars side by side —
+// the two series come from separate backend sections and don't share rows.
+function mergeDailyRevenueAndSpend(salesDaily, adsDaily) {
+  const byDate = new Map();
+  for (const row of salesDaily) byDate.set(row.date, { date: row.date, revenue: row.revenue, spend: 0 });
+  for (const row of adsDaily) {
+    if (!byDate.has(row.date)) byDate.set(row.date, { date: row.date, revenue: 0, spend: 0 });
+    byDate.get(row.date).spend = row.spend;
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export default function Dashboard({ onLogout }) {
   const [period, setPeriod] = useState('week');
   const [date, setDate] = useState(todayISO());
@@ -87,10 +100,14 @@ export default function Dashboard({ onLogout }) {
             deltasKey="metaAdsDeltas"
           />
           <DailyChart
-            data={report.current.metaAds.dailyBreakdown}
+            data={mergeDailyRevenueAndSpend(report.current.dailyBreakdown, report.current.metaAds.dailyBreakdown)}
             dataKey="spend"
-            title="Gasto en Meta Ads por día"
+            label="Gasto en Meta Ads"
+            title="Gasto en Meta Ads vs. facturación por día"
             color="#1877F2"
+            secondaryDataKey="revenue"
+            secondaryLabel="Facturación"
+            secondaryColor="#1BAF7A"
           />
           <TopAdsTable ads={report.current.metaAds.topAds} />
         </main>

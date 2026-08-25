@@ -1,4 +1,4 @@
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { formatCurrency } from '../lib/format.js';
 import { getChannelColor } from '../lib/channels.js';
 
@@ -7,8 +7,12 @@ function formatDayTick(dateStr) {
   return `${day}/${month}`;
 }
 
-export default function DailyChart({ data, channel, dataKey = 'revenue', title = 'Facturación por día', color }) {
+export default function DailyChart({
+  data, channel, dataKey = 'revenue', title = 'Facturación por día', color, label,
+  secondaryDataKey, secondaryLabel, secondaryColor,
+}) {
   const resolvedColor = color || getChannelColor(channel);
+  const hasSecondary = Boolean(secondaryDataKey);
 
   return (
     <div className="chart-card">
@@ -19,7 +23,11 @@ export default function DailyChart({ data, channel, dataKey = 'revenue', title =
           <XAxis dataKey="date" tickFormatter={formatDayTick} stroke="var(--ink-secondary)" fontSize={12} />
           <YAxis stroke="var(--ink-secondary)" fontSize={12} tickFormatter={(v) => formatCurrency(v)} width={90} />
           <Tooltip formatter={(value) => formatCurrency(value)} labelFormatter={formatDayTick} />
-          <Bar dataKey={dataKey} fill={resolvedColor} radius={[4, 4, 0, 0]} />
+          {hasSecondary && <Legend wrapperStyle={{ fontSize: 12 }} />}
+          <Bar dataKey={dataKey} name={label || title} fill={resolvedColor} radius={[4, 4, 0, 0]} />
+          {hasSecondary && (
+            <Bar dataKey={secondaryDataKey} name={secondaryLabel} fill={secondaryColor} radius={[4, 4, 0, 0]} />
+          )}
         </BarChart>
       </ResponsiveContainer>
     </div>

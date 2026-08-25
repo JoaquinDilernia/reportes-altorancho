@@ -5,6 +5,7 @@ export const META_ADS_METRICS = [
   { key: 'purchases', label: 'Compras', format: formatNumber },
   { key: 'purchaseValue', label: 'Valor de compras', format: formatCurrency },
   { key: 'roas', label: 'ROAS', format: formatRoas },
+  { key: 'costPerPurchase', label: 'Costo por compra', format: formatCurrency, invert: true },
   { key: 'impressions', label: 'Impresiones', format: formatNumber },
   { key: 'reach', label: 'Alcance (suma diaria)', format: formatNumber },
   { key: 'clicks', label: 'Clics', format: formatNumber },

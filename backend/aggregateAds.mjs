@@ -34,10 +34,15 @@ export function computeTopAds(adDailyRows, { limit = 10 } = {}) {
 
   for (const row of adDailyRows) {
     if (!byAd.has(row.adId)) {
-      byAd.set(row.adId, { adId: row.adId, adName: row.adName, campaignName: row.campaignName, spend: 0, purchases: 0, purchaseValue: 0 });
+      byAd.set(row.adId, {
+        adId: row.adId, adName: row.adName, campaignName: row.campaignName,
+        spend: 0, impressions: 0, clicks: 0, purchases: 0, purchaseValue: 0,
+      });
     }
     const entry = byAd.get(row.adId);
     entry.spend += row.spend || 0;
+    entry.impressions += row.impressions || 0;
+    entry.clicks += row.clicks || 0;
     entry.purchases += row.purchases || 0;
     entry.purchaseValue += row.purchaseValue || 0;
     entry.adName = row.adName;
@@ -45,7 +50,13 @@ export function computeTopAds(adDailyRows, { limit = 10 } = {}) {
   }
 
   return [...byAd.values()]
-    .map(entry => ({ ...entry, roas: entry.spend ? entry.purchaseValue / entry.spend : 0 }))
+    .map(entry => ({
+      ...entry,
+      ctr: entry.impressions ? (entry.clicks / entry.impressions) * 100 : 0,
+      cpc: entry.clicks ? entry.spend / entry.clicks : 0,
+      costPerPurchase: entry.purchases ? entry.spend / entry.purchases : 0,
+      roas: entry.spend ? entry.purchaseValue / entry.spend : 0,
+    }))
     .sort((a, b) => b.spend - a.spend)
     .slice(0, limit);
 }
