@@ -3,6 +3,7 @@ import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
+import { syncMetaAds } from './sync/metaAds.mjs';
 
 function monthsAgoOdoo(months) {
   const d = new Date();
@@ -27,6 +28,9 @@ async function backfill() {
 
   const mayoristaResult = await syncMayorista(categoryBySku, monthsAgoOdoo(months));
   console.log('[backfill] mayorista:', mayoristaResult);
+
+  const metaAdsResult = await syncMetaAds({ daysBack: months * 31, includeAdLevel: false });
+  console.log('[backfill] metaAds:', metaAdsResult);
 
   console.log('[backfill] done');
 }
