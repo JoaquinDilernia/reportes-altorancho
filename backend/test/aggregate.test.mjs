@@ -60,6 +60,18 @@ test('computeTotals sums shippingRevenue over completed sales, defaulting missin
   assert.equal(totals.shippingRevenue, 800);
 });
 
+test('computeTotals sums amountCollected and derives collectionRate, defaulting missing values to 0', () => {
+  const sales = [
+    makeSale({ total: 1000, amountCollected: 1000 }),
+    makeSale({ total: 1000, amountCollected: 0 }),
+    makeSale({ status: 'cancelled', total: 9999, amountCollected: 9999 }),
+    makeSale({ total: 1000 }), // ecommerce/locales-style doc with no amountCollected field at all
+  ];
+  const totals = computeTotals(sales);
+  assert.equal(totals.amountCollected, 1000);
+  assert.equal(totals.collectionRate, Math.round((1000 / 3000) * 10000) / 100);
+});
+
 test('computeTotals computes cancellationRate over completed+cancelled, ignoring pending', () => {
   const sales = [
     makeSale({ status: 'completed' }),

@@ -19,6 +19,12 @@ export function computeTotals(salesDocs) {
   const orders = completed.length;
   const avgTicket = orders ? revenue / orders : 0;
 
+  // Only mayorista docs carry amountCollected (facturación vs. cobro real
+  // suelen ir muy desfasados ahí); other channels' docs simply lack the
+  // field and default to 0, so this is 0 everywhere else.
+  const amountCollected = completed.reduce((sum, s) => sum + (s.amountCollected || 0), 0);
+  const collectionRate = revenue ? Math.round((amountCollected / revenue) * 10000) / 100 : 0;
+
   const uniqueDays = new Set(completed.map(s => argDayBucket(s.date)));
   const daysInRange = uniqueDays.size;
   const avgDailyRevenue = daysInRange ? revenue / daysInRange : 0;
@@ -29,7 +35,10 @@ export function computeTotals(salesDocs) {
   const cancelledOrders = cancelled.length;
   const cancellationRate = finalized ? Math.round((cancelledOrders / finalized) * 10000) / 100 : 0;
 
-  return { revenue, shippingRevenue, units, orders, avgTicket, daysInRange, avgDailyRevenue, cancelledOrders, cancellationRate };
+  return {
+    revenue, shippingRevenue, units, orders, avgTicket, daysInRange, avgDailyRevenue,
+    cancelledOrders, cancellationRate, amountCollected, collectionRate,
+  };
 }
 
 export function computeDailyBreakdown(salesDocs) {

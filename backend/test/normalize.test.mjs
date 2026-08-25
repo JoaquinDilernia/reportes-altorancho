@@ -120,6 +120,12 @@ test('normalizeOdooSaleOrder maps draft state to pending', () => {
   assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku).status, 'pending');
 });
 
+test('normalizeOdooSaleOrder carries amountCollected through, defaulting to 0 when omitted', () => {
+  const order = { id: 51269, date_order: '2026-07-08 14:52:14', amount_total: 849746.7, state: 'sale' };
+  assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku, 300000).amountCollected, 300000);
+  assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku).amountCollected, 0);
+});
+
 test('normalizeOdooEcommerceOrder maps a paid order to completed and splits out net shipping', () => {
   const order = {
     tiendanube_order_id: '2024692415',

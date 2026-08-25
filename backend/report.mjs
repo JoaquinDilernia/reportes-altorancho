@@ -53,6 +53,8 @@ export function diffTotals(current, previous) {
     avgTicket: computeDelta(current.avgTicket, previous.avgTicket),
     avgDailyRevenue: computeDelta(current.avgDailyRevenue, previous.avgDailyRevenue),
     cancellationRate: computeDelta(current.cancellationRate, previous.cancellationRate),
+    amountCollected: computeDelta(current.amountCollected, previous.amountCollected),
+    collectionRate: computeDelta(current.collectionRate, previous.collectionRate),
   };
 }
 

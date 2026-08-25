@@ -3,7 +3,7 @@ import { getReport } from '../api/client.js';
 import { shiftPeriod } from '../lib/periods.js';
 import PeriodSelector from '../components/PeriodSelector.jsx';
 import ChannelTabs from '../components/ChannelTabs.jsx';
-import KpiCards from '../components/KpiCards.jsx';
+import KpiCards, { SALES_METRICS } from '../components/KpiCards.jsx';
 import DailyChart from '../components/DailyChart.jsx';
 import DailyChartByChannel from '../components/DailyChartByChannel.jsx';
 import TopProductsTable from '../components/TopProductsTable.jsx';
@@ -16,6 +16,7 @@ import TopAdsTable from '../components/TopAdsTable.jsx';
 import InsightsButton from '../components/InsightsButton.jsx';
 import ChatWidget from '../components/ChatWidget.jsx';
 import { META_ADS_METRICS } from '../lib/metaAdsMetrics.js';
+import { MAYORISTA_EXTRA_METRICS } from '../lib/mayoristaMetrics.js';
 
 function todayISO() {
   const d = new Date();
@@ -50,6 +51,7 @@ export default function Dashboard({ onLogout }) {
   // effect on the /api/report channels filter (metaAds data is account-wide
   // and comes back regardless of which channel was requested).
   const apiChannel = channel === 'meta_ads' ? null : channel;
+  const salesMetrics = apiChannel === 'mayorista' ? [...SALES_METRICS, ...MAYORISTA_EXTRA_METRICS] : SALES_METRICS;
 
   useEffect(() => {
     if (rangeInvalid) {
@@ -119,8 +121,15 @@ export default function Dashboard({ onLogout }) {
 
       {report && !loading && channel !== 'meta_ads' && (
         <main className="dashboard-body">
-          <KpiCards current={report.current.totals} comparisons={report.comparisons} />
-          <DailyChart data={report.current.dailyBreakdown} channel={apiChannel} />
+          <KpiCards current={report.current.totals} comparisons={report.comparisons} metrics={salesMetrics} />
+          <DailyChart
+            data={report.current.dailyBreakdown}
+            channel={apiChannel}
+            secondaryDataKey="orders"
+            secondaryLabel="Cantidad de ventas"
+            secondaryColor="#2A78D6"
+            secondaryAxis
+          />
           {apiChannel === null && (
             <DailyChartByChannel data={report.current.dailyBreakdownByChannel} />
           )}

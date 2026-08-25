@@ -60,7 +60,7 @@ export function normalizeOdooPosOrder(order, lines, channel, categoryBySku, paym
   };
 }
 
-export function normalizeOdooSaleOrder(order, lines, categoryBySku) {
+export function normalizeOdooSaleOrder(order, lines, categoryBySku, amountCollected = 0) {
   const status =
     order.state === 'cancel' ? 'cancelled' :
     ['sale', 'done'].includes(order.state) ? 'completed' :
@@ -73,6 +73,11 @@ export function normalizeOdooSaleOrder(order, lines, categoryBySku) {
     date: order.date_order,
     status,
     total: Number(order.amount_total),
+    // Mayorista is often confirmed (state=sale, counted in `total`) well
+    // before it's actually invoiced and paid — this is the amount actually
+    // collected so far (sum of amount_total - amount_residual across the
+    // order's linked invoices), 0 for orders with no invoice yet.
+    amountCollected: Number(amountCollected),
     paymentMethod: null,
     shippingProvince: null,
     items: lines.map(l => {
