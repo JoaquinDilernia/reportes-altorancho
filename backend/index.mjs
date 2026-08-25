@@ -12,6 +12,7 @@ import {
   computeDailyBreakdownByChannel,
 } from './aggregate.mjs';
 import { fetchProductImage } from './odoo.mjs';
+import { fetchAdThumbnail } from './meta.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
@@ -106,6 +107,28 @@ app.get('/api/product-image/:sku', async (req, res) => {
     res.send(image.buffer);
   } catch (err) {
     console.error('[server] product-image error:', err.message);
+    res.status(500).end();
+  }
+});
+
+// Not behind requireAuth — same reasoning as /api/product-image/:sku: a plain
+// <img src> can't send an Authorization header, and creative thumbnails
+// aren't sensitive. Meta's thumbnail_url is a signed URL that expires, so
+// this re-resolves it live and proxies the bytes rather than redirecting
+// (avoids exposing the ever-rotating signed URL to the browser).
+app.get('/api/ad-image/:adId', async (req, res) => {
+  try {
+    const thumbnailUrl = await fetchAdThumbnail(req.params.adId);
+    if (!thumbnailUrl) return res.status(404).end();
+
+    const imageRes = await fetch(thumbnailUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!imageRes.ok) return res.status(404).end();
+
+    res.set('Content-Type', imageRes.headers.get('content-type') || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(await imageRes.arrayBuffer()));
+  } catch (err) {
+    console.error('[server] ad-image error:', err.message);
     res.status(500).end();
   }
 });
