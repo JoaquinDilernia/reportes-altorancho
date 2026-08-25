@@ -27,3 +27,8 @@ export function formatRate(pct) {
   if (pct === null || pct === undefined) return '—';
   return `${pct.toFixed(1)}%`;
 }
+
+export function formatRoas(value) {
+  if (value === null || value === undefined) return '—';
+  return `${value.toFixed(2)}x`;
+}
