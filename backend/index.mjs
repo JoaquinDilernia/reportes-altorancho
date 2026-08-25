@@ -79,14 +79,11 @@ app.get('/api/report', requireAuth, async (req, res) => {
     const ranges = period === 'custom' ? getPeriodRanges(start, period, end) : getPeriodRanges(date, period);
     const productsBySku = await getProductsBySku();
 
-    const [current, prevPeriod, prevMonth, prevYear] = await Promise.all([
+    const [current, prevPeriod, prevMonth, prevYear, currentAds, prevPeriodAds, prevMonthAds, prevYearAds] = await Promise.all([
       buildTotalsSection(requestedChannels, ranges.current, productsBySku),
       buildTotalsSection(requestedChannels, ranges.prevPeriod, productsBySku),
       buildTotalsSection(requestedChannels, ranges.prevMonth, productsBySku),
       buildTotalsSection(requestedChannels, ranges.prevYear, productsBySku),
-    ]);
-
-    const [currentAds, prevPeriodAds, prevMonthAds, prevYearAds] = await Promise.all([
       buildAdsSection(ranges.current),
       buildAdsSection(ranges.prevPeriod),
       buildAdsSection(ranges.prevMonth),
