@@ -28,7 +28,7 @@ export default function TopAdsTable({ ads }) {
           <tr>
             <th className="product-thumb-col"></th>
             <th className="product-col">Anuncio</th>
-            <th className="product-col">Campaña</th>
+            <th className="campaign-col">Campaña</th>
             <th className="numeric-col">Gasto</th>
             <th className="numeric-col">Compras</th>
             <th className="numeric-col">ROAS</th>
@@ -41,7 +41,7 @@ export default function TopAdsTable({ ads }) {
                 <AdThumb adId={ad.adId} name={ad.adName} />
               </td>
               <td className="product-col" title={ad.adName}>{ad.adName}</td>
-              <td className="product-col" title={ad.campaignName}>{ad.campaignName}</td>
+              <td className="campaign-col" title={ad.campaignName}>{ad.campaignName}</td>
               <td className="numeric-col">{formatCurrency(ad.spend)}</td>
               <td className="numeric-col">{formatNumber(ad.purchases)}</td>
               <td className="numeric-col">{formatRoas(ad.roas)}</td>

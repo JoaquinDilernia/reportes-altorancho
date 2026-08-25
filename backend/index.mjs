@@ -54,15 +54,20 @@ async function buildTotalsSection(channels, range, productsBySku) {
 }
 
 async function buildAdsSection(range) {
-  const [dailyRows, adDailyRows] = await Promise.all([
-    queryMetaAdsDailyByRange(range.start, range.end),
-    queryMetaAdsAdDailyByRange(range.start, range.end),
-  ]);
-  return {
-    totals: computeAdTotals(dailyRows),
-    dailyBreakdown: computeAdDailyBreakdown(dailyRows),
-    topAds: computeTopAds(adDailyRows, { limit: 10 }),
-  };
+  try {
+    const [dailyRows, adDailyRows] = await Promise.all([
+      queryMetaAdsDailyByRange(range.start, range.end),
+      queryMetaAdsAdDailyByRange(range.start, range.end),
+    ]);
+    return {
+      totals: computeAdTotals(dailyRows),
+      dailyBreakdown: computeAdDailyBreakdown(dailyRows),
+      topAds: computeTopAds(adDailyRows, { limit: 10 }),
+    };
+  } catch (err) {
+    console.error('[server] metaAds section error:', err.message);
+    return { totals: computeAdTotals([]), dailyBreakdown: [], topAds: [] };
+  }
 }
 
 app.get('/api/report', requireAuth, async (req, res) => {
@@ -144,6 +149,8 @@ app.get('/api/product-image/:sku', async (req, res) => {
 // (avoids exposing the ever-rotating signed URL to the browser).
 app.get('/api/ad-image/:adId', async (req, res) => {
   try {
+    if (!/^\d+$/.test(req.params.adId)) return res.status(400).end();
+
     const thumbnailUrl = await fetchAdThumbnail(req.params.adId);
     if (!thumbnailUrl) return res.status(404).end();
 

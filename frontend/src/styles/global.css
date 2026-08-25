@@ -125,6 +125,7 @@ button {
 }
 
 .chart-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.section-title { margin: 32px 0 16px; font-size: 20px; font-weight: 600; }
 
 /* table-layout: fixed so columns get predictable widths instead of the
    Producto/Stock text forcing the table wider than its card — that's what
@@ -162,6 +163,7 @@ button {
 }
 .sku-col { width: 15%; }
 .product-col { width: 28%; }
+.campaign-col { width: 16%; }
 .stock-col { width: 16%; }
 .numeric-col { width: 15%; }
 
