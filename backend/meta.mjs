@@ -72,3 +72,65 @@ export function normalizeAdDailyInsightRow(row, currency) {
     adsetName: row.adset_name,
   };
 }
+
+const DAILY_INSIGHT_FIELDS = 'spend,impressions,reach,clicks,actions,action_values';
+const AD_INSIGHT_FIELDS = 'ad_id,ad_name,campaign_name,adset_name,spend,impressions,reach,clicks,actions,action_values';
+
+async function request(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) {
+    throw new Error(`Meta Graph API error ${res.status}: ${await res.text()}`);
+  }
+  return res.json();
+}
+
+async function fetchAllInsightPages(firstUrl) {
+  const rows = [];
+  let url = firstUrl;
+  while (url) {
+    const json = await request(url);
+    rows.push(...json.data);
+    url = json.paging?.next || null;
+  }
+  return rows;
+}
+
+function insightsUrl(level, fields, since, until) {
+  const params = new URLSearchParams({
+    level,
+    fields,
+    time_increment: '1',
+    time_range: JSON.stringify({ since, until }),
+    limit: '500',
+    access_token: TOKEN,
+  });
+  return `${BASE_URL}/${ACCOUNT_ID}/insights?${params.toString()}`;
+}
+
+export async function fetchAccountCurrency() {
+  const params = new URLSearchParams({ fields: 'currency', access_token: TOKEN });
+  const json = await request(`${BASE_URL}/${ACCOUNT_ID}?${params.toString()}`);
+  return json.currency;
+}
+
+export async function fetchAccountDailyInsights(since, until) {
+  const rows = [];
+  for (const window of chunkDateRange(since, until)) {
+    rows.push(...await fetchAllInsightPages(insightsUrl('account', DAILY_INSIGHT_FIELDS, window.since, window.until)));
+  }
+  return rows;
+}
+
+export async function fetchAdDailyInsights(since, until) {
+  const rows = [];
+  for (const window of chunkDateRange(since, until)) {
+    rows.push(...await fetchAllInsightPages(insightsUrl('ad', AD_INSIGHT_FIELDS, window.since, window.until)));
+  }
+  return rows;
+}
+
+export async function fetchAdThumbnail(adId) {
+  const params = new URLSearchParams({ fields: 'creative{thumbnail_url}', access_token: TOKEN });
+  const json = await request(`${BASE_URL}/${adId}?${params.toString()}`);
+  return json.creative?.thumbnail_url || null;
+}
