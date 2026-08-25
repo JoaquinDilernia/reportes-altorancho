@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { requireAuth, generateToken } from './auth.mjs';
 import { getPeriodRanges } from './periods.mjs';
-import { querySalesByRange, getProductsBySku, getProductBySku } from './firestore.mjs';
+import { querySalesByRange, getProductsBySku, getProductBySku, queryMetaAdsDailyByRange, queryMetaAdsAdDailyByRange } from './firestore.mjs';
 import {
   computeTotals, computeTopProducts, computeCategoryBreakdown,
   computePaymentMethods, computeProvinces, computeDelta, computeDailyBreakdown,
   computeDailyBreakdownByChannel,
 } from './aggregate.mjs';
+import { computeAdTotals, computeAdDailyBreakdown, computeTopAds } from './aggregateAds.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
 import { syncProducts } from './sync/products.mjs';
@@ -52,6 +53,18 @@ async function buildTotalsSection(channels, range, productsBySku) {
   };
 }
 
+async function buildAdsSection(range) {
+  const [dailyRows, adDailyRows] = await Promise.all([
+    queryMetaAdsDailyByRange(range.start, range.end),
+    queryMetaAdsAdDailyByRange(range.start, range.end),
+  ]);
+  return {
+    totals: computeAdTotals(dailyRows),
+    dailyBreakdown: computeAdDailyBreakdown(dailyRows),
+    topAds: computeTopAds(adDailyRows, { limit: 10 }),
+  };
+}
+
 app.get('/api/report', requireAuth, async (req, res) => {
   try {
     const { period = 'week', date, start, end, channels } = req.query;
@@ -73,14 +86,30 @@ app.get('/api/report', requireAuth, async (req, res) => {
       buildTotalsSection(requestedChannels, ranges.prevYear, productsBySku),
     ]);
 
+    const [currentAds, prevPeriodAds, prevMonthAds, prevYearAds] = await Promise.all([
+      buildAdsSection(ranges.current),
+      buildAdsSection(ranges.prevPeriod),
+      buildAdsSection(ranges.prevMonth),
+      buildAdsSection(ranges.prevYear),
+    ]);
+
     res.json({
       ok: true,
       range: ranges.current,
-      current,
+      current: { ...current, metaAds: currentAds },
       comparisons: {
-        prevPeriod: { range: ranges.prevPeriod, totals: prevPeriod.totals, deltas: diffTotals(current.totals, prevPeriod.totals) },
-        prevMonth:  { range: ranges.prevMonth,  totals: prevMonth.totals,  deltas: diffTotals(current.totals, prevMonth.totals) },
-        prevYear:   { range: ranges.prevYear,   totals: prevYear.totals,   deltas: diffTotals(current.totals, prevYear.totals) },
+        prevPeriod: {
+          range: ranges.prevPeriod, totals: prevPeriod.totals, deltas: diffTotals(current.totals, prevPeriod.totals),
+          metaAdsDeltas: diffAdTotals(currentAds.totals, prevPeriodAds.totals),
+        },
+        prevMonth: {
+          range: ranges.prevMonth, totals: prevMonth.totals, deltas: diffTotals(current.totals, prevMonth.totals),
+          metaAdsDeltas: diffAdTotals(currentAds.totals, prevMonthAds.totals),
+        },
+        prevYear: {
+          range: ranges.prevYear, totals: prevYear.totals, deltas: diffTotals(current.totals, prevYear.totals),
+          metaAdsDeltas: diffAdTotals(currentAds.totals, prevYearAds.totals),
+        },
       },
     });
   } catch (err) {
@@ -142,6 +171,23 @@ function diffTotals(current, previous) {
     avgTicket: computeDelta(current.avgTicket, previous.avgTicket),
     avgDailyRevenue: computeDelta(current.avgDailyRevenue, previous.avgDailyRevenue),
     cancellationRate: computeDelta(current.cancellationRate, previous.cancellationRate),
+  };
+}
+
+function diffAdTotals(current, previous) {
+  return {
+    spend: computeDelta(current.spend, previous.spend),
+    impressions: computeDelta(current.impressions, previous.impressions),
+    reach: computeDelta(current.reach, previous.reach),
+    clicks: computeDelta(current.clicks, previous.clicks),
+    ctr: computeDelta(current.ctr, previous.ctr),
+    cpc: computeDelta(current.cpc, previous.cpc),
+    purchases: computeDelta(current.purchases, previous.purchases),
+    purchaseValue: computeDelta(current.purchaseValue, previous.purchaseValue),
+    roas: computeDelta(current.roas, previous.roas),
+    addToCart: computeDelta(current.addToCart, previous.addToCart),
+    initiateCheckout: computeDelta(current.initiateCheckout, previous.initiateCheckout),
+    landingPageViews: computeDelta(current.landingPageViews, previous.landingPageViews),
   };
 }
 
