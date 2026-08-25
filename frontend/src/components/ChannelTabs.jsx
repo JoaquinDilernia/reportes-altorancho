@@ -20,6 +20,13 @@ export default function ChannelTabs({ channel, onChannelChange }) {
           {c.label}
         </button>
       ))}
+      <button
+        className={`channel-tab ${channel === 'meta_ads' ? 'active' : ''}`}
+        style={channel === 'meta_ads' ? { '--tab-color': '#1877F2' } : undefined}
+        onClick={() => onChannelChange('meta_ads')}
+      >
+        Meta Ads
+      </button>
     </div>
   );
 }

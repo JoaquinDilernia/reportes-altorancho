@@ -31,6 +31,10 @@ export default function Dashboard({ onLogout }) {
   const [error, setError] = useState(null);
 
   const rangeInvalid = period === 'custom' && customStart > customEnd;
+  // "Meta Ads" is a dashboard tab, not a real sales channel — it has no
+  // effect on the /api/report channels filter (metaAds data is account-wide
+  // and comes back regardless of which channel was requested).
+  const apiChannel = channel === 'meta_ads' ? null : channel;
 
   useEffect(() => {
     if (rangeInvalid) {
@@ -42,8 +46,8 @@ export default function Dashboard({ onLogout }) {
     setLoading(true);
     setError(null);
     const params = period === 'custom'
-      ? { period, start: customStart, end: customEnd, channel }
-      : { period, date, channel };
+      ? { period, start: customStart, end: customEnd, channel: apiChannel }
+      : { period, date, channel: apiChannel };
     getReport(params)
       .then((data) => { if (!cancelled) setReport(data); })
       .catch((err) => {
@@ -74,11 +78,29 @@ export default function Dashboard({ onLogout }) {
       {loading && <p className="status-text">Cargando...</p>}
       {error && <p className="status-text status-error">Error: {error}</p>}
 
-      {report && !loading && (
+      {report && !loading && channel === 'meta_ads' && report.current.metaAds && (
+        <main className="dashboard-body">
+          <KpiCards
+            current={report.current.metaAds.totals}
+            comparisons={report.comparisons}
+            metrics={META_ADS_METRICS}
+            deltasKey="metaAdsDeltas"
+          />
+          <DailyChart
+            data={report.current.metaAds.dailyBreakdown}
+            dataKey="spend"
+            title="Gasto en Meta Ads por día"
+            color="#1877F2"
+          />
+          <TopAdsTable ads={report.current.metaAds.topAds} />
+        </main>
+      )}
+
+      {report && !loading && channel !== 'meta_ads' && (
         <main className="dashboard-body">
           <KpiCards current={report.current.totals} comparisons={report.comparisons} />
-          <DailyChart data={report.current.dailyBreakdown} channel={channel} />
-          {channel === null && (
+          <DailyChart data={report.current.dailyBreakdown} channel={apiChannel} />
+          {apiChannel === null && (
             <DailyChartByChannel data={report.current.dailyBreakdownByChannel} />
           )}
           <div className="dashboard-grid">
@@ -92,25 +114,7 @@ export default function Dashboard({ onLogout }) {
               <ProvincesChart provinces={report.current.provinces} />
             )}
           </div>
-          {report.current.metaAds && (
-            <>
-              <h2 className="section-title">Meta Ads</h2>
-              <KpiCards
-                current={report.current.metaAds.totals}
-                comparisons={report.comparisons}
-                metrics={META_ADS_METRICS}
-                deltasKey="metaAdsDeltas"
-              />
-              <DailyChart
-                data={report.current.metaAds.dailyBreakdown}
-                dataKey="spend"
-                title="Gasto en Meta Ads por día"
-                color="#1877F2"
-              />
-              <TopAdsTable ads={report.current.metaAds.topAds} />
-            </>
-          )}
-          {channel === null && (
+          {apiChannel === null && (
             <div className="dashboard-grid">
               <LocalesPanel period={period} date={date} customStart={customStart} customEnd={customEnd} />
               <MayoristaPanel period={period} date={date} customStart={customStart} customEnd={customEnd} />
