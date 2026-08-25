@@ -13,6 +13,8 @@ import ProvincesChart from '../components/ProvincesChart.jsx';
 import LocalesPanel from '../components/LocalesPanel.jsx';
 import MayoristaPanel from '../components/MayoristaPanel.jsx';
 import TopAdsTable from '../components/TopAdsTable.jsx';
+import InsightsButton from '../components/InsightsButton.jsx';
+import ChatWidget from '../components/ChatWidget.jsx';
 import { META_ADS_METRICS } from '../lib/metaAdsMetrics.js';
 
 function todayISO() {
@@ -88,6 +90,8 @@ export default function Dashboard({ onLogout }) {
         <ChannelTabs channel={channel} onChannelChange={setChannel} />
       </header>
 
+      <InsightsButton period={period} date={date} customStart={customStart} customEnd={customEnd} channel={apiChannel} />
+
       {loading && <p className="status-text">Cargando...</p>}
       {error && <p className="status-text status-error">Error: {error}</p>}
 
@@ -139,6 +143,8 @@ export default function Dashboard({ onLogout }) {
           )}
         </main>
       )}
+
+      <ChatWidget period={period} date={date} customStart={customStart} customEnd={customEnd} channel={apiChannel} />
     </div>
   );
 }

@@ -47,3 +47,39 @@ export async function getReport({ period, date, start, end, channel }) {
   if (!data.ok) throw new Error(data.error || 'Report fetch failed');
   return data;
 }
+
+async function postAuthed(path, body) {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+function reportBody({ period, date, start, end, channel }) {
+  const body = period === 'custom' ? { period, start, end } : { period, date };
+  if (channel) body.channels = channel;
+  return body;
+}
+
+export async function analyzeReport(params) {
+  const data = await postAuthed('/api/insights/analyze', reportBody(params));
+  return data.text;
+}
+
+export async function chatInsights({ messages, ...params }) {
+  const data = await postAuthed('/api/insights/chat', { ...reportBody(params), messages });
+  return data.text;
+}

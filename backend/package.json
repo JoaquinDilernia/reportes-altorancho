@@ -9,10 +9,12 @@
     "backfill": "node backfill.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
     "firebase-admin": "^12.0.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "zod": "^4.4.3"
   }
 }
