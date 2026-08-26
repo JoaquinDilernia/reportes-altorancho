@@ -14,6 +14,7 @@ import { syncLocales } from './sync/locales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 import { syncFeria } from './sync/feria.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
+import { syncInflation } from './sync/inflation.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
 
 export const app = express();
@@ -149,6 +150,7 @@ async function runFullSync() {
     await syncMayorista(categoryBySku);
     await syncFeria(categoryBySku);
     await syncMetaAds();
+    await syncInflation();
     console.log('[cron] full sync complete');
   } catch (err) {
     console.error('[cron] sync error:', err.message);

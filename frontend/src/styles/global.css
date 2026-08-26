@@ -78,6 +78,8 @@ button {
 .kpi-deltas { display: flex; flex-direction: column; gap: 4px; }
 .kpi-delta-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
 .kpi-delta-label { color: var(--ink-secondary); }
+.kpi-delta-row-adjusted { padding-top: 4px; margin-top: 4px; border-top: 1px dashed var(--border-subtle); }
+.kpi-delta-row-adjusted .kpi-delta-label { font-style: italic; }
 
 .delta-badge { font-weight: 600; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .delta-positive { color: var(--delta-positive); background: rgba(12, 163, 12, 0.12); }

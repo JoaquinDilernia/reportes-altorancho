@@ -1,8 +1,8 @@
 import { getPeriodRanges } from './periods.mjs';
-import { querySalesByRange, getProductsBySku, queryMetaAdsDailyByRange, queryMetaAdsAdDailyByRange } from './firestore.mjs';
+import { querySalesByRange, getProductsBySku, queryMetaAdsDailyByRange, queryMetaAdsAdDailyByRange, getInflationIndexByMonth } from './firestore.mjs';
 import {
   computeTotals, computeTopProducts, computeCategoryBreakdown,
-  computePaymentMethods, computeProvinces, computeDelta, computeDailyBreakdown,
+  computePaymentMethods, computeProvinces, computeDelta, computeInflationAdjustedDelta, computeDailyBreakdown,
   computeDailyBreakdownByChannel,
 } from './aggregate.mjs';
 import { computeAdTotals, computeAdDailyBreakdown, computeTopAds } from './aggregateAds.mjs';
@@ -58,6 +58,19 @@ export function diffTotals(current, previous) {
   };
 }
 
+// Only the currency-denominated fields make sense to inflation-adjust —
+// units/orders/rates aren't peso amounts, so a devaluation-driven distortion
+// doesn't apply to them.
+export function diffTotalsInflationAdjusted(current, previous, currentIndex, prevIndex) {
+  return {
+    revenue: computeInflationAdjustedDelta(current.revenue, previous.revenue, currentIndex, prevIndex),
+    shippingRevenue: computeInflationAdjustedDelta(current.shippingRevenue, previous.shippingRevenue, currentIndex, prevIndex),
+    avgDailyRevenue: computeInflationAdjustedDelta(current.avgDailyRevenue, previous.avgDailyRevenue, currentIndex, prevIndex),
+    avgTicket: computeInflationAdjustedDelta(current.avgTicket, previous.avgTicket, currentIndex, prevIndex),
+    amountCollected: computeInflationAdjustedDelta(current.amountCollected, previous.amountCollected, currentIndex, prevIndex),
+  };
+}
+
 export function diffAdTotals(current, previous) {
   return {
     spend: computeDelta(current.spend, previous.spend),
@@ -83,7 +96,12 @@ export function diffAdTotals(current, previous) {
 export async function buildFullReport({ period = 'week', date, start, end, channels }) {
   const requestedChannels = channels && channels.length ? channels : ALL_CHANNELS;
   const ranges = period === 'custom' ? getPeriodRanges(start, period, end) : getPeriodRanges(date, period);
-  const productsBySku = await getProductsBySku();
+  const [productsBySku, inflationIndexByMonth] = await Promise.all([
+    getProductsBySku(),
+    getInflationIndexByMonth(),
+  ]);
+  const currentInflationIndex = inflationIndexByMonth.get(ranges.current.start.slice(0, 7));
+  const prevYearInflationIndex = inflationIndexByMonth.get(ranges.prevYear.start.slice(0, 7));
 
   const [current, prevPeriod, prevMonth, prevYear, currentAds, prevPeriodAds, prevMonthAds, prevYearAds] = await Promise.all([
     buildTotalsSection(requestedChannels, ranges.current, productsBySku),
@@ -110,6 +128,9 @@ export async function buildFullReport({ period = 'week', date, start, end, chann
       },
       prevYear: {
         range: ranges.prevYear, totals: prevYear.totals, deltas: diffTotals(current.totals, prevYear.totals),
+        deltasInflationAdjusted: diffTotalsInflationAdjusted(
+          current.totals, prevYear.totals, currentInflationIndex, prevYearInflationIndex,
+        ),
         metaAdsDeltas: diffAdTotals(currentAds.totals, prevYearAds.totals),
       },
     },

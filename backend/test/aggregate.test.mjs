@@ -7,6 +7,7 @@ import {
   computePaymentMethods,
   computeProvinces,
   computeDelta,
+  computeInflationAdjustedDelta,
   computeDailyBreakdown,
   computeDailyBreakdownByChannel,
 } from '../aggregate.mjs';
@@ -212,6 +213,18 @@ test('computeDelta returns absolute and percent change', () => {
 
 test('computeDelta handles a zero baseline without dividing by zero', () => {
   assert.deepEqual(computeDelta(150, 0), { value: 150, pct: null });
+});
+
+test('computeInflationAdjustedDelta scales the prior value up by inflation before comparing', () => {
+  // Prices doubled (index 200 vs 100) and nominal revenue also doubled
+  // (200 vs 100) — real growth is 0%, not the +100% a naive delta would show.
+  const result = computeInflationAdjustedDelta(200, 100, 200, 100);
+  assert.equal(result.pct, 0);
+});
+
+test('computeInflationAdjustedDelta returns null when either month\'s index is missing', () => {
+  assert.equal(computeInflationAdjustedDelta(200, 100, undefined, 100), null);
+  assert.equal(computeInflationAdjustedDelta(200, 100, 200, undefined), null);
 });
 
 test('computeDailyBreakdown groups revenue/units/orders by Argentina calendar day, sorted ascending', () => {

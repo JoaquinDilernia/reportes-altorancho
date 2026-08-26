@@ -157,3 +157,14 @@ export function computeDelta(current, previous) {
   const pct = previous === 0 ? null : Math.round((value / previous) * 10000) / 100;
   return { value, pct };
 }
+
+// Compares current vs. a year-ago figure after scaling the year-ago figure
+// up by inflation (INDEC IPC) between the two months, so the delta reflects
+// real growth instead of being dominated by peso devaluation. Returns null
+// (not 0) when the index isn't available for either month — e.g. INDEC
+// hasn't published the current month yet — rather than a misleading number.
+export function computeInflationAdjustedDelta(currentValue, prevYearValue, currentIndex, prevYearIndex) {
+  if (!currentIndex || !prevYearIndex) return null;
+  const adjustedPrevYearValue = prevYearValue * (currentIndex / prevYearIndex);
+  return computeDelta(currentValue, adjustedPrevYearValue);
+}

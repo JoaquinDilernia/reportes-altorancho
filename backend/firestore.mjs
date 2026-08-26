@@ -25,6 +25,7 @@ const METADATA_COL = 'altorancho_reportes_sync_metadata';
 const BATCH_SIZE   = 500;
 const META_ADS_DAILY_COL = 'altorancho_reportes_meta_ads_daily';
 const META_ADS_AD_DAILY_COL = 'altorancho_reportes_meta_ads_ad_daily';
+const INFLATION_INDEX_COL = 'altorancho_reportes_inflation_index';
 
 export async function saveSalesDocs(docs) {
   const firestore = getDb();
@@ -151,4 +152,29 @@ export async function queryMetaAdsAdDailyByRange(startDate, endDate) {
     .where('date', '<=', endDate)
     .get();
   return snap.docs.map(d => d.data());
+}
+
+export async function saveInflationIndex(rows) {
+  const firestore = getDb();
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = firestore.batch();
+    for (const row of rows.slice(i, i + BATCH_SIZE)) {
+      batch.set(firestore.collection(INFLATION_INDEX_COL).doc(row.month), row);
+    }
+    await batch.commit();
+  }
+  return { written: rows.length };
+}
+
+// Small collection (~one doc per month since Dec 2016) — read in full and
+// indexed by "YYYY-MM" rather than range-queried, since every report build
+// only needs to look up two specific months (current + prevYear).
+export async function getInflationIndexByMonth() {
+  const firestore = getDb();
+  const snap = await firestore.collection(INFLATION_INDEX_COL).get();
+  const map = new Map();
+  for (const doc of snap.docs) {
+    map.set(doc.id, doc.data().index);
+  }
+  return map;
 }
