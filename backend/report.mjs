@@ -71,6 +71,19 @@ export function diffTotalsInflationAdjusted(current, previous, currentIndex, pre
   };
 }
 
+// Same idea as diffTotalsInflationAdjusted, for Meta Ads' currency fields
+// (spend/purchaseValue/cpc/costPerPurchase) — a rising peso-denominated
+// spend or CPC over a year is partly just devaluation.
+export function diffAdTotalsInflationAdjusted(current, previous, currentIndex, prevIndex) {
+  return {
+    spend: computeInflationAdjustedDelta(current.spend, previous.spend, currentIndex, prevIndex),
+    purchaseValue: computeInflationAdjustedDelta(current.purchaseValue, previous.purchaseValue, currentIndex, prevIndex),
+    cpc: computeInflationAdjustedDelta(current.cpc, previous.cpc, currentIndex, prevIndex),
+    costPerPurchase: computeInflationAdjustedDelta(current.costPerPurchase, previous.costPerPurchase, currentIndex, prevIndex),
+    costPerAddToCart: computeInflationAdjustedDelta(current.costPerAddToCart, previous.costPerAddToCart, currentIndex, prevIndex),
+  };
+}
+
 export function diffAdTotals(current, previous) {
   return {
     spend: computeDelta(current.spend, previous.spend),
@@ -102,6 +115,12 @@ export async function buildFullReport({ period = 'week', date, start, end, chann
   ]);
   const currentInflationIndex = inflationIndexByMonth.get(ranges.current.start.slice(0, 7));
   const prevYearInflationIndex = inflationIndexByMonth.get(ranges.prevYear.start.slice(0, 7));
+  // Accumulated inflation between the two months being compared, shown
+  // alongside the adjusted deltas so it's clear what adjustment was applied
+  // — null (not 0) when either month's index isn't published yet.
+  const inflationRate = currentInflationIndex && prevYearInflationIndex
+    ? Math.round(((currentInflationIndex / prevYearInflationIndex) - 1) * 10000) / 100
+    : null;
 
   const [current, prevPeriod, prevMonth, prevYear, currentAds, prevPeriodAds, prevMonthAds, prevYearAds] = await Promise.all([
     buildTotalsSection(requestedChannels, ranges.current, productsBySku),
@@ -132,6 +151,10 @@ export async function buildFullReport({ period = 'week', date, start, end, chann
           current.totals, prevYear.totals, currentInflationIndex, prevYearInflationIndex,
         ),
         metaAdsDeltas: diffAdTotals(currentAds.totals, prevYearAds.totals),
+        metaAdsDeltasInflationAdjusted: diffAdTotalsInflationAdjusted(
+          currentAds.totals, prevYearAds.totals, currentInflationIndex, prevYearInflationIndex,
+        ),
+        inflationRate,
       },
     },
   };
