@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { chatInsights } from '../api/client.js';
+import FormattedText from './FormattedText.jsx';
 
 // Rendered once at the top level (Dashboard), not per-tab — its state
 // (messages, open/closed) must survive switching between Consolidado/
@@ -53,7 +54,9 @@ export default function ChatWidget({ period, date, customStart, customEnd, chann
               <p className="chat-empty">Preguntá lo que quieras del reporte — ventas, Meta Ads, cualquier período o canal.</p>
             )}
             {messages.map((m, i) => (
-              <div key={i} className={`chat-message chat-message-${m.role}`}>{m.content}</div>
+              <div key={i} className={`chat-message chat-message-${m.role}`}>
+                {m.role === 'assistant' ? <FormattedText text={m.content} /> : m.content}
+              </div>
             ))}
             {loading && <div className="chat-message chat-message-assistant">Pensando…</div>}
             <div ref={bottomRef} />

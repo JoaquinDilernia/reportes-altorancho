@@ -60,15 +60,15 @@ export function normalizeOdooPosOrder(order, lines, channel, categoryBySku, paym
   };
 }
 
-export function normalizeOdooSaleOrder(order, lines, categoryBySku, amountCollected = 0) {
+export function normalizeOdooSaleOrder(order, lines, categoryBySku, { channel = 'mayorista', amountCollected = 0 } = {}) {
   const status =
     order.state === 'cancel' ? 'cancelled' :
     ['sale', 'done'].includes(order.state) ? 'completed' :
     'pending';
 
   return {
-    id: `mayorista_${order.id}`,
-    channel: 'mayorista',
+    id: `${channel}_${order.id}`,
+    channel,
     sourceId: String(order.id),
     date: order.date_order,
     status,

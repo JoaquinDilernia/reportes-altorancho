@@ -11,6 +11,8 @@
   --channel-belgrano: #4A3AA7;
   --channel-alcorta: #EB6834;
   --border-subtle: rgba(53, 52, 52, 0.12);
+  --ai-accent: #6C5CE7;
+  --ai-accent-soft: rgba(108, 92, 231, 0.08);
   --font-family: 'Poppins', sans-serif;
   --radius: 12px;
 }

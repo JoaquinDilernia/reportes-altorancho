@@ -12,6 +12,7 @@ import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
+import { syncFeria } from './sync/feria.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
 
@@ -146,6 +147,7 @@ async function runFullSync() {
     await syncEcommerce(categoryBySku);
     await syncLocales(categoryBySku);
     await syncMayorista(categoryBySku);
+    await syncFeria(categoryBySku);
     await syncMetaAds();
     console.log('[cron] full sync complete');
   } catch (err) {

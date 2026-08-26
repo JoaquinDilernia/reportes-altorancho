@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { analyzeReport } from '../api/client.js';
+import FormattedText from './FormattedText.jsx';
 
 export default function InsightsButton({ period, date, customStart, customEnd, channel }) {
   const [loading, setLoading] = useState(false);
@@ -36,8 +37,8 @@ export default function InsightsButton({ period, date, customStart, customEnd, c
       {error && <p className="status-text status-error">Error: {error}</p>}
       {text && (
         <div className="insights-card">
-          <h3 className="chart-title">Análisis</h3>
-          <div className="insights-text">{text}</div>
+          <h3 className="insights-card-title">✨ Análisis</h3>
+          <FormattedText text={text} />
         </div>
       )}
     </div>

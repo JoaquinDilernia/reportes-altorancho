@@ -69,7 +69,7 @@ export async function syncMayorista(categoryBySku, sinceOverride) {
     order,
     linesByOrderId.get(order.id) || [],
     categoryBySku,
-    collectedByOrderId.get(order.id) || 0,
+    { amountCollected: collectedByOrderId.get(order.id) || 0 },
   ));
 
   await saveSalesDocs(docs);

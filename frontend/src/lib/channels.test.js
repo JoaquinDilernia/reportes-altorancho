@@ -1,13 +1,14 @@
 import { test, expect } from 'vitest';
 import { CHANNELS, getChannelColor, getChannelLabel } from './channels.js';
 
-test('CHANNELS lists all five channels with hex colors matching the design tokens', () => {
+test('CHANNELS lists all six channels with hex colors matching the design tokens', () => {
   expect(CHANNELS).toEqual([
     { id: 'ecommerce', label: 'Ecommerce', color: '#1BAF7A' },
     { id: 'local_lomas', label: 'Lomas', color: '#008300' },
     { id: 'local_belgrano', label: 'Belgrano', color: '#4A3AA7' },
     { id: 'local_alcorta', label: 'Alcorta', color: '#EB6834' },
     { id: 'mayorista', label: 'Mayorista', color: '#2A78D6' },
+    { id: 'feria', label: 'Feria', color: '#0E9594' },
   ]);
 });
 

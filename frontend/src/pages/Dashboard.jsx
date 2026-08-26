@@ -127,7 +127,7 @@ export default function Dashboard({ onLogout }) {
             channel={apiChannel}
             secondaryDataKey="orders"
             secondaryLabel="Cantidad de ventas"
-            secondaryColor="#2A78D6"
+            secondaryColor="#C9A24B"
             secondaryAxis
           />
           {apiChannel === null && (

@@ -122,8 +122,19 @@ test('normalizeOdooSaleOrder maps draft state to pending', () => {
 
 test('normalizeOdooSaleOrder carries amountCollected through, defaulting to 0 when omitted', () => {
   const order = { id: 51269, date_order: '2026-07-08 14:52:14', amount_total: 849746.7, state: 'sale' };
-  assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku, 300000).amountCollected, 300000);
+  assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku, { amountCollected: 300000 }).amountCollected, 300000);
   assert.equal(normalizeOdooSaleOrder(order, [], categoryBySku).amountCollected, 0);
+});
+
+test('normalizeOdooSaleOrder defaults to the mayorista channel, but accepts an override', () => {
+  const order = { id: 51269, date_order: '2026-07-08 14:52:14', amount_total: 849746.7, state: 'sale' };
+  const mayoristaDoc = normalizeOdooSaleOrder(order, [], categoryBySku);
+  assert.equal(mayoristaDoc.id, 'mayorista_51269');
+  assert.equal(mayoristaDoc.channel, 'mayorista');
+
+  const feriaDoc = normalizeOdooSaleOrder(order, [], categoryBySku, { channel: 'feria' });
+  assert.equal(feriaDoc.id, 'feria_51269');
+  assert.equal(feriaDoc.channel, 'feria');
 });
 
 test('normalizeOdooEcommerceOrder maps a paid order to completed and splits out net shipping', () => {

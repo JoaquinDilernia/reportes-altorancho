@@ -4,6 +4,7 @@ export const CHANNELS = [
   { id: 'local_belgrano', label: 'Belgrano', color: '#4A3AA7' },
   { id: 'local_alcorta', label: 'Alcorta', color: '#EB6834' },
   { id: 'mayorista', label: 'Mayorista', color: '#2A78D6' },
+  { id: 'feria', label: 'Feria', color: '#0E9594' },
 ];
 
 const CONSOLIDADO_COLOR = '#353434';

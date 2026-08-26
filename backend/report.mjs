@@ -7,7 +7,7 @@ import {
 } from './aggregate.mjs';
 import { computeAdTotals, computeAdDailyBreakdown, computeTopAds } from './aggregateAds.mjs';
 
-export const ALL_CHANNELS = ['ecommerce', 'local_lomas', 'local_belgrano', 'local_alcorta', 'mayorista'];
+export const ALL_CHANNELS = ['ecommerce', 'local_lomas', 'local_belgrano', 'local_alcorta', 'mayorista', 'feria'];
 
 export async function buildTotalsSection(channels, range, productsBySku) {
   const sales = await querySalesByRange(channels, range.start, range.end);
