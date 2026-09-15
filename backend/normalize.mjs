@@ -100,9 +100,14 @@ function stripCountrySuffix(name) {
 }
 
 export function normalizeOdooEcommerceOrder(order, lines, categoryBySku, provinceName) {
+  // tiendanube_order_payment_status only auto-updates for orders paid through
+  // a Tiendanube online gateway; offline methods (transferencia, efectivo)
+  // leave it stuck on 'pending' forever even after Odoo confirms and invoices
+  // the order. Odoo's own state is the reliable signal — same as mayorista's
+  // normalizeOdooSaleOrder, which reads the same sale.order model.
   const status =
     order.state === 'cancel' ? 'cancelled' :
-    order.tiendanube_order_payment_status === 'paid' ? 'completed' :
+    ['sale', 'done'].includes(order.state) ? 'completed' :
     'pending';
 
   const productLines = [];

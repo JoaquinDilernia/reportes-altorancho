@@ -174,10 +174,21 @@ test('normalizeOdooEcommerceOrder maps cancel state to cancelled regardless of p
   assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).status, 'cancelled');
 });
 
-test('normalizeOdooEcommerceOrder maps a pending payment status to pending', () => {
+test('normalizeOdooEcommerceOrder maps sale/done to completed regardless of tiendanube_order_payment_status', () => {
+  // Offline payment methods (transferencia, efectivo) never flip this field
+  // to 'paid' even once Odoo has confirmed and invoiced the order, so status
+  // must follow Odoo's own state, not the Tiendanube-specific field.
   const order = {
     tiendanube_order_id: '2', date_order: '2026-01-01 00:00:00', amount_untaxed: 100,
     state: 'sale', tiendanube_order_payment_status: 'pending', tiendanube_gateway_name: null,
+  };
+  assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).status, 'completed');
+});
+
+test('normalizeOdooEcommerceOrder maps a non-sale/done state to pending', () => {
+  const order = {
+    tiendanube_order_id: '2b', date_order: '2026-01-01 00:00:00', amount_untaxed: 100,
+    state: 'draft', tiendanube_order_payment_status: 'paid', tiendanube_gateway_name: null,
   };
   assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).status, 'pending');
 });
