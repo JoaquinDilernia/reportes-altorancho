@@ -31,6 +31,14 @@ test('extractActionValue returns the numeric value when the action_type matches'
   assert.equal(extractActionValue(actions, 'omni_purchase'), 87);
 });
 
+// Live-captured shape once action_attribution_windows=['1d_click'] is
+// requested: each action carries the '1d_click' breakdown alongside the
+// blended `value`, which mixes each ad set's own attribution setting.
+test('extractActionValue prefers the 1d_click breakdown over the blended value', () => {
+  const actions = [{ action_type: 'omni_purchase', value: '342', '1d_click': '275' }];
+  assert.equal(extractActionValue(actions, 'omni_purchase'), 275);
+});
+
 // Shape captured live from GET /act_.../insights?level=account&time_increment=1
 const ACCOUNT_ROW = {
   spend: '5854683.64', impressions: '1243756', reach: '573702', clicks: '50699',

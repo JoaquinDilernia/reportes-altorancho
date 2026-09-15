@@ -7,9 +7,9 @@ import { saveMetaAdsDailyDocs, saveMetaAdsAdDailyDocs, setSyncMetadata } from '.
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 
 // Unlike the Tiendanube/Odoo syncs (incremental "since last sync"), Meta
-// attributes conversions retroactively (up to a 7-day click window), so
-// every run re-fetches and overwrites the trailing `daysBack` days rather
-// than just the newest day.
+// attributes conversions retroactively within the 1-day click window
+// meta.mjs requests, so every run re-fetches and overwrites the trailing
+// `daysBack` days rather than just the newest day.
 export async function syncMetaAds({ daysBack = 30, includeAdLevel = true } = {}) {
   const until = new Date();
   const since = new Date(until);

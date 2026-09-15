@@ -1,6 +1,6 @@
 import 'dotenv/config';
 
-const API_VERSION = 'v21.0';
+const API_VERSION = 'v25.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
 const TOKEN = process.env.META_ACCESS_TOKEN;
@@ -33,11 +33,16 @@ export function chunkDateRange(since, until, maxDays = 90) {
 // Meta's `actions`/`action_values` fields are arrays of { action_type, value }
 // instead of flat fields; this pulls one metric out by its action_type,
 // defaulting to 0 when the array is missing (no activity that day/ad) or the
-// action_type didn't occur.
+// action_type didn't occur. Since insightsUrl() requests action_attribution_windows
+// with '1d_click', each entry also carries a '1d_click' breakdown alongside the
+// plain `value` (which reflects each ad set's own, inconsistent attribution
+// setting); prefer that breakdown so every metric is measured on the same
+// 1-day-click-through window regardless of how individual ad sets are configured.
 export function extractActionValue(actions, actionType) {
   if (!actions) return 0;
   const match = actions.find(a => a.action_type === actionType);
-  return match ? Number(match.value) : 0;
+  if (!match) return 0;
+  return Number(match['1d_click'] ?? match.value);
 }
 
 // Converts a Meta Ads Insights API row (account-level or ad-level) to the
@@ -105,6 +110,13 @@ function insightsUrl(level, fields, since, until) {
     time_increment: '1',
     time_range: JSON.stringify({ since, until }),
     limit: '500',
+    // Ad sets in this account mix attribution settings (most are 1-day click,
+    // some are 7-day click + 1-day view), so the default `value` on each
+    // action is an inconsistent blend that isn't comparable across ad sets
+    // or across time periods. Requesting this window explicitly adds a
+    // same-named '1d_click' breakdown to every action, which extractActionValue
+    // reads instead, so every report uses the same, consistent window.
+    action_attribution_windows: JSON.stringify(['1d_click']),
   });
   return `${BASE_URL}/${ACCOUNT_ID}/insights?${params.toString()}`;
 }
