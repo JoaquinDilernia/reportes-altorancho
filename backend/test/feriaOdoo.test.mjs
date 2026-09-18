@@ -1,0 +1,35 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildSaleOrderPayload } from '../feriaOdoo.mjs';
+
+test('arma el payload de sale.order con las líneas en formato Odoo (0,0,{...})', () => {
+  const payload = buildSaleOrderPayload({
+    partnerId: 42,
+    pricelistId: 7,
+    teamId: 3,
+    lines: [
+      { productId: 100, qty: 2, unitPrice: 1500, discountPct: 10 },
+      { productId: 101, qty: 1, unitPrice: 800, discountPct: 0 },
+    ],
+  });
+
+  assert.equal(payload.partner_id, 42);
+  assert.equal(payload.pricelist_id, 7);
+  assert.equal(payload.team_id, 3);
+  assert.equal(payload.order_line.length, 2);
+  assert.deepEqual(payload.order_line[0], [0, 0, {
+    product_id: 100, product_uom_qty: 2, price_unit: 1500, discount: 10,
+  }]);
+  assert.deepEqual(payload.order_line[1], [0, 0, {
+    product_id: 101, product_uom_qty: 1, price_unit: 800, discount: 0,
+  }]);
+});
+
+test('sin team_id (todavía no se creó el equipo de ventas en Odoo) lo omite en vez de mandar null', () => {
+  const payload = buildSaleOrderPayload({
+    partnerId: 42, pricelistId: 7, teamId: null, lines: [
+      { productId: 100, qty: 1, unitPrice: 100, discountPct: 0 },
+    ],
+  });
+  assert.equal('team_id' in payload, false);
+});
