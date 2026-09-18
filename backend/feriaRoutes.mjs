@@ -1,0 +1,148 @@
+import { Router } from 'express';
+import { requireFeriaAuth, requireFeriaRole, validateSellerPin, validateCajaCredentials, generateToken } from './feriaAuth.mjs';
+import {
+  createOrder, listOrdersByStatus, getOrderById,
+  updateOrderPayment, saveOdooOrderId, markOrderConfirmed, markOrderError,
+} from './feriaOrders.mjs';
+import {
+  searchProducts, getPricelists, findOrCreatePartner, findSalesTeamId,
+  buildSaleOrderPayload, createSaleOrder, confirmSaleOrder, createInvoiceForOrder,
+} from './feriaOdoo.mjs';
+
+const router = Router();
+
+router.post('/auth/vendedor', async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin) return res.status(400).json({ error: 'Falta el PIN' });
+    const seller = await validateSellerPin(pin);
+    if (!seller) return res.status(401).json({ error: 'PIN incorrecto' });
+    const token = generateToken({ role: 'vendedor', id: seller.id, name: seller.name });
+    res.json({ token, seller });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/auth/caja', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Faltan credenciales' });
+    const user = await validateCajaCredentials(email, password);
+    if (!user) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+    const token = generateToken({ role: 'caja', id: user.id, email: user.email, name: user.name });
+    res.json({ token, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/products/search', requireFeriaAuth, async (req, res) => {
+  try {
+    const q = req.query.q?.trim();
+    if (!q) return res.json({ products: [] });
+    res.json({ products: await searchProducts(q) });
+  } catch (err) {
+    res.status(502).json({ error: `Error consultando Odoo: ${err.message}` });
+  }
+});
+
+router.get('/pricelists', requireFeriaAuth, async (req, res) => {
+  try {
+    res.json({ pricelists: await getPricelists() });
+  } catch (err) {
+    res.status(502).json({ error: `Error consultando Odoo: ${err.message}` });
+  }
+});
+
+router.post('/orders', requireFeriaAuth, requireFeriaRole('vendedor'), async (req, res) => {
+  try {
+    const order = await createOrder({
+      ...req.body, sellerId: req.feriaUser.id, sellerName: req.feriaUser.name,
+    });
+    res.status(201).json({ order });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/orders', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ orders: await listOrdersByStatus(req.query.status || 'pendiente') });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/orders/:id', requireFeriaAuth, async (req, res) => {
+  const order = await getOrderById(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+  res.json({ order });
+});
+
+router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    await updateOrderPayment(req.params.id, req.body);
+    res.json({ order: await getOrderById(req.params.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Confirma el pedido: crea (o busca) el partner, arma y crea el sale.order
+// en Odoo con el Equipo de ventas de la feria, lo confirma, y factura si
+// corresponde. Se puede llamar de nuevo sin problema si quedó en 'error' —
+// es idempotente respecto de la creación del pedido en Odoo: si esta
+// conversación ya tiene un odooOrderId guardado (de un intento anterior que
+// llegó a crear el pedido pero falló después, típicamente al facturar), un
+// reintento NO vuelve a crear el sale.order — salta directo a facturar.
+// Sin esto, reintentar tras una factura fallida crearía un pedido duplicado
+// en Odoo con plata real ya cobrada.
+router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  const order = await getOrderById(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+  try {
+    let odooOrderId = order.odooOrderId;
+
+    if (!odooOrderId) {
+      const partnerId = await findOrCreatePartner({
+        name: order.customer.name, docNumber: order.customer.docNumber,
+      });
+      const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
+      const vals = buildSaleOrderPayload({
+        partnerId, pricelistId: order.pricelistId, teamId,
+        lines: order.lines.map(l => ({
+          productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct,
+        })),
+      });
+      odooOrderId = await createSaleOrder(vals);
+      await confirmSaleOrder(odooOrderId);
+      await saveOdooOrderId(order.id, odooOrderId);
+    }
+
+    // createInvoiceForOrder devuelve null tanto "no se pidió factura" como
+    // "se pidió pero Odoo no pudo generarla" (ver feriaOdoo.mjs). Si el
+    // cajero pidió facturar, un null acá NO es un éxito silencioso — el
+    // pedido ya quedó creado y confirmado en Odoo, pero sin factura, y eso
+    // tiene que verse como error para que el cajero lo note y reintente
+    // (en vez de creer que ya está todo listo). El reintento, gracias al
+    // odooOrderId ya guardado, solo va a reintentar la factura.
+    let invoiceId = null;
+    if (order.invoiceType) {
+      invoiceId = await createInvoiceForOrder(odooOrderId);
+      if (!invoiceId) {
+        await markOrderError(order.id, `Pedido #${odooOrderId} ya creado y confirmado en Odoo, pero no se pudo generar la factura ${order.invoiceType}. Reintentar solo reintenta la factura, no crea un pedido nuevo.`);
+        return res.status(502).json({ error: `Pedido creado en Odoo (#${odooOrderId}) pero falló la factura — reintentar.` });
+      }
+    }
+
+    await markOrderConfirmed(order.id, { odooOrderId, invoiceId });
+    res.json({ order: await getOrderById(order.id) });
+  } catch (err) {
+    await markOrderError(order.id, err.message);
+    res.status(502).json({ error: `No se pudo confirmar en Odoo: ${err.message}` });
+  }
+});
+
+export default router;
