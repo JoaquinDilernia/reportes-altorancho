@@ -4,3 +4,4 @@ dist/
 JUNIO.zip
 JUNIO_extracted/
 *.log
+.worktrees/
