@@ -61,7 +61,7 @@ export async function validateCajaCredentials(email, password) {
   const doc = await db.collection(ADMINS_COLLECTION).doc(id).get();
   if (!doc.exists) return null;
   const data = doc.data();
-  if (data.passwordHash !== hashPassword(password)) return null;
+  if (!safeEqual(data.passwordHash, hashPassword(password))) return null;
   return { id, email: data.email, name: data.name };
 }
 
