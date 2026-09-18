@@ -9,12 +9,13 @@ async function ensureAuth() {
   }
 }
 
-// callKw (odoo.mjs) no reintenta si la sesión de Odoo expiró — no hace
-// falta para los syncs de reportes, que corren cada pocas horas y toleran
-// un reintento del propio cron. Las escrituras de este módulo pasan dinero
-// real en el momento de la venta, así que si la sesión expiró, se
-// reautentica una vez y se reintenta antes de fallarle al cajero.
-async function callKwWithRetry(model, method, args = [], kwargs = {}) {
+// callKwReadWithRetry reintenta si la sesión expiró, solo para operaciones
+// de lectura. Las escrituras (create, action_confirm, etc.) no se reintentan
+// automáticamente porque si la primera llamada tuvo éxito pero la respuesta
+// se perdió a una desconexión de red, un reintento crearría duplicados.
+// El panel Caja ya tiene un botón "Reintentar" manual para pedidos en estado
+// 'error', así que es seguro fallar directo en el primer intento.
+async function callKwReadWithRetry(model, method, args = [], kwargs = {}) {
   await ensureAuth();
   try {
     return await callKw(model, method, args, kwargs);
@@ -26,7 +27,7 @@ async function callKwWithRetry(model, method, args = [], kwargs = {}) {
 }
 
 export async function searchProducts(query) {
-  const results = await callKwWithRetry('product.product', 'search_read', [
+  const results = await callKwReadWithRetry('product.product', 'search_read', [
     ['|', ['default_code', 'ilike', query], ['name', 'ilike', query]],
   ], { fields: ['id', 'name', 'default_code', 'lst_price'], limit: 20 });
   return results.map(p => ({
@@ -35,7 +36,7 @@ export async function searchProducts(query) {
 }
 
 export async function getPricelists() {
-  const results = await callKwWithRetry('product.pricelist', 'search_read', [[]], {
+  const results = await callKwReadWithRetry('product.pricelist', 'search_read', [[]], {
     fields: ['id', 'name'],
   });
   return results.map(p => ({ id: p.id, name: p.name }));
@@ -43,7 +44,7 @@ export async function getPricelists() {
 
 export async function findSalesTeamId(teamName) {
   if (!teamName) return null;
-  const results = await callKwWithRetry('crm.team', 'search_read', [
+  const results = await callKwReadWithRetry('crm.team', 'search_read', [
     [['name', '=', teamName]],
   ], { fields: ['id'], limit: 1 });
   return results[0]?.id ?? null;
@@ -55,14 +56,15 @@ export async function findSalesTeamId(teamName) {
 // contra la instancia real antes de necesitar Factura A (ver spec).
 export async function findOrCreatePartner({ name, docNumber }) {
   if (docNumber) {
-    const existing = await callKwWithRetry('res.partner', 'search_read', [
+    const existing = await callKwReadWithRetry('res.partner', 'search_read', [
       [['vat', '=', docNumber]],
     ], { fields: ['id'], limit: 1 });
     if (existing[0]) return existing[0].id;
   }
   const vals = { name };
   if (docNumber) vals.vat = docNumber;
-  const [id] = await callKwWithRetry('res.partner', 'create', [[vals]]);
+  await ensureAuth();
+  const [id] = await callKw('res.partner', 'create', [[vals]]);
   return id;
 }
 
@@ -82,12 +84,14 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, lines })
 }
 
 export async function createSaleOrder(vals) {
-  const [id] = await callKwWithRetry('sale.order', 'create', [[vals]]);
+  await ensureAuth();
+  const [id] = await callKw('sale.order', 'create', [[vals]]);
   return id;
 }
 
 export async function confirmSaleOrder(orderId) {
-  await callKwWithRetry('sale.order', 'action_confirm', [[orderId]]);
+  await ensureAuth();
+  await callKw('sale.order', 'action_confirm', [[orderId]]);
 }
 
 // Método estándar de Odoo 14+ para facturar un pedido confirmado. Si esta
@@ -96,7 +100,8 @@ export async function confirmSaleOrder(orderId) {
 // método al que esa automatización realmente llama.
 export async function createInvoiceForOrder(orderId) {
   try {
-    const result = await callKwWithRetry('sale.order', '_create_invoices', [[orderId]]);
+    await ensureAuth();
+    const result = await callKw('sale.order', '_create_invoices', [[orderId]]);
     return Array.isArray(result) ? (result[0] ?? null) : (result ?? null);
   } catch (err) {
     console.error('[feriaOdoo] Error creando factura:', err.message);
