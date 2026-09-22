@@ -82,6 +82,14 @@ export async function updateOrderPayment(id, { paymentMethod, invoiceType }) {
   const currentOrder = await getOrderById(id);
   if (!currentOrder) throw new Error('Pedido no encontrado');
 
+  // Un pedido ya confirmado/facturado ya viajó a Odoo con sus precios. Volver
+  // a preciarlo acá solo cambiaría Firestore y dejaría las dos puntas
+  // divergentes — justo lo que el corte temprano de /confirm evita del otro
+  // lado.
+  if (currentOrder.status === 'confirmado' || currentOrder.status === 'facturado') {
+    throw new Error('No se puede cambiar el medio de pago de un pedido ya confirmado');
+  }
+
   const db = getDb();
   const update = { updatedAt: new Date() };
   if (paymentMethod) update.paymentMethod = paymentMethod;

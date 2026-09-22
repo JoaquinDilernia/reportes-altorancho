@@ -4,9 +4,12 @@ import {
   createOrder, listOrdersByStatus, getOrderById,
   updateOrderPayment, saveOdooOrderId, markOrderConfirmed, markOrderError,
 } from './feriaOrders.mjs';
+// createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se importa:
+// la facturación automática está deshabilitada por ahora (ver más abajo, en
+// /orders/:id/confirm). Volver a importarla al reactivarla.
 import {
   findOrCreatePartner, findPartnerByDoc, findSalesTeamId, findPricelistId, findProductIdBySku,
-  buildSaleOrderPayload, createSaleOrder, confirmSaleOrder, createInvoiceForOrder,
+  buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
 } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
 import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
@@ -157,14 +160,15 @@ router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), 
 });
 
 // Confirma el pedido: crea (o busca) el partner, resuelve el product_id de
-// Odoo de cada línea por SKU, arma y crea el sale.order con la pricelist y
-// el Equipo de ventas de la feria, lo confirma, y factura si corresponde.
+// Odoo de cada línea por SKU, y arma y crea el sale.order con la pricelist y
+// el Equipo de ventas de la feria, y lo confirma. NO factura: la facturación
+// automática está deshabilitada por ahora (ver el comentario más abajo), así
+// que todo pedido confirmado queda en estado 'confirmado', nunca 'facturado'.
 // Se puede llamar de nuevo sin problema si quedó en 'error' — es idempotente
 // respecto de la creación del pedido en Odoo: si esta orden ya tiene un
 // odooOrderId guardado (de un intento anterior que llegó a crear el pedido
-// pero falló después, típicamente al facturar), un reintento NO vuelve a
-// crear el sale.order — salta directo a facturar. Sin esto, reintentar tras
-// una factura fallida crearía un pedido duplicado en Odoo con plata real ya
+// pero falló después), un reintento NO vuelve a crear el sale.order. Sin
+// esto, reintentar crearía un pedido duplicado en Odoo con plata real ya
 // cobrada.
 router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   const order = await getOrderById(req.params.id);
@@ -200,32 +204,36 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
       // El id se guarda ANTES de confirmar: si confirmSaleOrder falla, el
       // pedido de Odoo YA existe, y sin el id guardado un reintento del
       // cajero crearía un segundo sale.order por una venta ya hecha.
-      // Guardándolo acá, el reintento solo vuelve a confirmar el mismo
-      // pedido (confirmar uno ya confirmado es un no-op seguro en Odoo).
       await saveOdooOrderId(order.id, odooOrderId);
-      await confirmSaleOrder(odooOrderId);
     }
 
-    // createInvoiceForOrder devuelve null tanto "no se pidió factura" como
-    // "se pidió pero Odoo no pudo generarla" (ver feriaOdoo.mjs). Si el
-    // cajero pidió facturar, un null acá NO es un éxito silencioso — el
-    // pedido ya quedó creado y confirmado en Odoo, pero sin factura, y eso
-    // tiene que verse como error para que el cajero lo note y reintente
-    // (en vez de creer que ya está todo listo). El reintento, gracias al
-    // odooOrderId ya guardado, solo va a reintentar la factura.
-    let invoiceId = null;
-    if (order.invoiceType) {
-      invoiceId = await createInvoiceForOrder(odooOrderId);
-      if (!invoiceId) {
-        await markOrderError(order.id, `Pedido #${odooOrderId} ya creado y confirmado en Odoo, pero no se pudo generar la factura ${order.invoiceType}. Reintentar solo reintenta la factura, no crea un pedido nuevo.`);
-        return res.status(502).json({ error: `Pedido creado en Odoo (#${odooOrderId}) pero falló la factura — reintentar.` });
-      }
-    }
+    // Fuera del if a propósito: se confirma en TODOS los intentos, no solo
+    // cuando el pedido se acaba de crear. Si confirmSaleOrder falló en un
+    // intento anterior, el odooOrderId ya está guardado y el reintento se
+    // saltea la creación — si el confirm también quedara adentro del if, ese
+    // sale.order se quedaría como presupuesto en borrador para siempre.
+    // Re-confirmar uno ya confirmado es un no-op seguro en Odoo (chequea el
+    // state y no hace nada si ya está en 'sale').
+    await confirmSaleOrder(odooOrderId);
 
-    await markOrderConfirmed(order.id, { odooOrderId, invoiceId });
+    // Facturación automática deshabilitada temporalmente: falló en producción
+    // contra Odoo real y el mecanismo exacto (cron vs. disparo al confirmar,
+    // ver spec) todavía no está resuelto. El pedido se crea y confirma en Odoo
+    // igual, con el precio correcto — solo se deja de intentar generar la
+    // factura. Reactivar cuando se resuelva el mecanismo de facturación.
+    await markOrderConfirmed(order.id, { odooOrderId, invoiceId: null });
     res.json({ order: await getOrderById(order.id) });
   } catch (err) {
-    await markOrderError(order.id, err.message);
+    // markOrderError escribe en Firestore: si lo que está caído es Firestore,
+    // tirar acá adentro del catch sería un rechazo sin manejar en un handler
+    // async de Express 4 — es decir, voltear el proceso entero justo cuando
+    // ya hay un error en curso. Se registra y se sigue: al cajero le importa
+    // recibir el 502, no que el pedido haya quedado marcado.
+    try {
+      await markOrderError(order.id, err.message);
+    } catch (markErr) {
+      console.error('[feria] no se pudo marcar el pedido como error:', markErr.message);
+    }
     res.status(502).json({ error: `No se pudo confirmar en Odoo: ${err.message}` });
   }
 });
