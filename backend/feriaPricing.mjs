@@ -16,6 +16,9 @@ export function activeRebajaField(condition) {
 // tiene precio cargado para esa condición (no todos los SKU tienen las dos).
 export function tablePrice(product, condition, rebajaLevel) {
   if (!CONDITIONS.has(condition)) throw new Error(`Condición inválida: ${condition}`);
+  if (rebajaLevel !== 0 && rebajaLevel !== 1 && rebajaLevel !== 2) {
+    throw new Error(`Nivel de rebaja inválido: ${rebajaLevel}`);
+  }
   const suffix = condition === 'falla' ? 'Falla' : 'Discontinuo';
   const field = rebajaLevel === 1 ? `precioRebaja1${suffix}`
     : rebajaLevel === 2 ? `precioRebaja2${suffix}`

@@ -38,6 +38,13 @@ test('tablePrice rechaza una condición inválida', () => {
   assert.throws(() => tablePrice(product, 'nueva', 0), /Condición inválida/);
 });
 
+test('tablePrice rechaza un nivel de rebaja inválido', () => {
+  assert.throws(() => tablePrice(product, 'falla', 3), /Nivel de rebaja inválido/);
+  assert.throws(() => tablePrice(product, 'falla', -1), /Nivel de rebaja inválido/);
+  assert.throws(() => tablePrice(product, 'falla', undefined), /Nivel de rebaja inválido/);
+  assert.throws(() => tablePrice(product, 'falla', '1'), /Nivel de rebaja inválido/);
+});
+
 test('computeFinalPrice aplica el % de descuento del medio de pago sobre el precio de tabla', () => {
   assert.equal(computeFinalPrice(product, 'falla', 0, 'transferencia'), Math.round(27990 * 0.8));
   assert.equal(computeFinalPrice(product, 'falla', 0, 'efectivo'), Math.round(27990 * 0.85));

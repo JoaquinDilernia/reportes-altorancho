@@ -54,10 +54,18 @@ async function main() {
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let duplicates = 0;
+  const seenSkus = new Set();
 
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (!row.SKU) { skipped++; continue; }
     const sku = String(row.SKU).trim().toUpperCase();
+    if (seenSkus.has(sku)) {
+      duplicates++;
+      console.warn(`[importFeriaPrices] SKU duplicado en el excel, se pisa el valor anterior: ${sku} (fila ${i + 2})`);
+    }
+    seenSkus.add(sku);
     const payload = { ...normalizeRow(row), updatedAt: new Date() };
     if (!existingSkus.has(sku)) {
       // Docs nuevos arrancan sin rebaja activa. Docs existentes NO tocan
@@ -80,7 +88,7 @@ async function main() {
   }
   if (opsInBatch > 0) await batch.commit();
 
-  console.log(`[importFeriaPrices] Listo. Creados: ${created}, actualizados: ${updated}, filas sin SKU: ${skipped}, total filas: ${rows.length}`);
+  console.log(`[importFeriaPrices] Listo. Creados: ${created}, actualizados: ${updated}, filas sin SKU: ${skipped}, duplicados: ${duplicates}, total filas: ${rows.length}`);
 }
 
 main().catch((err) => {
