@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PAYMENT_METHODS, tablePrice, computeFinalPrice } from '../feriaPricing.mjs';
+import { PAYMENT_METHODS, tablePrice, computeFinalPrice, odooLinePricing } from '../feriaPricing.mjs';
 
 const product = {
   precioFalla: 27990,
@@ -61,4 +61,32 @@ test('computeFinalPrice devuelve null si la condición no tiene precio cargado',
 
 test('computeFinalPrice rechaza un medio de pago inválido', () => {
   assert.throws(() => computeFinalPrice(product, 'falla', 0, 'cheque'), /Método de pago inválido/);
+});
+
+test('cada medio de pago tiene su nombre de payment.method en Odoo', () => {
+  assert.equal(PAYMENT_METHODS.transferencia.odooName, 'Transferencia');
+  assert.equal(PAYMENT_METHODS.efectivo.odooName, 'Efectivo');
+  assert.equal(PAYMENT_METHODS.cuotas.odooName, 'Mercado Pago 3 cuotas');
+});
+
+test('odooLinePricing manda el precio de tabla completo y el descuento del medio de pago aparte', () => {
+  assert.deepEqual(
+    odooLinePricing({ listPrice: 9990, unitPrice: 7992 }, 'transferencia'),
+    { unitPrice: 9990, discountPct: 20 },
+  );
+  assert.deepEqual(
+    odooLinePricing({ listPrice: 9990, unitPrice: 9990 }, 'cuotas'),
+    { unitPrice: 9990, discountPct: 0 },
+  );
+});
+
+test('odooLinePricing reconstruye el precio de tabla en pedidos viejos sin listPrice', () => {
+  assert.deepEqual(
+    odooLinePricing({ unitPrice: 7992 }, 'transferencia'),
+    { unitPrice: 9990, discountPct: 20 },
+  );
+});
+
+test('odooLinePricing rechaza un medio de pago inválido', () => {
+  assert.throws(() => odooLinePricing({ listPrice: 100, unitPrice: 100 }, 'cheque'), /Método de pago inválido/);
 });

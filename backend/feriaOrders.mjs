@@ -23,6 +23,9 @@ export function validateOrderInput(input) {
     // condición no tiene precio cargado) o una cantidad string pasaban.
     if (typeof line.qty !== 'number' || !Number.isFinite(line.qty) || line.qty <= 0) errors.push(`Cantidad inválida (cantidad debe ser mayor a 0) para ${line.sku ?? 'un producto'}`);
     if (typeof line.unitPrice !== 'number' || !Number.isFinite(line.unitPrice) || line.unitPrice < 0) errors.push(`Precio inválido para ${line.sku ?? 'un producto'}`);
+    // listPrice (precio de tabla, sin el descuento del medio de pago) es
+    // opcional para no romper pedidos de tablets con la versión anterior.
+    if (line.listPrice !== undefined && (typeof line.listPrice !== 'number' || !Number.isFinite(line.listPrice) || line.listPrice < 0)) errors.push(`Precio de lista inválido para ${line.sku ?? 'un producto'}`);
   }
   return { valid: errors.length === 0, errors };
 }
@@ -52,11 +55,15 @@ export async function createOrder(input) {
 
 export async function listOrdersByStatus(status) {
   const db = getDb();
+  // Sin orderBy en la query: where + orderBy sobre campos distintos exige un
+  // índice compuesto en Firestore. Se ordena acá (más nuevo primero); son
+  // pocos pedidos por estado, así que no hay costo real.
   const snap = await db.collection(COLLECTION)
     .where('status', '==', status)
-    .orderBy('createdAt', 'desc')
     .get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
 }
 
 export async function getOrderById(id) {

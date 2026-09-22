@@ -72,3 +72,15 @@ test('rechaza una línea sin SKU', () => {
   assert.equal(result.valid, false);
   assert.ok(result.errors.some(e => e.includes('SKU')));
 });
+
+test('acepta una línea con listPrice (precio de tabla sin descuento del medio de pago)', () => {
+  const lines = [{ ...validInput.lines[0], listPrice: 27990 }];
+  assert.deepEqual(validateOrderInput({ ...validInput, lines }), { valid: true, errors: [] });
+});
+
+test('rechaza un listPrice que no es un número válido', () => {
+  const lines = [{ ...validInput.lines[0], listPrice: '27990' }];
+  const result = validateOrderInput({ ...validInput, lines });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /Precio de lista inválido/);
+});

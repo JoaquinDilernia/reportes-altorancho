@@ -33,3 +33,24 @@ test('sin team_id (todavía no se creó el equipo de ventas en Odoo) lo omite en
   });
   assert.equal('team_id' in payload, false);
 });
+
+test('con medio de pago lo carga en payment_method_ids', () => {
+  const payload = buildSaleOrderPayload({
+    partnerId: 42, pricelistId: 7, teamId: 3, paymentMethodId: 6, lines: [
+      { productId: 100, qty: 1, unitPrice: 9990, discountPct: 20 },
+    ],
+  });
+  assert.equal(payload.payment_method_ids, 6);
+  assert.deepEqual(payload.order_line[0], [0, 0, {
+    product_id: 100, product_uom_qty: 1, price_unit: 9990, discount: 20,
+  }]);
+});
+
+test('sin medio de pago lo omite en vez de mandar null', () => {
+  const payload = buildSaleOrderPayload({
+    partnerId: 42, pricelistId: 7, teamId: 3, lines: [
+      { productId: 100, qty: 1, unitPrice: 100, discountPct: 0 },
+    ],
+  });
+  assert.equal('payment_method_ids' in payload, false);
+});

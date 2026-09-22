@@ -9,10 +9,10 @@ import {
 // /orders/:id/confirm). Volver a importarla al reactivarla.
 import {
   findOrCreatePartner, findPartnerByDoc, findSalesTeamId, findPricelistId, findProductIdBySku,
-  buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
+  findPaymentMethodId, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
 } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
-import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
+import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField, odooLinePricing } from './feriaPricing.mjs';
 
 const router = Router();
 
@@ -191,15 +191,18 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
       const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
       const pricelistId = await findPricelistId(process.env.ODOO_FERIA_PRICELIST_NAME);
       if (!pricelistId) throw new Error(`Pricelist de feria no encontrada en Odoo: "${process.env.ODOO_FERIA_PRICELIST_NAME}"`);
+      const odooPaymentName = PAYMENT_METHODS[order.paymentMethod]?.odooName;
+      const paymentMethodId = await findPaymentMethodId(odooPaymentName);
+      if (!paymentMethodId) throw new Error(`Medio de pago no encontrado en Odoo: "${odooPaymentName ?? order.paymentMethod}"`);
 
       const resolvedLines = [];
       for (const line of order.lines) {
         const productId = await findProductIdBySku(line.sku);
         if (!productId) throw new Error(`SKU no encontrado en Odoo: ${line.sku}`);
-        resolvedLines.push({ productId, qty: line.qty, unitPrice: line.unitPrice, discountPct: 0 });
+        resolvedLines.push({ productId, qty: line.qty, ...odooLinePricing(line, order.paymentMethod) });
       }
 
-      const vals = buildSaleOrderPayload({ partnerId, pricelistId, teamId, lines: resolvedLines });
+      const vals = buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, lines: resolvedLines });
       odooOrderId = await createSaleOrder(vals);
       // El id se guarda ANTES de confirmar: si confirmSaleOrder falla, el
       // pedido de Odoo YA existe, y sin el id guardado un reintento del

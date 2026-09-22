@@ -68,7 +68,7 @@ export async function findOrCreatePartner({ name, docNumber }) {
   return id;
 }
 
-export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, lines }) {
+export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, lines }) {
   const payload = {
     partner_id: partnerId,
     pricelist_id: pricelistId,
@@ -80,7 +80,18 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, lines })
     }]),
   };
   if (teamId) payload.team_id = teamId;
+  // payment_method_ids es un many2one (a pesar del sufijo _ids) a
+  // payment.method: el campo "Medio de pago" del pedido en este Odoo.
+  if (paymentMethodId) payload.payment_method_ids = paymentMethodId;
   return payload;
+}
+
+export async function findPaymentMethodId(name) {
+  if (!name) return null;
+  const results = await callKwReadWithRetry('payment.method', 'search_read', [
+    [['name', '=', name]],
+  ], { fields: ['id'], limit: 1 });
+  return results[0]?.id ?? null;
 }
 
 export async function createSaleOrder(vals) {
