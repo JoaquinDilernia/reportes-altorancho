@@ -63,13 +63,22 @@ function buildConditionsPayload(product) {
 }
 
 router.get('/products/search', requireFeriaAuth, async (req, res) => {
-  const q = req.query.q?.trim();
-  if (!q) return res.json({ products: [] });
-  const products = searchFeriaProducts(q).map((p) => ({
-    sku: p.sku, modelo: p.modelo, color: p.color, stock: p.stock ?? null,
-    condiciones: buildConditionsPayload(p),
-  }));
-  res.json({ products });
+  try {
+    const q = req.query.q?.trim();
+    if (!q) return res.json({ products: [] });
+    const products = searchFeriaProducts(q).map((p) => ({
+      sku: p.sku, modelo: p.modelo, color: p.color, stock: p.stock ?? null,
+      condiciones: buildConditionsPayload(p),
+    }));
+    res.json({ products });
+  } catch (err) {
+    // tablePrice/computeFinalPrice tiran si un documento de Firestore quedó
+    // con un nivel de rebaja inválido (p. ej. editado a mano durante la
+    // feria). Sin este catch, el rechazo sin manejar en un handler async de
+    // Express 4 voltea el proceso entero.
+    console.error('[feria] products/search error:', err.message);
+    res.status(500).json({ error: 'Error buscando productos' });
+  }
 });
 
 router.patch('/products/:sku/rebaja', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
@@ -86,24 +95,31 @@ router.patch('/products/:sku/rebaja', requireFeriaAuth, requireFeriaRole('caja')
 });
 
 router.get('/public/products/search', async (req, res) => {
-  const q = req.query.q?.trim();
-  if (!q) return res.json({ products: [] });
-  const products = searchFeriaProducts(q).map((p) => {
-    const precios = {};
-    for (const condition of ['falla', 'discontinuo']) {
-      const priceField = condition === 'falla' ? 'precioFalla' : 'precioDiscontinuo';
-      if (p[priceField] == null) continue;
-      const rebajaActiva = p[activeRebajaField(condition)] ?? 0;
-      precios[condition] = Object.fromEntries(
-        Object.entries(PAYMENT_METHODS).map(([method, info]) => [
-          method,
-          { label: info.label, precio: computeFinalPrice(p, condition, rebajaActiva, method) },
-        ])
-      );
-    }
-    return { sku: p.sku, modelo: p.modelo, color: p.color, precios };
-  });
-  res.json({ products });
+  try {
+    const q = req.query.q?.trim();
+    if (!q) return res.json({ products: [] });
+    const products = searchFeriaProducts(q).map((p) => {
+      const precios = {};
+      for (const condition of ['falla', 'discontinuo']) {
+        const priceField = condition === 'falla' ? 'precioFalla' : 'precioDiscontinuo';
+        if (p[priceField] == null) continue;
+        const rebajaActiva = p[activeRebajaField(condition)] ?? 0;
+        precios[condition] = Object.fromEntries(
+          Object.entries(PAYMENT_METHODS).map(([method, info]) => [
+            method,
+            { label: info.label, precio: computeFinalPrice(p, condition, rebajaActiva, method) },
+          ])
+        );
+      }
+      return { sku: p.sku, modelo: p.modelo, color: p.color, precios };
+    });
+    res.json({ products });
+  } catch (err) {
+    // Misma razón que en /products/search: esta ruta es pública y un
+    // rechazo sin manejar acá voltearía todo el servidor de reportes.
+    console.error('[feria] public/products/search error:', err.message);
+    res.status(500).json({ error: 'Error buscando productos' });
+  }
 });
 
 router.post('/orders', requireFeriaAuth, requireFeriaRole('vendedor'), async (req, res) => {
@@ -154,6 +170,13 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
   const order = await getOrderById(req.params.id);
   if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
 
+  // Pedido ya terminado (facturado): no se toca Odoo de nuevo. Un doble
+  // click o un cajero reabriendo un pedido completo tiene que ser inocuo —
+  // ni una segunda factura, ni pasar a 'error' una venta ya cerrada.
+  if (order.invoiceId || order.status === 'facturado') {
+    return res.json({ order });
+  }
+
   try {
     let odooOrderId = order.odooOrderId;
 
@@ -174,8 +197,13 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
 
       const vals = buildSaleOrderPayload({ partnerId, pricelistId, teamId, lines: resolvedLines });
       odooOrderId = await createSaleOrder(vals);
-      await confirmSaleOrder(odooOrderId);
+      // El id se guarda ANTES de confirmar: si confirmSaleOrder falla, el
+      // pedido de Odoo YA existe, y sin el id guardado un reintento del
+      // cajero crearía un segundo sale.order por una venta ya hecha.
+      // Guardándolo acá, el reintento solo vuelve a confirmar el mismo
+      // pedido (confirmar uno ya confirmado es un no-op seguro en Odoo).
       await saveOdooOrderId(order.id, odooOrderId);
+      await confirmSaleOrder(odooOrderId);
     }
 
     // createInvoiceForOrder devuelve null tanto "no se pidió factura" como

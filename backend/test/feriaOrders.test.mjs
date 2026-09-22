@@ -50,6 +50,23 @@ test('rechaza una línea con cantidad 0 o negativa', () => {
   assert.ok(result.errors.some(e => e.includes('cantidad')));
 });
 
+// `null >= 0` es true en JS, así que un unitPrice null pasaba el chequeo
+// viejo. Es el caso real: el módulo de precios devuelve null cuando ese SKU
+// no tiene precio cargado para esa condición.
+test('rechaza una línea con unitPrice null (SKU sin precio para esa condición)', () => {
+  const result = validateOrderInput({ ...validInput, lines: [{ ...validInput.lines[0], unitPrice: null }] });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some(e => e.includes('Precio inválido')));
+});
+
+// Misma familia: `'2' >= 0` también es true, así que una cantidad string
+// (típica de un body JSON armado a mano) pasaba el chequeo viejo.
+test('rechaza una línea con cantidad no numérica', () => {
+  const result = validateOrderInput({ ...validInput, lines: [{ ...validInput.lines[0], qty: '2' }] });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some(e => e.includes('cantidad')));
+});
+
 test('rechaza una línea sin SKU', () => {
   const result = validateOrderInput({ ...validInput, lines: [{ ...validInput.lines[0], sku: '' }] });
   assert.equal(result.valid, false);

@@ -133,9 +133,16 @@ export async function findPricelistId(name) {
 // confirmar la venta — la búsqueda que hace el vendedor ya no pega contra
 // Odoo (ver feriaProducts.mjs), así que este es el único punto del flujo
 // que necesita el id real para poder armar el sale.order.
+//
+// Se usa '=ilike' y no '=': los SKU en Firestore quedan siempre en
+// mayúsculas (import y lookup los normalizan), pero los default_code de
+// Odoo pueden estar en mayúsculas/minúsculas mezcladas. Con '=' un
+// producto real no se encontraría justo al confirmar, en la caja, con el
+// cliente ya habiendo pagado. '=ilike' es igualdad exacta sin distinguir
+// mayúsculas (no agrega comodines por su cuenta).
 export async function findProductIdBySku(sku) {
   const results = await callKwReadWithRetry('product.product', 'search_read', [
-    [['default_code', '=', sku]],
+    [['default_code', '=ilike', sku]],
   ], { fields: ['id'], limit: 1 });
   return results[0]?.id ?? null;
 }
