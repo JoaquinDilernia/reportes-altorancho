@@ -163,6 +163,7 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
       });
       const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
       const pricelistId = await findPricelistId(process.env.ODOO_FERIA_PRICELIST_NAME);
+      if (!pricelistId) throw new Error(`Pricelist de feria no encontrada en Odoo: "${process.env.ODOO_FERIA_PRICELIST_NAME}"`);
 
       const resolvedLines = [];
       for (const line of order.lines) {
