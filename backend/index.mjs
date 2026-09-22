@@ -10,6 +10,7 @@ import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
 import feriaRoutes from './feriaRoutes.mjs';
 import { seedCajaAdminIfNeeded } from './feriaAuth.mjs';
+import { startFeriaProductsCache } from './feriaProducts.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
@@ -166,6 +167,7 @@ cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
 console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startFeriaProductsCache();
   seedCajaAdminIfNeeded().catch(err => console.error('[feria] Error seedeando admin:', err.message));
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
 }

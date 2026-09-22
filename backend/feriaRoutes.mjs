@@ -5,9 +5,11 @@ import {
   updateOrderPayment, saveOdooOrderId, markOrderConfirmed, markOrderError,
 } from './feriaOrders.mjs';
 import {
-  searchProducts, getPricelists, findOrCreatePartner, findSalesTeamId,
+  findOrCreatePartner, findSalesTeamId, findPricelistId, findProductIdBySku,
   buildSaleOrderPayload, createSaleOrder, confirmSaleOrder, createInvoiceForOrder,
 } from './feriaOdoo.mjs';
+import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
+import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 const router = Router();
 
@@ -37,22 +39,60 @@ router.post('/auth/caja', async (req, res) => {
   }
 });
 
+function buildConditionsPayload(product) {
+  const conditions = {};
+  for (const condition of ['falla', 'discontinuo']) {
+    const priceField = condition === 'falla' ? 'precioFalla' : 'precioDiscontinuo';
+    const rebajaActiva = product[activeRebajaField(condition)] ?? 0;
+    conditions[condition] = product[priceField] != null
+      ? { disponible: true, precioTabla: tablePrice(product, condition, rebajaActiva), rebajaActiva }
+      : { disponible: false, precioTabla: null, rebajaActiva: 0 };
+  }
+  return conditions;
+}
+
 router.get('/products/search', requireFeriaAuth, async (req, res) => {
+  const q = req.query.q?.trim();
+  if (!q) return res.json({ products: [] });
+  const products = searchFeriaProducts(q).map((p) => ({
+    sku: p.sku, modelo: p.modelo, color: p.color, stock: p.stock ?? null,
+    condiciones: buildConditionsPayload(p),
+  }));
+  res.json({ products });
+});
+
+router.patch('/products/:sku/rebaja', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   try {
-    const q = req.query.q?.trim();
-    if (!q) return res.json({ products: [] });
-    res.json({ products: await searchProducts(q) });
+    const { condition, level } = req.body;
+    await setRebajaActiva(req.params.sku, condition, level);
+    const product = getFeriaProduct(req.params.sku);
+    res.json({
+      product: { sku: product.sku, modelo: product.modelo, color: product.color, condiciones: buildConditionsPayload(product) },
+    });
   } catch (err) {
-    res.status(502).json({ error: `Error consultando Odoo: ${err.message}` });
+    res.status(400).json({ error: err.message });
   }
 });
 
-router.get('/pricelists', requireFeriaAuth, async (req, res) => {
-  try {
-    res.json({ pricelists: await getPricelists() });
-  } catch (err) {
-    res.status(502).json({ error: `Error consultando Odoo: ${err.message}` });
-  }
+router.get('/public/products/search', async (req, res) => {
+  const q = req.query.q?.trim();
+  if (!q) return res.json({ products: [] });
+  const products = searchFeriaProducts(q).map((p) => {
+    const precios = {};
+    for (const condition of ['falla', 'discontinuo']) {
+      const priceField = condition === 'falla' ? 'precioFalla' : 'precioDiscontinuo';
+      if (p[priceField] == null) continue;
+      const rebajaActiva = p[activeRebajaField(condition)] ?? 0;
+      precios[condition] = Object.fromEntries(
+        Object.entries(PAYMENT_METHODS).map(([method, info]) => [
+          method,
+          { label: info.label, precio: computeFinalPrice(p, condition, rebajaActiva, method) },
+        ])
+      );
+    }
+    return { sku: p.sku, modelo: p.modelo, color: p.color, precios };
+  });
+  res.json({ products });
 });
 
 router.post('/orders', requireFeriaAuth, requireFeriaRole('vendedor'), async (req, res) => {
