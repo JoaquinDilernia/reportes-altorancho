@@ -109,4 +109,35 @@ export async function createInvoiceForOrder(orderId) {
   }
 }
 
+// Busca un partner existente por CUIT/DNI para autocompletar datos en el
+// panel Vendedor. A diferencia de findOrCreatePartner, esta función NO crea
+// nada — devuelve null si no existe, para que el panel deje los campos
+// vacíos y el vendedor los cargue a mano (mínimo: nombre + DNI).
+export async function findPartnerByDoc(docNumber) {
+  if (!docNumber) return null;
+  const results = await callKwReadWithRetry('res.partner', 'search_read', [
+    [['vat', '=', docNumber]],
+  ], { fields: ['id', 'name', 'vat', 'email', 'phone', 'street', 'city'], limit: 1 });
+  return results[0] ?? null;
+}
+
+export async function findPricelistId(name) {
+  if (!name) return null;
+  const results = await callKwReadWithRetry('product.pricelist', 'search_read', [
+    [['name', '=', name]],
+  ], { fields: ['id'], limit: 1 });
+  return results[0]?.id ?? null;
+}
+
+// Resuelve el product_id real de Odoo por SKU (default_code) recién al
+// confirmar la venta — la búsqueda que hace el vendedor ya no pega contra
+// Odoo (ver feriaProducts.mjs), así que este es el único punto del flujo
+// que necesita el id real para poder armar el sale.order.
+export async function findProductIdBySku(sku) {
+  const results = await callKwReadWithRetry('product.product', 'search_read', [
+    [['default_code', '=', sku]],
+  ], { fields: ['id'], limit: 1 });
+  return results[0]?.id ?? null;
+}
+
 export { getDb } from './firestore.mjs';

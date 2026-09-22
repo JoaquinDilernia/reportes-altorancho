@@ -5,7 +5,7 @@ import {
   updateOrderPayment, saveOdooOrderId, markOrderConfirmed, markOrderError,
 } from './feriaOrders.mjs';
 import {
-  findOrCreatePartner, findSalesTeamId, findPricelistId, findProductIdBySku,
+  findOrCreatePartner, findPartnerByDoc, findSalesTeamId, findPricelistId, findProductIdBySku,
   buildSaleOrderPayload, createSaleOrder, confirmSaleOrder, createInvoiceForOrder,
 } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
@@ -36,6 +36,17 @@ router.post('/auth/caja', async (req, res) => {
     res.json({ token, user });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/customers/lookup', requireFeriaAuth, async (req, res) => {
+  try {
+    const docNumber = req.query.docNumber?.trim();
+    if (!docNumber) return res.status(400).json({ error: 'Falta el DNI/CUIT' });
+    const partner = await findPartnerByDoc(docNumber);
+    res.json({ found: !!partner, partner });
+  } catch (err) {
+    res.status(502).json({ error: `Error consultando Odoo: ${err.message}` });
   }
 });
 
@@ -129,15 +140,16 @@ router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), 
   }
 });
 
-// Confirma el pedido: crea (o busca) el partner, arma y crea el sale.order
-// en Odoo con el Equipo de ventas de la feria, lo confirma, y factura si
-// corresponde. Se puede llamar de nuevo sin problema si quedó en 'error' —
-// es idempotente respecto de la creación del pedido en Odoo: si esta
-// conversación ya tiene un odooOrderId guardado (de un intento anterior que
-// llegó a crear el pedido pero falló después, típicamente al facturar), un
-// reintento NO vuelve a crear el sale.order — salta directo a facturar.
-// Sin esto, reintentar tras una factura fallida crearía un pedido duplicado
-// en Odoo con plata real ya cobrada.
+// Confirma el pedido: crea (o busca) el partner, resuelve el product_id de
+// Odoo de cada línea por SKU, arma y crea el sale.order con la pricelist y
+// el Equipo de ventas de la feria, lo confirma, y factura si corresponde.
+// Se puede llamar de nuevo sin problema si quedó en 'error' — es idempotente
+// respecto de la creación del pedido en Odoo: si esta orden ya tiene un
+// odooOrderId guardado (de un intento anterior que llegó a crear el pedido
+// pero falló después, típicamente al facturar), un reintento NO vuelve a
+// crear el sale.order — salta directo a facturar. Sin esto, reintentar tras
+// una factura fallida crearía un pedido duplicado en Odoo con plata real ya
+// cobrada.
 router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   const order = await getOrderById(req.params.id);
   if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
@@ -150,12 +162,16 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
         name: order.customer.name, docNumber: order.customer.docNumber,
       });
       const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
-      const vals = buildSaleOrderPayload({
-        partnerId, pricelistId: order.pricelistId, teamId,
-        lines: order.lines.map(l => ({
-          productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct,
-        })),
-      });
+      const pricelistId = await findPricelistId(process.env.ODOO_FERIA_PRICELIST_NAME);
+
+      const resolvedLines = [];
+      for (const line of order.lines) {
+        const productId = await findProductIdBySku(line.sku);
+        if (!productId) throw new Error(`SKU no encontrado en Odoo: ${line.sku}`);
+        resolvedLines.push({ productId, qty: line.qty, unitPrice: line.unitPrice, discountPct: 0 });
+      }
+
+      const vals = buildSaleOrderPayload({ partnerId, pricelistId, teamId, lines: resolvedLines });
       odooOrderId = await createSaleOrder(vals);
       await confirmSaleOrder(odooOrderId);
       await saveOdooOrderId(order.id, odooOrderId);

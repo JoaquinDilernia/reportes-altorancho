@@ -1,18 +1,21 @@
 import { getDb } from './feriaOdoo.mjs';
 
 const COLLECTION = 'feria_orders';
-const PAYMENT_METHODS = new Set(['efectivo', 'tarjeta']);
+const PAYMENT_METHODS = new Set(['transferencia', 'efectivo', 'cuotas']);
+const CONDITIONS = new Set(['falla', 'discontinuo']);
 
 export function validateOrderInput(input) {
   const errors = [];
   if (!input.sellerId) errors.push('Falta identificar al vendedor');
   if (!input.customer?.name?.trim()) errors.push('Falta el nombre del cliente');
+  if (!input.customer?.docNumber?.trim()) errors.push('Falta el DNI/CUIT del cliente');
   if (!PAYMENT_METHODS.has(input.paymentMethod)) errors.push('Método de pago inválido');
-  if (!input.pricelistId) errors.push('Falta elegir una lista de precio');
   if (!input.lines?.length) errors.push('El pedido necesita al menos una línea de producto');
   for (const line of input.lines ?? []) {
-    if (!(line.qty > 0)) errors.push(`Cantidad inválida (cantidad debe ser mayor a 0) para ${line.name ?? line.sku ?? 'un producto'}`);
-    if (!(line.unitPrice >= 0)) errors.push(`Precio inválido para ${line.name ?? line.sku ?? 'un producto'}`);
+    if (!line.sku) errors.push('Falta el SKU de un producto');
+    if (!CONDITIONS.has(line.condition)) errors.push(`Condición inválida para ${line.sku ?? 'un producto'} (debe ser falla o discontinuo)`);
+    if (!(line.qty > 0)) errors.push(`Cantidad inválida (cantidad debe ser mayor a 0) para ${line.sku ?? 'un producto'}`);
+    if (!(line.unitPrice >= 0)) errors.push(`Precio inválido para ${line.sku ?? 'un producto'}`);
   }
   return { valid: errors.length === 0, errors };
 }
@@ -27,8 +30,6 @@ export async function createOrder(input) {
     sellerName: input.sellerName,
     customer: input.customer,
     paymentMethod: input.paymentMethod,
-    pricelistId: input.pricelistId,
-    pricelistName: input.pricelistName,
     lines: input.lines,
     invoiceType: null,
     status: 'pendiente',
