@@ -17,6 +17,9 @@ export function validateOrderInput(input) {
   if (!input.sellerId) errors.push('Falta identificar al vendedor');
   if (!input.customer?.name?.trim()) errors.push('Falta el nombre del cliente');
   if (!input.customer?.docNumber?.trim()) errors.push('Falta el DNI/CUIT del cliente');
+  const phone = input.customer?.phone?.trim() ?? '';
+  if (!phone) errors.push('Falta el teléfono del cliente');
+  else if (phone.replace(/\D/g, '').length < 8) errors.push('Teléfono inválido: tiene que tener al menos 8 números');
   if (!PAYMENT_METHODS.has(input.paymentMethod)) errors.push('Método de pago inválido');
   if (!input.lines?.length) errors.push('El pedido necesita al menos una línea de producto');
   for (const line of input.lines ?? []) {
@@ -56,7 +59,9 @@ export async function createOrder(input) {
   const order = {
     sellerId: input.sellerId,
     sellerName: input.sellerName,
-    customer: input.customer,
+    customer: {
+      name: input.customer.name.trim(), docNumber: input.customer.docNumber.trim(), phone: input.customer.phone.trim(),
+    },
     paymentMethod: input.paymentMethod,
     lines,
     shipping: withShipping ? input.shipping : null,

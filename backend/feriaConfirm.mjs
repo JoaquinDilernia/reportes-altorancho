@@ -39,7 +39,9 @@ export async function confirmOrder(order, user) {
   const activeLines = order.lines.filter((l) => l.status !== 'eliminado');
 
   if (!odooOrderId) {
-    const partnerId = await findOrCreatePartner({ name: order.customer.name, docNumber: order.customer.docNumber });
+    const partnerId = await findOrCreatePartner({
+      name: order.customer.name, docNumber: order.customer.docNumber, phone: order.customer.phone,
+    });
     const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
     const pricelistId = await findPricelistId(process.env.ODOO_FERIA_PRICELIST_NAME);
     if (!pricelistId) throw new Error(`Pricelist de feria no encontrada en Odoo: "${process.env.ODOO_FERIA_PRICELIST_NAME}"`);

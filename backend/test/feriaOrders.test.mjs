@@ -5,7 +5,7 @@ import { validateOrderInput } from '../feriaOrders.mjs';
 const validInput = {
   sellerId: 'v1',
   sellerName: 'Ana',
-  customer: { name: 'Juan Pérez', docNumber: '20304050607' },
+  customer: { name: 'Juan Pérez', docNumber: '20304050607', phone: '11 5555-5555' },
   paymentMethod: 'efectivo',
   lines: [{ sku: 'BCT037MA', modelo: 'Organica s', condition: 'falla', qty: 1, unitPrice: 23791, location: 'exhibicion', delivery: 'ahora' }],
 };
@@ -21,13 +21,13 @@ test('rechaza un pedido sin líneas', () => {
 });
 
 test('rechaza un pedido sin nombre de cliente', () => {
-  const result = validateOrderInput({ ...validInput, customer: { name: '', docNumber: '20304050607' } });
+  const result = validateOrderInput({ ...validInput, customer: { name: '', docNumber: '20304050607', phone: '11 5555-5555' } });
   assert.equal(result.valid, false);
   assert.ok(result.errors.some(e => e.includes('cliente')));
 });
 
 test('rechaza un pedido sin DNI/CUIT del cliente', () => {
-  const result = validateOrderInput({ ...validInput, customer: { name: 'Juan Pérez', docNumber: '' } });
+  const result = validateOrderInput({ ...validInput, customer: { name: 'Juan Pérez', docNumber: '', phone: '11 5555-5555' } });
   assert.equal(result.valid, false);
   assert.ok(result.errors.some(e => e.includes('DNI')));
 });
@@ -97,4 +97,15 @@ test('con una línea de envío exige los datos de envío', () => {
   assert.match(validateOrderInput({ ...validInput, lines }).errors.join(' '), /Falta la calle del envío/);
   const shipping = { street: 'Av. Siempreviva', number: '742', city: 'Tigre', zip: '1648', phone: '1155555555' };
   assert.deepEqual(validateOrderInput({ ...validInput, lines, shipping }), { valid: true, errors: [] });
+});
+
+test('rechaza un pedido sin teléfono del cliente', () => {
+  const result = validateOrderInput({ ...validInput, customer: { ...validInput.customer, phone: '  ' } });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /Falta el teléfono del cliente/);
+});
+
+test('rechaza un teléfono con menos de 8 dígitos', () => {
+  const result = validateOrderInput({ ...validInput, customer: { ...validInput.customer, phone: '123-45' } });
+  assert.match(result.errors.join(' '), /Teléfono inválido/);
 });

@@ -54,17 +54,35 @@ export async function findSalesTeamId(teamName) {
 // No se cargan campos de responsabilidad fiscal AR (l10n_ar_*) porque
 // dependen de qué localización tenga instalada este Odoo — confirmar
 // contra la instancia real antes de necesitar Factura A (ver spec).
-export async function findOrCreatePartner({ name, docNumber }) {
+export function buildNewPartnerVals({ name, docNumber, phone }) {
+  const vals = { name };
+  if (docNumber) vals.vat = docNumber;
+  if (phone) vals.phone = phone;
+  return vals;
+}
+
+// Al cliente que ya existe en Odoo solo se le completa el teléfono si no
+// tenía: no se pisa un dato que otra área ya cargó.
+export function partnerPhoneUpdate(existingPhone, phone) {
+  return !existingPhone && phone ? { phone } : null;
+}
+
+export async function findOrCreatePartner({ name, docNumber, phone }) {
   if (docNumber) {
     const existing = await callKwReadWithRetry('res.partner', 'search_read', [
       [['vat', '=', docNumber]],
-    ], { fields: ['id'], limit: 1 });
-    if (existing[0]) return existing[0].id;
+    ], { fields: ['id', 'phone'], limit: 1 });
+    if (existing[0]) {
+      const update = partnerPhoneUpdate(existing[0].phone, phone);
+      if (update) {
+        await ensureAuth();
+        await callKw('res.partner', 'write', [[existing[0].id], update]);
+      }
+      return existing[0].id;
+    }
   }
-  const vals = { name };
-  if (docNumber) vals.vat = docNumber;
   await ensureAuth();
-  const [id] = await callKw('res.partner', 'create', [[vals]]);
+  const [id] = await callKw('res.partner', 'create', [[buildNewPartnerVals({ name, docNumber, phone })]]);
   return id;
 }
 

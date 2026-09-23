@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSaleOrderPayload, buildShippingPartnerVals } from '../feriaOdoo.mjs';
+import { buildSaleOrderPayload, buildShippingPartnerVals, buildNewPartnerVals, partnerPhoneUpdate } from '../feriaOdoo.mjs';
 
 test('arma el payload de sale.order con las líneas en formato Odoo (0,0,{...})', () => {
   const payload = buildSaleOrderPayload({
@@ -77,4 +77,17 @@ test('buildShippingPartnerVals arma un contacto de entrega hijo del cliente', ()
     parent_id: 42, type: 'delivery', name: 'Juan Pérez', street: 'Av. Siempreviva 742', street2: '3B',
     city: 'Tigre', zip: '1648', phone: '1155555555', comment: 'Tocar timbre',
   });
+});
+
+test('buildNewPartnerVals carga nombre, DNI/CUIT y teléfono', () => {
+  assert.deepEqual(buildNewPartnerVals({ name: 'Juan', docNumber: '20304050607', phone: '1155555555' }), {
+    name: 'Juan', vat: '20304050607', phone: '1155555555',
+  });
+  assert.deepEqual(buildNewPartnerVals({ name: 'Juan' }), { name: 'Juan' });
+});
+
+test('partnerPhoneUpdate completa el teléfono solo si el cliente de Odoo no tenía', () => {
+  assert.deepEqual(partnerPhoneUpdate(false, '1155555555'), { phone: '1155555555' });
+  assert.equal(partnerPhoneUpdate('1144444444', '1155555555'), null);
+  assert.equal(partnerPhoneUpdate(false, ''), null);
 });
