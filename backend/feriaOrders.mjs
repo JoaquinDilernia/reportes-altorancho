@@ -2,7 +2,7 @@ import { getDb } from './feriaOdoo.mjs';
 import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST } from './feriaPricing.mjs';
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
-  applyLineAction, assertLineActionAllowed, hasPendingDeliveries,
+  applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
 } from './feriaLines.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
@@ -195,7 +195,7 @@ export async function applyOrderLineActions(orderId, lineIds, action, { user, ch
     const now = new Date();
     const newLines = order.lines.map((line) => {
       if (!lineIds.includes(line.lineId)) return line;
-      assertLineActionAllowed(order, line, action);
+      assertLineActionAllowed(order, line, action, changes);
       return applyLineAction(line, action, { user, now, changes });
     });
 
@@ -206,8 +206,13 @@ export async function applyOrderLineActions(orderId, lineIds, action, { user, ch
       if (stockErrors.length) throw new Error(`Sin stock suficiente — ${stockErrors.join('; ')}`);
     }
     writeReservations(tx, db, reserved, deltas);
-    tx.update(ref, { lines: newLines, updatedAt: now });
-    return { ...order, lines: newLines, updatedAt: now };
+    const update = { lines: newLines, updatedAt: now };
+    // Mientras el pedido no existe en Odoo, el cargo de envío sigue a las
+    // líneas (sacar o cambiar la única línea de envío lo saca del total).
+    // Una vez en Odoo, el cargo ya viajó y queda como está.
+    if (!order.odooOrderId) update.shippingCost = shippingCostFor(newLines);
+    tx.update(ref, update);
+    return { ...order, ...update };
   });
 }
 
@@ -220,9 +225,7 @@ export async function cancelOrder(orderId, user) {
     const snap = await tx.get(ref);
     if (!snap.exists) throw new Error('Pedido no encontrado');
     const order = { id: snap.id, ...snap.data() };
-    if (!['pendiente', 'error'].includes(order.status)) {
-      throw new Error('Solo se cancelan pedidos que todavía no se confirmaron (los confirmados se cancelan en Odoo)');
-    }
+    assertCancellable(order);
     const deltas = reservationDeltas(order.lines, []);
     const reserved = await readReservations(db, [...deltas.keys()], tx);
     writeReservations(tx, db, reserved, deltas);

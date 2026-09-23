@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planMoveLineWrites, pickLots } from '../feriaDelivery.mjs';
+import { planMoveLineWrites, pickLots, undeliveredLineIds, withOrderLock } from '../feriaDelivery.mjs';
 
 const EXHIB = 427;
 const ROLON = 428;
@@ -88,4 +88,30 @@ test('pickLots elige, por producto y ubicación, el lote con más stock', () => 
     { product_id: [502, 'B'], location_id: [427, 'x'], lot_id: false, quantity: 9 },
   ];
   assert.deepEqual([...pickLots(quants)], [['501:427', 2], ['501:428', 3]]);
+});
+
+test('undeliveredLineIds: una línea con su movimiento hecho y sin nada abierto está entregada', () => {
+  const after = [{ ...moves[0], state: 'done' }];
+  assert.deepEqual(undeliveredLineIds(after, [11]), []);
+});
+
+test('undeliveredLineIds: si el movimiento quedó en el backorder (otro "Hecho" le pisó la cantidad), no está entregada', () => {
+  const after = [{ ...moves[0], state: 'assigned', picking_id: [901, 'WH/OUT/2'] }];
+  assert.deepEqual(undeliveredLineIds(after, [11]), [11]);
+});
+
+test('withOrderLock serializa las entregas del mismo pedido', async () => {
+  const events = [];
+  const slow = (name, ms) => async () => {
+    events.push(`${name}:start`);
+    await new Promise((r) => setTimeout(r, ms));
+    events.push(`${name}:end`);
+  };
+  await Promise.all([withOrderLock(1, slow('A', 30)), withOrderLock(1, slow('B', 1))]);
+  assert.deepEqual(events, ['A:start', 'A:end', 'B:start', 'B:end']);
+});
+
+test('withOrderLock no traba el pedido si una entrega falla', async () => {
+  await assert.rejects(withOrderLock(2, async () => { throw new Error('boom'); }), /boom/);
+  assert.equal(await withOrderLock(2, async () => 'ok'), 'ok');
 });

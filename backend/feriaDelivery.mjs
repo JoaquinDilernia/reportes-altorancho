@@ -12,6 +12,30 @@ const VALIDATE_CONTEXT = {
 
 const lotKey = (productId, locationId) => `${productId}:${locationId}`;
 
+// Dos "Hecho" casi simultáneos sobre el mismo pedido se pisan en Odoo: el
+// segundo pone en 0 la cantidad hecha que cargó el primero antes de que éste
+// valide, y el primero termina "validando" nada. Se encolan por pedido (un
+// solo proceso en Railway, así que alcanza con una cola en memoria).
+const orderQueues = new Map();
+
+export function withOrderLock(key, fn) {
+  const previous = orderQueues.get(key) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  const tail = run.catch(() => {});
+  orderQueues.set(key, tail);
+  tail.then(() => { if (orderQueues.get(key) === tail) orderQueues.delete(key); });
+  return run;
+}
+
+// Después de validar, una línea está entregada si tiene un movimiento hecho y
+// ninguno abierto (si quedó algo en el backorder, no salió).
+export function undeliveredLineIds(moves, odooLineIds) {
+  return odooLineIds.filter((id) => {
+    const forLine = moves.filter((m) => m.sale_line_id?.[0] === id && m.state !== 'cancel');
+    return !forLine.some((m) => m.state === 'done') || forLine.some((m) => m.state !== 'done');
+  });
+}
+
 // Muchos productos se controlan por lote en Odoo (tracking 'lot'): validar
 // una move line sin lote falla con "Debe proporcionar un número de lote".
 // Por producto+ubicación se toma el lote con más stock ahí.
@@ -81,7 +105,11 @@ export function planMoveLineWrites({ moves, moveLines, items, openPickingIds, lo
 // desde la ubicación indicada, y valida el remito. Lo no incluido queda en el
 // remito pendiente. Es seguro llamarla de nuevo: lo que ya estaba hecho
 // vuelve en alreadyDone en vez de fallar.
-export async function deliverLines(odooOrderId, items) {
+export function deliverLines(odooOrderId, items) {
+  return withOrderLock(odooOrderId, () => deliverLinesNow(odooOrderId, items));
+}
+
+async function deliverLinesNow(odooOrderId, items) {
   const pickings = await callKwReadWithRetry('stock.picking', 'search_read', [
     [['sale_id', '=', odooOrderId], ['state', 'not in', ['done', 'cancel']], ['picking_type_code', '=', 'outgoing']],
   ], { fields: ['id'] });
@@ -120,6 +148,17 @@ export async function deliverLines(odooOrderId, items) {
     if (result !== true && result?.res_model) {
       throw new Error(`Odoo pidió confirmación manual (${result.res_model}) al validar el remito ${pickingId}`);
     }
+  }
+
+  // Se verifica en Odoo que las líneas salieron de verdad antes de que la app
+  // las marque entregadas y libere la reserva: cualquier carrera o cambio a
+  // mano en el remito termina en un error visible y no en stock inventado.
+  const after = await callKwReadWithRetry('stock.move', 'search_read', [
+    [['sale_line_id', 'in', items.map((i) => i.odooLineId)], ['state', '!=', 'cancel']],
+  ], { fields: ['id', 'sale_line_id', 'state'] });
+  const notDelivered = undeliveredLineIds(after, items.map((i) => i.odooLineId));
+  if (notDelivered.length) {
+    throw new Error(`Odoo no registró la entrega de las líneas ${notDelivered.join(', ')} — revisá el remito y reintentá`);
   }
 
   const alreadyDone = new Set(plan.alreadyDone);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   validateLineDelivery, validateShipping, needsShipping, isReserving,
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
-  applyLineAction, assertLineActionAllowed, hasPendingDeliveries,
+  applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -113,4 +113,28 @@ test('hasPendingDeliveries: true con una línea que reserva; false para pedidos 
   assert.equal(hasPendingDeliveries({ lines: [{ ...base, delivery: 'retira_rolon' }] }), true);
   assert.equal(hasPendingDeliveries({ lines: [{ ...base, status: 'entregado' }] }), false);
   assert.equal(hasPendingDeliveries({ lines: [{ sku: 'ALF029CG', qty: 1, unitPrice: 7992 }] }), false);
+});
+
+test('assertLineActionAllowed: no se elimina una línea si el pedido ya existe en Odoo (reintento pendiente)', () => {
+  const order = { status: 'error', odooOrderId: 60031, lines: [base, { ...base, lineId: 'L2' }] };
+  assert.throws(() => assertLineActionAllowed(order, base, 'remove'), /ya existe en Odoo/);
+});
+
+test('assertCancellable: solo pedidos sin confirmar y que todavía no existen en Odoo', () => {
+  assert.doesNotThrow(() => assertCancellable({ status: 'pendiente', odooOrderId: null }));
+  assert.throws(() => assertCancellable({ status: 'confirmado', odooOrderId: 1 }), /Solo se cancelan/);
+  assert.throws(() => assertCancellable({ status: 'error', odooOrderId: 60031 }), /ya existe en Odoo/);
+});
+
+test('assertLineActionAllowed: pasar a "Envío a domicilio" un pedido sin datos de envío antes de confirmar se rechaza', () => {
+  const order = { status: 'pendiente', shipping: null, lines: [base] };
+  assert.throws(() => assertLineActionAllowed(order, base, 'edit', { location: 'rolon', delivery: 'envio' }), /datos de envío/);
+  const withShipping = { ...order, shipping: { street: 'x' } };
+  assert.doesNotThrow(() => assertLineActionAllowed(withShipping, base, 'edit', { location: 'rolon', delivery: 'envio' }));
+});
+
+test('shippingCostFor: 10000 si queda alguna línea de envío activa, 0 si no', () => {
+  assert.equal(shippingCostFor([{ ...base, delivery: 'envio' }]), 10000);
+  assert.equal(shippingCostFor([{ ...base, delivery: 'envio', status: 'eliminado' }]), 0);
+  assert.equal(shippingCostFor([base]), 0);
 });

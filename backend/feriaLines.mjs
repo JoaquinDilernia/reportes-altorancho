@@ -1,6 +1,7 @@
 // Modelo de línea de pedido de la feria: de dónde sale (ubicación), cómo se
 // entrega y en qué estado está. Todo puro — la E/S (Firestore, Odoo) vive en
 // feriaOrders/feriaStock/feriaDelivery.
+import { SHIPPING_COST } from './feriaPricing.mjs';
 
 export const LOCATIONS = ['exhibicion', 'rolon'];
 export const DELIVERIES = ['ahora', 'retira_feria', 'retira_rolon', 'envio'];
@@ -100,18 +101,41 @@ export function applyLineAction(line, action, { user, now, changes = {} }) {
   }
 }
 
+// Si un intento de confirmar ya creó el sale.order (queda en 'error' con
+// odooOrderId), sacar líneas o cancelar solo en la app dejaría a Odoo
+// cobrando algo distinto de lo que cobró caja.
+const ALREADY_IN_ODOO = 'El pedido ya existe en Odoo: reintentá confirmar o resolvelo en Odoo';
+
+export function assertCancellable(order) {
+  if (!['pendiente', 'error'].includes(order.status)) {
+    throw new Error('Solo se cancelan pedidos que todavía no se confirmaron (los confirmados se cancelan en Odoo)');
+  }
+  if (order.odooOrderId) throw new Error(ALREADY_IN_ODOO);
+}
+
+// Cargo de envío que corresponde a las líneas actuales del pedido.
+export function shippingCostFor(lines) {
+  return needsShipping(lines) ? SHIPPING_COST : 0;
+}
+
 // Reglas que dependen del pedido completo, no solo de la línea.
-export function assertLineActionAllowed(order, line, action) {
+export function assertLineActionAllowed(order, line, action, changes = {}) {
   if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
   if (action === 'remove') {
     if (!['pendiente', 'error'].includes(order.status)) {
       throw new Error('Después de confirmar no se pueden eliminar líneas desde la app (hacelo en Odoo)');
     }
+    if (order.odooOrderId) throw new Error(ALREADY_IN_ODOO);
     const others = order.lines.filter((l) => l.lineId !== line.lineId && isReserving(l));
     if (others.length === 0) throw new Error('No se puede eliminar la última línea: cancelá el pedido');
   }
   if (action === 'deliver' && (order.status !== 'confirmado' || !line.odooLineId)) {
     throw new Error('Primero hay que confirmar el pedido en caja');
+  }
+  // Antes de confirmar, pasar a envío sin dirección haría fallar el confirm
+  // (no hay a dónde mandarlo). Después de confirmar la app solo avisa.
+  if (action === 'edit' && changes.delivery === 'envio' && !order.shipping && !order.odooOrderId) {
+    throw new Error('Este pedido no tiene datos de envío: para mandarlo a domicilio, cargá el pedido de nuevo con la dirección');
   }
 }
 
