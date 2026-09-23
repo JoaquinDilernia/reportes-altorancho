@@ -9,8 +9,8 @@ const lines = [
 
 test('buildOdooLines: precios sin IVA con descuento del medio de pago + línea de envío sin descuento', () => {
   assert.deepEqual(buildOdooLines(lines, 'transferencia', [501, 502], 9759), [
-    { productId: 501, qty: 1, unitPrice: 8256.2, discountPct: 20 },
-    { productId: 502, qty: 2, unitPrice: 8264.46, discountPct: 20 },
+    { productId: 501, qty: 1, unitPrice: 8256.2, discountPct: 15 },
+    { productId: 502, qty: 2, unitPrice: 8264.46, discountPct: 15 },
     { productId: 9759, qty: 1, unitPrice: 8264.46, discountPct: 0 },
   ]);
 });

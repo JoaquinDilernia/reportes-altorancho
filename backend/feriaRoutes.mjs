@@ -13,7 +13,7 @@ import { assertLineActionAllowed } from './feriaLines.mjs';
 import { findPartnerByDoc } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
 import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
-import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
+import { PUBLIC_PRICE_OPTIONS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 const router = Router();
 
@@ -122,9 +122,9 @@ router.get('/public/products/search', async (req, res) => {
         if (p[priceField] == null) continue;
         const rebajaActiva = p[activeRebajaField(condition)] ?? 0;
         precios[condition] = Object.fromEntries(
-          Object.entries(PAYMENT_METHODS).map(([method, info]) => [
-            method,
-            { label: info.label, precio: computeFinalPrice(p, condition, rebajaActiva, method) },
+          PUBLIC_PRICE_OPTIONS.map(({ key, label, method }) => [
+            key,
+            { label, precio: computeFinalPrice(p, condition, rebajaActiva, method) },
           ])
         );
       }

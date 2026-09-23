@@ -1,10 +1,21 @@
 export const PAYMENT_METHODS = {
   // odooName: nombre exacto del payment.method en Odoo (campo "Medio de
   // pago" del sale.order).
-  transferencia: { label: 'Transferencia', discountPct: 20, odooName: 'Transferencia' },
-  efectivo: { label: 'Efectivo', discountPct: 15, odooName: 'Efectivo' },
-  cuotas: { label: '3 cuotas', discountPct: 0, odooName: 'Mercado Pago 3 cuotas' },
+  transferencia: { label: 'Transferencia', discountPct: 15, odooName: 'Transferencia' },
+  efectivo: { label: 'Efectivo', discountPct: 10, odooName: 'Efectivo' },
+  mp_debito: { label: 'Mercado Pago Débito', discountPct: 0, odooName: 'Mercado Pago Debito' },
+  mp_1_cuota: { label: 'Mercado Pago 1 cuota', discountPct: 0, odooName: 'Mercado Pago 1 cuota' },
+  mp_3_cuotas: { label: 'Mercado Pago 3 cuotas', discountPct: 0, odooName: 'Mercado Pago 3 cuotas' },
 };
+
+// Precios que ve el cliente en el buscador público: los tres de Mercado Pago
+// tienen el mismo precio, así que se muestran como uno solo (`method` es el
+// medio de pago con el que se calcula ese precio).
+export const PUBLIC_PRICE_OPTIONS = [
+  { key: 'transferencia', label: 'Transferencia', method: 'transferencia' },
+  { key: 'efectivo', label: 'Efectivo', method: 'efectivo' },
+  { key: 'mercadopago', label: 'Mercado Pago (débito o cuotas)', method: 'mp_debito' },
+];
 
 const CONDITIONS = new Set(['falla', 'discontinuo']);
 
