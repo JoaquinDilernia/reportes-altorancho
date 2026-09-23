@@ -13,7 +13,7 @@ const pointerRef = (db) => db.collection('feria_counters').doc('cash');
 const MP_METHODS = ['mp_debito', 'mp_1_cuota', 'mp_3_cuotas'];
 const round2 = (n) => Math.round(n * 100) / 100;
 
-export const CASH_CLOSED_MESSAGE = 'La caja está cerrada: abrila en la pestaña Caja para confirmar ventas';
+export const CASH_CLOSED_MESSAGE = 'La caja está cerrada: abrila en la pestaña “Caja del día” para confirmar ventas';
 
 export function assertCanConfirmWithCash(pointer) {
   if (!pointer?.openSessionId) throw new Error(CASH_CLOSED_MESSAGE);
