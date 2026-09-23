@@ -207,9 +207,20 @@ export function assertAnnullable(order) {
   if (order.status !== 'confirmado' || !order.odooOrderId) {
     throw new Error('Solo se anulan ventas confirmadas (las pendientes se cancelan con "Cancelar pedido")');
   }
+  if (order.invoiceName) {
+    throw new Error(`La venta ya tiene la factura ${order.invoiceName}: anulala en Odoo con una nota de crédito`);
+  }
   if ((order.lines ?? []).some((l) => l.status === 'entregado')) {
     throw new Error('Parte del pedido ya se entregó: anulalo en Odoo con la devolución correspondiente');
   }
+}
+
+// Se factura una venta ya confirmada en Odoo, una sola vez.
+export function assertInvoiceable(order) {
+  if (order.status !== 'confirmado' || !order.odooOrderId) {
+    throw new Error('Solo se facturan ventas confirmadas');
+  }
+  if (order.invoiceName) throw new Error(`La venta ya tiene la factura ${order.invoiceName}`);
 }
 
 // Mientras Caja confirma, el pedido queda "reclamado" (confirmingSince) para

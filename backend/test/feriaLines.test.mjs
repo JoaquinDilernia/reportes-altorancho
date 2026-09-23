@@ -5,7 +5,7 @@ import {
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine, nextLineId, assertAnnullable,
-  isConfirming, assertClosable, CONFIRM_CLAIM_MS,
+  isConfirming, assertClosable, CONFIRM_CLAIM_MS, assertInvoiceable,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -238,4 +238,16 @@ test('assertClosable: desde caja no se cierra si algo ya se entregó', () => {
   const order = { status: 'confirmado', odooOrderId: 1, lines: [{ ...base, status: 'entregado' }] };
   assert.throws(() => assertClosable(order, { fromOdoo: false }), /ya se entregó/);
   assert.doesNotThrow(() => assertClosable(order, { fromOdoo: true }));
+});
+
+test('assertAnnullable: una venta facturada no se anula desde la app (hace falta nota de crédito)', () => {
+  const order = { status: 'confirmado', odooOrderId: 5, invoiceName: 'FA-B 00009-00031962', lines: [base] };
+  assert.throws(() => assertAnnullable(order), /FA-B 00009-00031962.*nota de crédito/);
+});
+
+test('assertInvoiceable: se factura una venta confirmada en Odoo que todavía no tiene factura', () => {
+  assert.doesNotThrow(() => assertInvoiceable({ status: 'confirmado', odooOrderId: 5 }));
+  assert.throws(() => assertInvoiceable({ status: 'pendiente' }), /confirmadas/);
+  assert.throws(() => assertInvoiceable({ status: 'cancelado', odooOrderId: 5 }), /confirmadas/);
+  assert.throws(() => assertInvoiceable({ status: 'confirmado', odooOrderId: 5, invoiceName: 'FA-B 1' }), /ya tiene la factura FA-B 1/);
 });

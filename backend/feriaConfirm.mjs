@@ -7,6 +7,7 @@ import { PAYMENT_METHODS, odooLinePricing, netOfIva, SHIPPING_COST } from './fer
 import { needsShipping, RESERVING_STATUSES } from './feriaLines.mjs';
 import { feriaLocationIds } from './feriaStock.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
+import { invoiceOrder } from './feriaInvoice.mjs';
 import {
   getOrderById, saveOdooOrderId, saveOdooLineIds, markOrderConfirmed, applyOrderLineActions, setOrderErrorDetail,
 } from './feriaOrders.mjs';
@@ -86,7 +87,7 @@ export async function confirmOrder(order, user) {
   // Re-confirmar uno ya confirmado es un no-op seguro en Odoo.
   await confirmSaleOrder(odooOrderId);
   const odooOrderName = await readOrderName(odooOrderId);
-  await markOrderConfirmed(order.id, { odooOrderId, odooOrderName, invoiceId: null });
+  await markOrderConfirmed(order.id, { odooOrderId, odooOrderName });
 
   // Lo que se lleva ahora sale ya de exhibición. Si falla, el pedido queda
   // confirmado igual (la venta está hecha) y se avisa para marcarlo con "Hecho".
@@ -102,5 +103,9 @@ export async function confirmOrder(order, user) {
         `Pedido confirmado, pero no se pudo marcar como entregado lo que se lleva ahora (${err.message}). Marcalo con "Hecho".`);
     }
   }
+
+  // Factura B con CAE. Si falla, la venta queda confirmada y el error queda
+  // en invoiceError para que Caja reintente (no tira).
+  await invoiceOrder({ ...confirmed, odooOrderId });
   return getOrderById(order.id);
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSaleOrderPayload, buildShippingPartnerVals, buildNewPartnerVals, partnerPhoneUpdate } from '../feriaOdoo.mjs';
+import { planInvoiceStep, invoiceWizardContext, buildSaleOrderPayload, buildShippingPartnerVals, buildNewPartnerVals, partnerPhoneUpdate } from '../feriaOdoo.mjs';
 
 test('arma el payload de sale.order con las líneas en formato Odoo (0,0,{...})', () => {
   const payload = buildSaleOrderPayload({
@@ -96,4 +96,22 @@ test('el número interno de la app viaja en "Referencia del cliente" del pedido'
   const payload = buildSaleOrderPayload({ partnerId: 42, pricelistId: 7, clientOrderRef: 'F-0012', lines: [] });
   assert.equal(payload.client_order_ref, 'F-0012');
   assert.equal('client_order_ref' in buildSaleOrderPayload({ partnerId: 42, pricelistId: 7, lines: [] }), false);
+});
+
+test('planInvoiceStep: sin factura se crea; en borrador se valida; validada ya está', () => {
+  assert.deepEqual(planInvoiceStep([]), { action: 'create' });
+  assert.deepEqual(planInvoiceStep([{ id: 9, state: 'draft', name: '/' }]), { action: 'post', invoiceId: 9 });
+  const posted = { id: 9, state: 'posted', name: 'FA-B 00009-00031962' };
+  assert.deepEqual(planInvoiceStep([posted]), { action: 'done', invoice: posted });
+});
+
+test('planInvoiceStep: una factura cancelada no cuenta (se crea otra)', () => {
+  assert.deepEqual(planInvoiceStep([{ id: 9, state: 'cancel', name: 'FA-B 1' }]), { action: 'create' });
+  // Si hay validada y otra en borrador, manda la validada: nunca se emite una segunda.
+  const posted = { id: 10, state: 'posted', name: 'FA-B 2' };
+  assert.deepEqual(planInvoiceStep([{ id: 11, state: 'draft', name: '/' }, posted]), { action: 'done', invoice: posted });
+});
+
+test('invoiceWizardContext: el asistente Crear factura de Odoo actúa sobre ese pedido', () => {
+  assert.deepEqual(invoiceWizardContext(60081), { active_model: 'sale.order', active_ids: [60081], active_id: 60081 });
 });

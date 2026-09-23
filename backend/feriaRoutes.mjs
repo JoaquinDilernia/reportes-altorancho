@@ -7,12 +7,11 @@ import {
   addOrderLine, listOrderHistory, closeConfirmedOrder,
 } from './feriaOrders.mjs';
 import { deliverLines, withOrderLock } from './feriaDelivery.mjs';
-// createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
-// facturación automática está deshabilitada por ahora (ver feriaConfirm.mjs).
 import { confirmOrder } from './feriaConfirm.mjs';
+import { invoiceOrder } from './feriaInvoice.mjs';
 import { computeStats, rangeBounds } from './feriaStats.mjs';
-import { assertLineActionAllowed, assertAnnullable } from './feriaLines.mjs';
-import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves } from './feriaOdoo.mjs';
+import { assertLineActionAllowed, assertAnnullable, assertInvoiceable } from './feriaLines.mjs';
+import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves, findOrderInvoices } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
 import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
 import { PUBLIC_PRICE_OPTIONS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
@@ -279,6 +278,9 @@ router.post('/orders/:id/annul', requireFeriaAuth, requireFeriaRole('caja'), asy
       if (await hasDeliveredMoves(order.odooOrderId)) {
         throw new Error('Parte del pedido ya se entregó en Odoo: anulalo en Odoo con la devolución correspondiente');
       }
+      // Idem con la factura: puede estar emitida aunque la app no se enteró.
+      const posted = (await findOrderInvoices(order.odooOrderId)).find((i) => i.state === 'posted');
+      if (posted) throw new Error(`La venta ya tiene la factura ${posted.name}: anulala en Odoo con una nota de crédito`);
       try {
         await cancelSaleOrder(order.odooOrderId);
       } catch (err) {
@@ -292,6 +294,21 @@ router.post('/orders/:id/annul', requireFeriaAuth, requireFeriaRole('caja'), asy
     });
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json({ order: result.order });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Reintenta la factura de una venta confirmada (AFIP caído, por ejemplo).
+router.post('/orders/:id/invoice', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const order = await getOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+    assertInvoiceable(order);
+    const result = await invoiceOrder(order);
+    if (result.status === 'skipped') return res.status(400).json({ error: 'La facturación automática no está activada' });
+    if (result.status === 'error') return res.status(502).json({ error: result.error });
+    res.json({ order: await getOrderById(order.id) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

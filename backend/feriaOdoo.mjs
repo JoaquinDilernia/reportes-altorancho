@@ -177,15 +177,52 @@ export async function confirmSaleOrder(orderId) {
 // instancia usa una automatización propia para Tienda Nube (a confirmar
 // durante la implementación — ver spec), puede hacer falta ajustar este
 // método al que esa automatización realmente llama.
-export async function createInvoiceForOrder(orderId) {
-  try {
-    await ensureAuth();
-    const result = await callKw('sale.order', '_create_invoices', [[orderId]]);
-    return Array.isArray(result) ? (result[0] ?? null) : (result ?? null);
-  } catch (err) {
-    console.error('[feriaOdoo] Error creando factura:', err.message);
-    return null;
+// Facturación: el mismo asistente "Crear factura" que se usa a mano en
+// Odoo (sale.order._create_invoices es privado y no se llama por RPC).
+export function invoiceWizardContext(orderId) {
+  return { active_model: 'sale.order', active_ids: [orderId], active_id: orderId };
+}
+
+// Qué falta para que el pedido quede facturado, según sus facturas en Odoo.
+// Una validada gana siempre: nunca se emite una segunda factura.
+export function planInvoiceStep(invoices) {
+  const posted = invoices.find((i) => i.state === 'posted');
+  if (posted) return { action: 'done', invoice: posted };
+  const draft = invoices.find((i) => i.state === 'draft');
+  if (draft) return { action: 'post', invoiceId: draft.id };
+  return { action: 'create' };
+}
+
+const INVOICE_FIELDS = ['id', 'name', 'state', 'journal_id', 'l10n_ar_afip_auth_code'];
+
+export async function findOrderInvoices(orderId) {
+  const [order] = await callKwReadWithRetry('sale.order', 'read', [[orderId]], { fields: ['invoice_ids'] });
+  if (!order?.invoice_ids?.length) return [];
+  const moves = await callKwReadWithRetry('account.move', 'read', [order.invoice_ids], { fields: [...INVOICE_FIELDS, 'move_type'] });
+  return moves.filter((m) => m.move_type === 'out_invoice');
+}
+
+export async function createInvoiceFromOrder(orderId) {
+  await ensureAuth();
+  const context = invoiceWizardContext(orderId);
+  const [wizardId] = await callKw('sale.advance.payment.inv', 'create', [[{
+    advance_payment_method: 'delivered', sale_order_ids: [[6, 0, [orderId]]],
+  }]], { context });
+  await callKw('sale.advance.payment.inv', 'create_invoices', [[wizardId]], { context });
+}
+
+// Valida la factura en el diario de la feria. Con factura electrónica, Odoo
+// pide el CAE a AFIP en el mismo paso: si AFIP rechaza, tira error y la
+// factura queda en borrador para reintentar.
+export async function postInvoice(invoiceId, journalId) {
+  await ensureAuth();
+  const [move] = await callKw('account.move', 'read', [[invoiceId]], { fields: ['journal_id', 'state'] });
+  if (move.state === 'draft' && move.journal_id?.[0] !== journalId) {
+    await callKw('account.move', 'write', [[invoiceId], { journal_id: journalId }]);
   }
+  await callKw('account.move', 'action_post', [[invoiceId]]);
+  const [posted] = await callKw('account.move', 'read', [[invoiceId]], { fields: INVOICE_FIELDS });
+  return posted;
 }
 
 // Busca un partner existente por CUIT/DNI para autocompletar datos en el

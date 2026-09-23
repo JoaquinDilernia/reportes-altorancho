@@ -75,6 +75,8 @@ export async function createOrder(input) {
     errorDetail: null,
     odooOrderId: null,
     invoiceId: null,
+    invoiceName: null,
+    invoiceError: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -157,10 +159,20 @@ async function finishConfirm(id, update) {
   });
 }
 
-export async function markOrderConfirmed(id, { odooOrderId, odooOrderName = null, invoiceId = null }) {
-  await finishConfirm(id, {
-    status: invoiceId ? 'facturado' : 'confirmado', odooOrderId, odooOrderName, invoiceId, errorDetail: null,
+export async function markOrderConfirmed(id, { odooOrderId, odooOrderName = null }) {
+  await finishConfirm(id, { status: 'confirmado', odooOrderId, odooOrderName, errorDetail: null });
+}
+
+// La factura va aparte del estado: una venta facturada sigue 'confirmado'
+// (entregas, estadísticas y sincronización no cambian).
+export async function markOrderInvoiced(id, { invoiceId, invoiceName }) {
+  await getDb().collection(COLLECTION).doc(id).update({
+    invoiceId, invoiceName, invoiceError: null, invoicedAt: new Date(), updatedAt: new Date(),
   });
+}
+
+export async function setInvoiceError(id, invoiceError) {
+  await getDb().collection(COLLECTION).doc(id).update({ invoiceError, updatedAt: new Date() });
 }
 
 export async function markOrderError(id, errorDetail) {
