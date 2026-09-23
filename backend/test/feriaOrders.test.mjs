@@ -7,7 +7,7 @@ const validInput = {
   sellerName: 'Ana',
   customer: { name: 'Juan Pérez', docNumber: '20304050607' },
   paymentMethod: 'efectivo',
-  lines: [{ sku: 'BCT037MA', modelo: 'Organica s', condition: 'falla', qty: 1, unitPrice: 23791 }],
+  lines: [{ sku: 'BCT037MA', modelo: 'Organica s', condition: 'falla', qty: 1, unitPrice: 23791, location: 'exhibicion', delivery: 'ahora' }],
 };
 
 test('acepta un pedido completo y válido', () => {
@@ -83,4 +83,18 @@ test('rechaza un listPrice que no es un número válido', () => {
   const result = validateOrderInput({ ...validInput, lines });
   assert.equal(result.valid, false);
   assert.match(result.errors.join(' '), /Precio de lista inválido/);
+});
+
+test('rechaza una línea sin ubicación ni forma de entrega', () => {
+  const lines = [{ ...validInput.lines[0], location: undefined, delivery: undefined }];
+  const result = validateOrderInput({ ...validInput, lines });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /Ubicación inválida/);
+});
+
+test('con una línea de envío exige los datos de envío', () => {
+  const lines = [{ ...validInput.lines[0], location: 'rolon', delivery: 'envio' }];
+  assert.match(validateOrderInput({ ...validInput, lines }).errors.join(' '), /Falta la calle del envío/);
+  const shipping = { street: 'Av. Siempreviva', number: '742', city: 'Tigre', zip: '1648', phone: '1155555555' };
+  assert.deepEqual(validateOrderInput({ ...validInput, lines, shipping }), { valid: true, errors: [] });
 });

@@ -1,5 +1,6 @@
 import { getDb } from './feriaOdoo.mjs';
 import { PAYMENT_METHODS as PAYMENT_METHOD_INFO } from './feriaPricing.mjs';
+import { validateLineDelivery, validateShipping, needsShipping } from './feriaLines.mjs';
 
 const COLLECTION = 'feria_orders';
 // Derivado de feriaPricing para que no haya dos listas de medios de pago que
@@ -26,7 +27,9 @@ export function validateOrderInput(input) {
     // listPrice (precio de tabla, sin el descuento del medio de pago) es
     // opcional para no romper pedidos de tablets con la versión anterior.
     if (line.listPrice !== undefined && (typeof line.listPrice !== 'number' || !Number.isFinite(line.listPrice) || line.listPrice < 0)) errors.push(`Precio de lista inválido para ${line.sku ?? 'un producto'}`);
+    errors.push(...validateLineDelivery(line));
   }
+  if (needsShipping(input.lines ?? [])) errors.push(...validateShipping(input.shipping));
   return { valid: errors.length === 0, errors };
 }
 
