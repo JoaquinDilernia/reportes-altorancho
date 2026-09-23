@@ -7,6 +7,7 @@ import {
   isConfirming, assertClosable, CONFIRMING_MESSAGE,
 } from './feriaLines.mjs';
 import { getFeriaProduct } from './feriaProducts.mjs';
+import { assertCanConfirmWithCash } from './feriaCash.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
 const COLLECTION = 'feria_orders';
@@ -143,9 +144,11 @@ export async function claimOrderForConfirm(id) {
     if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
     if (!['pendiente', 'error'].includes(order.status)) return { order, alreadyConfirmed: true };
     if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
+    // La venta entra en la caja abierta; con la caja cerrada no se confirma.
+    const cashSessionId = assertCanConfirmWithCash((await tx.get(db.collection(COUNTERS_COLLECTION).doc('cash'))).data());
     const confirmingSince = new Date();
-    tx.update(ref, { confirmingSince });
-    return { order: { ...order, confirmingSince }, alreadyConfirmed: false };
+    tx.update(ref, { confirmingSince, cashSessionId });
+    return { order: { ...order, confirmingSince, cashSessionId }, alreadyConfirmed: false };
   });
 }
 

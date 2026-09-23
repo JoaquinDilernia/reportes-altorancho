@@ -9,6 +9,7 @@ import {
 import { deliverLines, withOrderLock } from './feriaDelivery.mjs';
 import { confirmOrder } from './feriaConfirm.mjs';
 import { invoiceOrder } from './feriaInvoice.mjs';
+import { getCurrentCash, openCashSession, closeCashSession, listCashSessions } from './feriaCash.mjs';
 import { computeStats, rangeBounds } from './feriaStats.mjs';
 import { assertLineActionAllowed, assertAnnullable, assertInvoiceable } from './feriaLines.mjs';
 import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves, findOrderInvoices } from './feriaOdoo.mjs';
@@ -331,6 +332,44 @@ router.get('/stats', requireFeriaAuth, requireFeriaRole('caja'), async (req, res
     res.json({ range, stats: computeStats(orders, rangeBounds(range)) });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Caja del día: una sola abierta a la vez. Sin caja abierta no se confirman
+// ventas (ver claimOrderForConfirm).
+router.get('/cash/current', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json(await getCurrentCash());
+  } catch (err) {
+    console.error('[feria] cash/current error:', err.message);
+    res.status(500).json({ error: 'No se pudo leer la caja' });
+  }
+});
+
+router.post('/cash/open', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    await openCashSession({ openingCash: req.body?.openingCash, user: feriaUserName(req) });
+    res.json(await getCurrentCash());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/cash/close', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const session = await closeCashSession({ countedCash: req.body?.countedCash, notes: req.body?.notes, user: feriaUserName(req) });
+    res.json({ session });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/cash/sessions', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ sessions: await listCashSessions() });
+  } catch (err) {
+    console.error('[feria] cash/sessions error:', err.message);
+    res.status(500).json({ error: 'No se pudo leer el historial de cajas' });
   }
 });
 
