@@ -1,7 +1,7 @@
 import { callKwReadWithRetry } from './feriaOdoo.mjs';
 import { getDb } from './firestore.mjs';
 import { extractSkuFromDisplayName } from './normalize.mjs';
-import { reservationKey, LOCATIONS } from './feriaLines.mjs';
+import { reservationKey, parseReservationKey, LOCATIONS, LOCATION_LABELS } from './feriaLines.mjs';
 
 export const RESERVATIONS_COLLECTION = 'feria_reservations';
 
@@ -75,3 +75,29 @@ export async function getAvailability(db, skus) {
 }
 
 export { getDb };
+
+// Verifica que las reservas nuevas (deltas > 0) entren en el disponible.
+// Liberar (deltas ≤ 0) nunca se bloquea.
+export function checkAvailability(odooStock, reserved, deltas) {
+  const errors = [];
+  for (const [key, delta] of deltas) {
+    if (delta <= 0) continue;
+    const { sku, location } = parseReservationKey(key);
+    const available = availabilityFor(odooStock, reserved, sku)[location];
+    if (delta > available) errors.push(`${sku} en ${LOCATION_LABELS[location]}: pediste ${delta}, hay ${available}`);
+  }
+  return errors;
+}
+
+export function nextReserved(reserved, deltas) {
+  const next = new Map();
+  for (const [key, delta] of deltas) next.set(key, Math.max(0, (reserved.get(key) ?? 0) + delta));
+  return next;
+}
+
+export function writeReservations(tx, db, reserved, deltas) {
+  for (const [key, value] of nextReserved(reserved, deltas)) {
+    const { sku, location } = parseReservationKey(key);
+    tx.set(db.collection(RESERVATIONS_COLLECTION).doc(key), { sku, location, reserved: value, updatedAt: new Date() });
+  }
+}

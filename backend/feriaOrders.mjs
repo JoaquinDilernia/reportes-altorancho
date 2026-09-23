@@ -1,6 +1,7 @@
 import { getDb } from './feriaOdoo.mjs';
-import { PAYMENT_METHODS as PAYMENT_METHOD_INFO } from './feriaPricing.mjs';
-import { validateLineDelivery, validateShipping, needsShipping } from './feriaLines.mjs';
+import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST } from './feriaPricing.mjs';
+import { validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas } from './feriaLines.mjs';
+import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
 const COLLECTION = 'feria_orders';
 // Derivado de feriaPricing para que no haya dos listas de medios de pago que
@@ -37,13 +38,26 @@ export async function createOrder(input) {
   const { valid, errors } = validateOrderInput(input);
   if (!valid) throw new Error(errors.join('; '));
 
+  const lines = assignLineIds(input.lines.map((l) => ({
+    sku: l.sku.toUpperCase(), modelo: l.modelo, condition: l.condition, qty: l.qty,
+    unitPrice: l.unitPrice, listPrice: l.listPrice, location: l.location, delivery: l.delivery,
+  })));
+  const withShipping = needsShipping(lines);
+  const deltas = reservationDeltas([], lines);
+  // Stock de Odoo afuera de la transacción (es una llamada HTTP lenta y las
+  // transacciones de Firestore se reintentan); las reservas, adentro.
+  const odooStock = await fetchOdooStock(lines.map((l) => l.sku));
+
   const db = getDb();
+  const ref = db.collection(COLLECTION).doc();
   const order = {
     sellerId: input.sellerId,
     sellerName: input.sellerName,
     customer: input.customer,
     paymentMethod: input.paymentMethod,
-    lines: input.lines,
+    lines,
+    shipping: withShipping ? input.shipping : null,
+    shippingCost: withShipping ? SHIPPING_COST : 0,
     invoiceType: null,
     status: 'pendiente',
     errorDetail: null,
@@ -52,7 +66,14 @@ export async function createOrder(input) {
     createdAt: new Date(),
     updatedAt: new Date(),
   };
-  const ref = await db.collection(COLLECTION).add(order);
+
+  await db.runTransaction(async (tx) => {
+    const reserved = await readReservations(db, [...deltas.keys()], tx);
+    const stockErrors = checkAvailability(odooStock, reserved, deltas);
+    if (stockErrors.length) throw new Error(`Sin stock suficiente — ${stockErrors.join('; ')}`);
+    writeReservations(tx, db, reserved, deltas);
+    tx.set(ref, order);
+  });
   return { id: ref.id, ...order };
 }
 
