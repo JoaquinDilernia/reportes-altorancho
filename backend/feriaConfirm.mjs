@@ -68,6 +68,7 @@ export async function confirmOrder(order, user) {
       partnerId, pricelistId, teamId, paymentMethodId,
       warehouseId: Number(process.env.ODOO_FERIA_WAREHOUSE_ID) || null,
       partnerShippingId,
+      clientOrderRef: order.number ?? null,
       lines: buildOdooLines(activeLines, order.paymentMethod, productIds, shippingProductId),
     });
     odooOrderId = await createSaleOrder(vals);

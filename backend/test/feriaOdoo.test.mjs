@@ -91,3 +91,9 @@ test('partnerPhoneUpdate completa el teléfono solo si el cliente de Odoo no ten
   assert.equal(partnerPhoneUpdate('1144444444', '1155555555'), null);
   assert.equal(partnerPhoneUpdate(false, ''), null);
 });
+
+test('el número interno de la app viaja en "Referencia del cliente" del pedido', () => {
+  const payload = buildSaleOrderPayload({ partnerId: 42, pricelistId: 7, clientOrderRef: 'F-0012', lines: [] });
+  assert.equal(payload.client_order_ref, 'F-0012');
+  assert.equal('client_order_ref' in buildSaleOrderPayload({ partnerId: 42, pricelistId: 7, lines: [] }), false);
+});

@@ -86,7 +86,7 @@ export async function findOrCreatePartner({ name, docNumber, phone }) {
   return id;
 }
 
-export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, warehouseId, partnerShippingId, lines }) {
+export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, warehouseId, partnerShippingId, clientOrderRef, lines }) {
   const payload = {
     partner_id: partnerId,
     pricelist_id: pricelistId,
@@ -105,6 +105,9 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentM
   // Rolón), no del almacén por defecto.
   if (warehouseId) payload.warehouse_id = warehouseId;
   if (partnerShippingId) payload.partner_shipping_id = partnerShippingId;
+  // Número interno de la app (F-0012) en "Referencia del cliente": se ve en
+  // el pedido, se busca en la lista de ventas y Odoo lo copia a la factura.
+  if (clientOrderRef) payload.client_order_ref = clientOrderRef;
   return payload;
 }
 
