@@ -1,6 +1,9 @@
 import { getDb } from './feriaOdoo.mjs';
 import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST } from './feriaPricing.mjs';
-import { validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas } from './feriaLines.mjs';
+import {
+  validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
+  applyLineAction, assertLineActionAllowed, hasPendingDeliveries,
+} from './feriaLines.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
 const COLLECTION = 'feria_orders';
@@ -166,4 +169,82 @@ export async function markOrderError(id, errorDetail) {
   await db.collection(COLLECTION).doc(id).update({
     status: 'error', errorDetail, updatedAt: new Date(),
   });
+}
+
+// Aplica la misma acción a una o más líneas del pedido y ajusta las reservas,
+// todo en una transacción (pedido + contadores de reserva juntos).
+export async function applyOrderLineActions(orderId, lineIds, action, { user, changes } = {}) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+
+  // Mover una línea de ubicación reserva en la nueva: hace falta el stock de
+  // Odoo, que se lee afuera de la transacción.
+  let odooStock = null;
+  if (action === 'edit' && changes?.location) {
+    const snap = await ref.get();
+    const skus = (snap.data()?.lines ?? []).filter((l) => lineIds.includes(l.lineId)).map((l) => l.sku);
+    odooStock = await fetchOdooStock(skus);
+  }
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    const missing = lineIds.filter((id) => !order.lines.some((l) => l.lineId === id));
+    if (missing.length) throw new Error(`Línea no encontrada: ${missing.join(', ')}`);
+    const now = new Date();
+    const newLines = order.lines.map((line) => {
+      if (!lineIds.includes(line.lineId)) return line;
+      assertLineActionAllowed(order, line, action);
+      return applyLineAction(line, action, { user, now, changes });
+    });
+
+    const deltas = reservationDeltas(order.lines, newLines);
+    const reserved = await readReservations(db, [...deltas.keys()], tx);
+    if (odooStock) {
+      const stockErrors = checkAvailability(odooStock, reserved, deltas);
+      if (stockErrors.length) throw new Error(`Sin stock suficiente — ${stockErrors.join('; ')}`);
+    }
+    writeReservations(tx, db, reserved, deltas);
+    tx.update(ref, { lines: newLines, updatedAt: now });
+    return { ...order, lines: newLines, updatedAt: now };
+  });
+}
+
+// Cancela un pedido todavía no confirmado y libera todo lo que reservaba. Las
+// líneas quedan como estaban (historial); el pedido pasa a 'cancelado'.
+export async function cancelOrder(orderId, user) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    if (!['pendiente', 'error'].includes(order.status)) {
+      throw new Error('Solo se cancelan pedidos que todavía no se confirmaron (los confirmados se cancelan en Odoo)');
+    }
+    const deltas = reservationDeltas(order.lines, []);
+    const reserved = await readReservations(db, [...deltas.keys()], tx);
+    writeReservations(tx, db, reserved, deltas);
+    const now = new Date();
+    const update = { status: 'cancelado', cancelledAt: now, cancelledBy: user, updatedAt: now };
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
+}
+
+// Pedidos confirmados con algo por entregar. Un solo where (sin índice
+// compuesto); el resto se filtra y ordena acá.
+export async function listLogisticsOrders() {
+  const db = getDb();
+  const snap = await db.collection(COLLECTION).where('status', '==', 'confirmado').get();
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter(hasPendingDeliveries)
+    .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
+}
+
+export async function setOrderErrorDetail(id, errorDetail) {
+  const db = getDb();
+  await db.collection(COLLECTION).doc(id).update({ errorDetail, updatedAt: new Date() });
 }

@@ -3,7 +3,10 @@ import { requireFeriaAuth, requireFeriaRole, validateSellerPin, validateCajaCred
 import {
   createOrder, listOrdersByStatus, getOrderById,
   updateOrderPayment, saveOdooOrderId, markOrderConfirmed, markOrderError,
+  applyOrderLineActions, cancelOrder, listLogisticsOrders,
 } from './feriaOrders.mjs';
+import { deliverLines } from './feriaDelivery.mjs';
+import { assertLineActionAllowed } from './feriaLines.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se importa:
 // la facturación automática está deshabilitada por ahora (ver más abajo, en
 // /orders/:id/confirm). Volver a importarla al reactivarla.
@@ -12,7 +15,7 @@ import {
   findPaymentMethodId, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
 } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
-import { getAvailability, getDb } from './feriaStock.mjs';
+import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
 import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField, odooLinePricing } from './feriaPricing.mjs';
 
 const router = Router();
@@ -252,6 +255,78 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
       console.error('[feria] no se pudo marcar el pedido como error:', markErr.message);
     }
     res.status(502).json({ error: `No se pudo confirmar en Odoo: ${err.message}` });
+  }
+});
+
+function feriaUserName(req) {
+  return req.feriaUser?.name || req.feriaUser?.email || 'caja';
+}
+
+router.delete('/orders/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ order: await applyOrderLineActions(req.params.id, [req.params.lineId], 'remove', { user: feriaUserName(req) }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch('/orders/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const { location, delivery } = req.body;
+    res.json({ order: await applyOrderLineActions(req.params.id, [req.params.lineId], 'edit', {
+      user: feriaUserName(req), changes: { location, delivery },
+    }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/orders/:id/lines/:lineId/sent-to-feria', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ order: await applyOrderLineActions(req.params.id, [req.params.lineId], 'sendToFeria', { user: feriaUserName(req) }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// "Hecho": el cliente ya se lo llevó. Primero Odoo (valida esa línea del
+// remito desde su ubicación), después la app. Si Odoo ya la tenía hecha (un
+// intento anterior se cortó antes de actualizar la app), deliverLines la
+// devuelve en alreadyDone y se marca igual.
+router.post('/orders/:id/lines/:lineId/deliver', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const order = await getOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+    const line = order.lines.find((l) => l.lineId === req.params.lineId);
+    if (!line) return res.status(404).json({ error: 'Línea no encontrada' });
+    assertLineActionAllowed(order, line, 'deliver');
+
+    try {
+      await deliverLines(order.odooOrderId, [{
+        odooLineId: line.odooLineId, qty: line.qty, locationId: feriaLocationIds()[line.location],
+      }]);
+    } catch (err) {
+      return res.status(502).json({ error: `No se pudo marcar en Odoo: ${err.message}` });
+    }
+    res.json({ order: await applyOrderLineActions(order.id, [line.lineId], 'deliver', { user: feriaUserName(req) }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/orders/:id/cancel', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ order: await cancelOrder(req.params.id, feriaUserName(req)) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/logistics/orders', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ orders: await listLogisticsOrders() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
