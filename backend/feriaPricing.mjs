@@ -8,6 +8,20 @@ export const PAYMENT_METHODS = {
 
 const CONDITIONS = new Set(['falla', 'discontinuo']);
 
+// Todos los productos de la feria tienen "IVA 21% Ventas" en Odoo con el
+// impuesto NO incluido en el precio: si mandáramos el precio de la tabla
+// (que ya incluye IVA) Odoo le sumaría el 21% arriba. Por eso a Odoo viaja
+// el precio neto y Odoo recompone el total que paga el cliente.
+export const IVA_RATE = 0.21;
+
+// Cargo fijo de envío a domicilio, por pedido, con IVA incluido y sin
+// descuento por medio de pago.
+export const SHIPPING_COST = 10000;
+
+export function netOfIva(price) {
+  return Math.round((price / (1 + IVA_RATE)) * 100) / 100;
+}
+
 export function activeRebajaField(condition) {
   if (!CONDITIONS.has(condition)) throw new Error(`Condición inválida: ${condition}`);
   return condition === 'falla' ? 'rebajaFallaActiva' : 'rebajaDiscontinuoActiva';
@@ -41,13 +55,13 @@ export function computeFinalPrice(product, condition, rebajaLevel, paymentMethod
 
 // Precio y descuento de una línea tal como viajan a Odoo: price_unit es el
 // precio de tabla completo (condición + rebaja, SIN el descuento del medio de
-// pago) y el descuento del medio de pago va en el campo discount de la línea,
-// para que en Odoo se vea qué parte del precio es rebaja por medio de pago.
+// pago) y SIN IVA — Odoo agrega el impuesto — y el descuento del medio de
+// pago va en el campo discount de la línea.
 // Los pedidos creados antes de guardar listPrice solo tienen el unitPrice ya
 // descontado: se reconstruye el precio de tabla deshaciendo el porcentaje.
 export function odooLinePricing(line, paymentMethod) {
   const method = PAYMENT_METHODS[paymentMethod];
   if (!method) throw new Error(`Método de pago inválido: ${paymentMethod}`);
-  const unitPrice = line.listPrice ?? Math.round(line.unitPrice / (1 - method.discountPct / 100));
-  return { unitPrice, discountPct: method.discountPct };
+  const grossListPrice = line.listPrice ?? Math.round(line.unitPrice / (1 - method.discountPct / 100));
+  return { unitPrice: netOfIva(grossListPrice), discountPct: method.discountPct };
 }

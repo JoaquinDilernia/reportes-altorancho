@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PAYMENT_METHODS, tablePrice, computeFinalPrice, odooLinePricing } from '../feriaPricing.mjs';
+import { PAYMENT_METHODS, tablePrice, computeFinalPrice, odooLinePricing, netOfIva, IVA_RATE, SHIPPING_COST } from '../feriaPricing.mjs';
 
 const product = {
   precioFalla: 27990,
@@ -69,22 +69,38 @@ test('cada medio de pago tiene su nombre de payment.method en Odoo', () => {
   assert.equal(PAYMENT_METHODS.cuotas.odooName, 'Mercado Pago 3 cuotas');
 });
 
-test('odooLinePricing manda el precio de tabla completo y el descuento del medio de pago aparte', () => {
+test('netOfIva saca el 21% y redondea a centavos', () => {
+  assert.equal(IVA_RATE, 0.21);
+  assert.equal(netOfIva(9990), 8256.2);
+  assert.equal(netOfIva(10000), 8264.46);
+});
+
+test('SHIPPING_COST es 10000', () => {
+  assert.equal(SHIPPING_COST, 10000);
+});
+
+test('odooLinePricing manda el precio de tabla SIN IVA y el descuento del medio de pago aparte', () => {
   assert.deepEqual(
     odooLinePricing({ listPrice: 9990, unitPrice: 7992 }, 'transferencia'),
-    { unitPrice: 9990, discountPct: 20 },
+    { unitPrice: 8256.2, discountPct: 20 },
   );
   assert.deepEqual(
     odooLinePricing({ listPrice: 9990, unitPrice: 9990 }, 'cuotas'),
-    { unitPrice: 9990, discountPct: 0 },
+    { unitPrice: 8256.2, discountPct: 0 },
   );
 });
 
 test('odooLinePricing reconstruye el precio de tabla en pedidos viejos sin listPrice', () => {
   assert.deepEqual(
     odooLinePricing({ unitPrice: 7992 }, 'transferencia'),
-    { unitPrice: 9990, discountPct: 20 },
+    { unitPrice: 8256.2, discountPct: 20 },
   );
+});
+
+test('con el precio sin IVA, el total que calcula Odoo vuelve a dar el precio que paga el cliente', () => {
+  const { unitPrice, discountPct } = odooLinePricing({ listPrice: 9990, unitPrice: 7992 }, 'transferencia');
+  const subtotal = Math.round(unitPrice * (1 - discountPct / 100) * 100) / 100;
+  assert.equal(Math.round(subtotal * (1 + IVA_RATE) * 100) / 100, 7992);
 });
 
 test('odooLinePricing rechaza un medio de pago inválido', () => {
