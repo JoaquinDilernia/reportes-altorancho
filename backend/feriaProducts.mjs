@@ -1,4 +1,5 @@
 import { getDb } from './firestore.mjs';
+import { withRebaja, activeRebajaField } from './feriaPricing.mjs';
 
 const COLLECTION = 'feria_products';
 let cache = new Map();
@@ -40,13 +41,17 @@ export function getFeriaProduct(sku) {
   return cache.get((sku ?? '').toUpperCase()) ?? null;
 }
 
+// Activa una rebaja y devuelve el producto ya actualizado. El cache se
+// actualiza en el acto: onSnapshot llega un instante después, y hasta
+// entonces la respuesta (y el buscador) mostraban el precio anterior.
 export async function setRebajaActiva(sku, condition, level) {
-  if (!['falla', 'discontinuo'].includes(condition)) throw new Error(`Condición inválida: ${condition}`);
-  if (![0, 1, 2].includes(level)) throw new Error(`Nivel de rebaja inválido: ${level}`);
-  const field = condition === 'falla' ? 'rebajaFallaActiva' : 'rebajaDiscontinuoActiva';
   const skuId = sku.toUpperCase();
-  const db = getDb();
-  const doc = await db.collection(COLLECTION).doc(skuId).get();
+  const ref = getDb().collection(COLLECTION).doc(skuId);
+  const doc = await ref.get();
   if (!doc.exists) throw new Error(`SKU no encontrado: ${sku}`);
-  await db.collection(COLLECTION).doc(skuId).update({ [field]: level, updatedAt: new Date() });
+  const updated = withRebaja({ ...doc.data(), sku: skuId }, condition, level);
+  const field = activeRebajaField(condition);
+  await ref.update({ [field]: level, updatedAt: new Date() });
+  cache.set(skuId, updated);
+  return updated;
 }

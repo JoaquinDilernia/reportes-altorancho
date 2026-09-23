@@ -38,6 +38,13 @@ export function activeRebajaField(condition) {
   return condition === 'falla' ? 'rebajaFallaActiva' : 'rebajaDiscontinuoActiva';
 }
 
+// El producto con otra rebaja activa para esa condición (sin tocar el original).
+export function withRebaja(product, condition, level) {
+  const field = activeRebajaField(condition);
+  if (![0, 1, 2].includes(level)) throw new Error(`Nivel de rebaja inválido: ${level}`);
+  return { ...product, [field]: level };
+}
+
 // Precio de tabla para una condición (falla/discontinuo) según el nivel de
 // rebaja vigente para ESA condición en ese SKU. Devuelve null si el SKU no
 // tiene precio cargado para esa condición (no todos los SKU tienen las dos).
@@ -62,6 +69,21 @@ export function computeFinalPrice(product, condition, rebajaLevel, paymentMethod
   const base = tablePrice(product, condition, rebajaLevel);
   if (base == null) return null;
   return Math.round(base * (1 - method.discountPct / 100));
+}
+
+// Lo que sale un producto en cada nivel de rebaja de una condición, con los
+// tres precios que ve el cliente: para que Caja elija la rebaja sabiendo el
+// precio final. Los niveles sin precio en el Excel no se ofrecen.
+export function rebajaLevels(product, condition) {
+  return [0, 1, 2]
+    .map((level) => ({ level, precioTabla: tablePrice(product, condition, level) }))
+    .filter((l) => l.precioTabla != null)
+    .map((l) => ({
+      ...l,
+      precios: Object.fromEntries(PUBLIC_PRICE_OPTIONS.map(({ key, method }) => [
+        key, computeFinalPrice(product, condition, l.level, method),
+      ])),
+    }));
 }
 
 // Precio y descuento de una línea tal como viajan a Odoo: price_unit es el

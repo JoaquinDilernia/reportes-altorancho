@@ -12,9 +12,9 @@ import { invoiceOrder } from './feriaInvoice.mjs';
 import { computeStats, rangeBounds } from './feriaStats.mjs';
 import { assertLineActionAllowed, assertAnnullable, assertInvoiceable } from './feriaLines.mjs';
 import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves, findOrderInvoices } from './feriaOdoo.mjs';
-import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
+import { searchFeriaProducts, setRebajaActiva } from './feriaProducts.mjs';
 import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
-import { PUBLIC_PRICE_OPTIONS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
+import { PUBLIC_PRICE_OPTIONS, rebajaLevels, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 const router = Router();
 
@@ -61,7 +61,7 @@ function buildConditionsPayload(product) {
     const priceField = condition === 'falla' ? 'precioFalla' : 'precioDiscontinuo';
     const rebajaActiva = product[activeRebajaField(condition)] ?? 0;
     conditions[condition] = product[priceField] != null
-      ? { disponible: true, precioTabla: tablePrice(product, condition, rebajaActiva), rebajaActiva }
+      ? { disponible: true, precioTabla: tablePrice(product, condition, rebajaActiva), rebajaActiva, niveles: rebajaLevels(product, condition) }
       : { disponible: false, precioTabla: null, rebajaActiva: 0 };
   }
   return conditions;
@@ -102,8 +102,7 @@ router.get('/products/search', requireFeriaAuth, async (req, res) => {
 router.patch('/products/:sku/rebaja', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   try {
     const { condition, level } = req.body;
-    await setRebajaActiva(req.params.sku, condition, level);
-    const product = getFeriaProduct(req.params.sku);
+    const product = await setRebajaActiva(req.params.sku, condition, level);
     res.json({
       product: { sku: product.sku, modelo: product.modelo, color: product.color, condiciones: buildConditionsPayload(product) },
     });

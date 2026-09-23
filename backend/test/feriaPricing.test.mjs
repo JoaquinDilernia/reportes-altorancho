@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PAYMENT_METHODS, PUBLIC_PRICE_OPTIONS, tablePrice, computeFinalPrice, odooLinePricing, netOfIva, IVA_RATE, SHIPPING_COST } from '../feriaPricing.mjs';
+import { PAYMENT_METHODS, PUBLIC_PRICE_OPTIONS, rebajaLevels, withRebaja, tablePrice, computeFinalPrice, odooLinePricing, netOfIva, IVA_RATE, SHIPPING_COST } from '../feriaPricing.mjs';
 
 const product = {
   precioFalla: 27990,
@@ -116,4 +116,34 @@ test('con el precio sin IVA, el total que calcula Odoo vuelve a dar el precio qu
 
 test('odooLinePricing rechaza un medio de pago inválido', () => {
   assert.throws(() => odooLinePricing({ listPrice: 100, unitPrice: 100 }, 'cheque'), /Método de pago inválido/);
+});
+
+test('rebajaLevels: los 3 niveles de una condición con su precio por medio de pago (MMA010BL)', () => {
+  const mma = {
+    precioFalla: 73990, precioRebaja1Falla: 58990, precioRebaja2Falla: 43990,
+    precioDiscontinuo: 95990, precioRebaja1Discontinuo: 75990, precioRebaja2Discontinuo: 56990,
+  };
+  assert.deepEqual(rebajaLevels(mma, 'falla'), [
+    { level: 0, precioTabla: 73990, precios: { transferencia: 62892, efectivo: 66591, mercadopago: 73990 } },
+    { level: 1, precioTabla: 58990, precios: { transferencia: 50142, efectivo: 53091, mercadopago: 58990 } },
+    { level: 2, precioTabla: 43990, precios: { transferencia: 37392, efectivo: 39591, mercadopago: 43990 } },
+  ]);
+  assert.deepEqual(rebajaLevels(mma, 'discontinuo').map((l) => l.precios.transferencia), [81592, 64592, 48442]);
+});
+
+test('rebajaLevels: un nivel sin precio cargado en el Excel no se ofrece', () => {
+  const partial = { precioFalla: 1000, precioRebaja1Falla: null };
+  assert.deepEqual(rebajaLevels(partial, 'falla').map((l) => l.level), [0]);
+  assert.deepEqual(rebajaLevels({}, 'falla'), []);
+});
+
+test('withRebaja: el producto con la rebaja nueva ya aplicada (la respuesta al activar muestra el precio nuevo)', () => {
+  const p = { ...product, rebajaFallaActiva: 1, rebajaDiscontinuoActiva: 0 };
+  const updated = withRebaja(p, 'falla', 2);
+  assert.equal(updated.rebajaFallaActiva, 2);
+  assert.equal(tablePrice(updated, 'falla', updated.rebajaFallaActiva), 15990);
+  assert.equal(p.rebajaFallaActiva, 1, 'no modifica el original');
+  assert.equal(withRebaja(p, 'discontinuo', 1).rebajaDiscontinuoActiva, 1);
+  assert.throws(() => withRebaja(p, 'falla', 3), /Nivel de rebaja inválido/);
+  assert.throws(() => withRebaja(p, 'nueva', 1), /Condición inválida/);
 });
