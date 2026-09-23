@@ -121,6 +121,7 @@ export function assertCancellable(order) {
     throw new Error('Solo se cancelan pedidos que todavía no se confirmaron (los confirmados se cancelan en Odoo)');
   }
   if (order.odooOrderId) throw new Error(ALREADY_IN_ODOO);
+  if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
 }
 
 // Cargo de envío que corresponde a las líneas actuales del pedido.
@@ -131,6 +132,9 @@ export function shippingCostFor(lines) {
 // Reglas que dependen del pedido completo, no solo de la línea.
 export function assertLineActionAllowed(order, line, action, changes = {}) {
   if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
+  if (isConfirming(order) && (action === 'remove' || (action === 'edit' && changes.qty !== undefined))) {
+    throw new Error(CONFIRMING_MESSAGE);
+  }
   if (action === 'remove') {
     if (!['pendiente', 'error'].includes(order.status)) {
       throw new Error('Después de confirmar no se pueden eliminar líneas desde la app (hacelo en Odoo)');
@@ -204,6 +208,35 @@ export function assertAnnullable(order) {
     throw new Error('Solo se anulan ventas confirmadas (las pendientes se cancelan con "Cancelar pedido")');
   }
   if ((order.lines ?? []).some((l) => l.status === 'entregado')) {
+    throw new Error('Parte del pedido ya se entregó: anulalo en Odoo con la devolución correspondiente');
+  }
+}
+
+// Mientras Caja confirma, el pedido queda "reclamado" (confirmingSince) para
+// que nadie lo cambie a mitad de camino desde otro dispositivo: lo que se
+// manda a Odoo tiene que ser exactamente lo que queda en la app. El reclamo
+// vence solo por si el proceso se corta.
+export const CONFIRM_CLAIM_MS = 2 * 60 * 1000;
+export const CONFIRMING_MESSAGE = 'El pedido se está confirmando en este momento: esperá unos segundos y volvé a intentar';
+
+function toMs(value) {
+  if (value == null) return null;
+  return typeof value.toMillis === 'function' ? value.toMillis() : new Date(value).getTime();
+}
+
+export function isConfirming(order, now = Date.now()) {
+  const since = toMs(order.confirmingSince);
+  return since != null && now - since < CONFIRM_CLAIM_MS;
+}
+
+// Cerrar en la app una venta que se anuló. Desde Caja: solo confirmadas y
+// sin nada entregado. Desde Odoo (sincronización): también las que quedaron
+// en error con pedido ya creado allá, y aunque algo se haya entregado (Odoo
+// ya decidió; solo se libera lo que seguía reservado).
+export function assertClosable(order, { fromOdoo }) {
+  const closable = order.status === 'confirmado' || (fromOdoo && order.status === 'error');
+  if (!closable || !order.odooOrderId) throw new Error('Solo se anulan ventas confirmadas');
+  if (!fromOdoo && (order.lines ?? []).some((l) => l.status === 'entregado')) {
     throw new Error('Parte del pedido ya se entregó: anulalo en Odoo con la devolución correspondiente');
   }
 }

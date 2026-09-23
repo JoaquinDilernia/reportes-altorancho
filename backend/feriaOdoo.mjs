@@ -245,3 +245,11 @@ export async function cancelSaleOrder(orderId) {
     throw new Error(`Odoo pidió confirmación manual (${result.res_model}) para cancelar el pedido`);
   }
 }
+
+// ¿Salió algo de este pedido? (movimientos de entrega ya hechos en Odoo).
+export async function hasDeliveredMoves(orderId) {
+  const count = await callKwReadWithRetry('stock.move', 'search_count', [
+    [['sale_line_id.order_id', '=', orderId], ['state', '=', 'done']],
+  ]);
+  return count > 0;
+}

@@ -4,22 +4,34 @@ import { closeConfirmedOrder } from './feriaOrders.mjs';
 
 const SYNC_EVERY_MS = 5 * 60 * 1000;
 
-// Ventas confirmadas en la app que alguien canceló directo en Odoo: se
+// Pedidos de la app cuyo sale.order alguien canceló directo en Odoo: se
 // cierran también en la app para liberar el stock que tenían reservado.
+// Incluye los que quedaron en 'error' con pedido ya creado en Odoo (el cajero
+// los resolvió cancelándolos allá). Dos queries de un solo campo: sin índice
+// compuesto.
 export async function syncCancelledOrders() {
   const db = getDb();
-  const snap = await db.collection('feria_orders').where('status', '==', 'confirmado').get();
   const byOdooId = new Map();
-  for (const doc of snap.docs) {
-    const { odooOrderId } = doc.data();
-    if (odooOrderId) byOdooId.set(odooOrderId, doc.id);
+  for (const status of ['confirmado', 'error']) {
+    const snap = await db.collection('feria_orders').where('status', '==', status).get();
+    for (const doc of snap.docs) {
+      const { odooOrderId } = doc.data();
+      if (odooOrderId) byOdooId.set(odooOrderId, doc.id);
+    }
   }
   const cancelled = await findCancelledOrderIds([...byOdooId.keys()]);
+  let closed = 0;
   for (const odooId of cancelled) {
-    await closeConfirmedOrder(byOdooId.get(odooId), 'Odoo', 'Cancelado en Odoo');
-    console.log(`[feriaSync] pedido ${byOdooId.get(odooId)} (Odoo ${odooId}) cancelado en Odoo: cerrado en la app`);
+    // Uno que falle no frena al resto: se reintenta en la próxima vuelta.
+    try {
+      await closeConfirmedOrder(byOdooId.get(odooId), 'Odoo', 'Cancelado en Odoo', { fromOdoo: true });
+      closed += 1;
+      console.log(`[feriaSync] pedido ${byOdooId.get(odooId)} (Odoo ${odooId}) cancelado en Odoo: cerrado en la app`);
+    } catch (err) {
+      console.error(`[feriaSync] no se pudo cerrar ${byOdooId.get(odooId)}:`, err.message);
+    }
   }
-  return cancelled.length;
+  return closed;
 }
 
 export function startCancellationSync() {

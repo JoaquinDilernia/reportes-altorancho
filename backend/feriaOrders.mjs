@@ -4,6 +4,7 @@ import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine,
+  isConfirming, assertClosable, CONFIRMING_MESSAGE,
 } from './feriaLines.mjs';
 import { getFeriaProduct } from './feriaProducts.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
@@ -115,52 +116,6 @@ export async function getOrderById(id) {
   return { id: doc.id, ...doc.data() };
 }
 
-// Cambia el medio de pago y/o el tipo de factura de un pedido ya creado.
-// El medio de pago se valida contra la tabla de precios (nada de valores
-// viejos como 'tarjeta' ni basura), y si cambia hay que RE-PRECIAR las
-// líneas: el descuento del medio de pago ya está aplicado en el unitPrice
-// guardado, así que dejarlo como está cobraría el descuento anterior.
-// El descuento es puramente multiplicativo, así que alcanza con deshacer el
-// porcentaje viejo y aplicar el nuevo — no hace falta volver a buscar el
-// precio de tabla original.
-export async function updateOrderPayment(id, { paymentMethod, invoiceType }) {
-  if (paymentMethod && !Object.hasOwn(PAYMENT_METHOD_INFO, paymentMethod)) {
-    throw new Error(`Método de pago inválido: ${paymentMethod}`);
-  }
-
-  const currentOrder = await getOrderById(id);
-  if (!currentOrder) throw new Error('Pedido no encontrado');
-
-  // Un pedido ya confirmado/facturado ya viajó a Odoo con sus precios. Volver
-  // a preciarlo acá solo cambiaría Firestore y dejaría las dos puntas
-  // divergentes — justo lo que el corte temprano de /confirm evita del otro
-  // lado.
-  if (currentOrder.status === 'confirmado' || currentOrder.status === 'facturado') {
-    throw new Error('No se puede cambiar el medio de pago de un pedido ya confirmado');
-  }
-
-  const db = getDb();
-  const update = { updatedAt: new Date() };
-  if (paymentMethod) update.paymentMethod = paymentMethod;
-  if (invoiceType !== undefined) update.invoiceType = invoiceType;
-
-  if (paymentMethod && paymentMethod !== currentOrder.paymentMethod) {
-    if (!Object.hasOwn(PAYMENT_METHOD_INFO, currentOrder.paymentMethod)) {
-      throw new Error(`El pedido tiene un medio de pago desconocido (${currentOrder.paymentMethod}): no se pueden recalcular los precios`);
-    }
-    const oldPct = PAYMENT_METHOD_INFO[currentOrder.paymentMethod].discountPct;
-    const newPct = PAYMENT_METHOD_INFO[paymentMethod].discountPct;
-    update.lines = (currentOrder.lines ?? []).map((l) => {
-      if (typeof l.unitPrice !== 'number' || !Number.isFinite(l.unitPrice)) {
-        throw new Error(`Precio inválido en la línea ${l.sku ?? 'sin SKU'}: no se puede recalcular`);
-      }
-      return { ...l, unitPrice: Math.round((l.unitPrice / (1 - oldPct / 100)) * (1 - newPct / 100)) };
-    });
-  }
-
-  await db.collection(COLLECTION).doc(id).update(update);
-}
-
 // Guarda el id del sale.order de Odoo apenas se crea, ANTES de intentar
 // facturar — deja el pedido en 'pendiente' (no toca status). Así, si la
 // factura falla y el cajero reintenta confirmar, la ruta de confirmación
@@ -171,19 +126,45 @@ export async function saveOdooOrderId(id, odooOrderId) {
   await db.collection(COLLECTION).doc(id).update({ odooOrderId, updatedAt: new Date() });
 }
 
-export async function markOrderConfirmed(id, { odooOrderId, odooOrderName = null, invoiceId = null }) {
+// Reclama el pedido para confirmarlo (ver isConfirming): desde acá hasta que
+// termine, nadie lo cambia desde otro dispositivo. Devuelve el pedido leído
+// dentro de la transacción: eso es lo que viaja a Odoo.
+export async function claimOrderForConfirm(id) {
   const db = getDb();
-  await db.collection(COLLECTION).doc(id).update({
-    status: invoiceId ? 'facturado' : 'confirmado',
-    odooOrderId, odooOrderName, invoiceId, errorDetail: null, updatedAt: new Date(),
+  const ref = db.collection(COLLECTION).doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
+    if (!['pendiente', 'error'].includes(order.status)) return { order, alreadyConfirmed: true };
+    if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
+    const confirmingSince = new Date();
+    tx.update(ref, { confirmingSince });
+    return { order: { ...order, confirmingSince }, alreadyConfirmed: false };
+  });
+}
+
+// Transaccionales y sin pisar un pedido cancelado: un cambio que se coló al
+// mismo tiempo no puede "resucitar" una venta ya cancelada.
+async function finishConfirm(id, update) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(id);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || snap.data().status === 'cancelado') return;
+    tx.update(ref, { ...update, confirmingSince: null, updatedAt: new Date() });
+  });
+}
+
+export async function markOrderConfirmed(id, { odooOrderId, odooOrderName = null, invoiceId = null }) {
+  await finishConfirm(id, {
+    status: invoiceId ? 'facturado' : 'confirmado', odooOrderId, odooOrderName, invoiceId, errorDetail: null,
   });
 }
 
 export async function markOrderError(id, errorDetail) {
-  const db = getDb();
-  await db.collection(COLLECTION).doc(id).update({
-    status: 'error', errorDetail, updatedAt: new Date(),
-  });
+  await finishConfirm(id, { status: 'error', errorDetail });
 }
 
 // Aplica la misma acción a una o más líneas del pedido y ajusta las reservas,
@@ -320,6 +301,7 @@ export async function addOrderLine(orderId, input) {
     if (!['pendiente', 'error'].includes(order.status) || order.odooOrderId) {
       throw new Error('Solo se agregan productos a pedidos que todavía no se confirmaron');
     }
+    if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
     const line = buildAddedLine(product, input, order.paymentMethod, order.lines);
     if (line.delivery === 'envio' && !order.shipping) {
       throw new Error('Este pedido no tiene datos de envío: cargá primero la dirección de envío');
@@ -349,7 +331,7 @@ export async function listOrderHistory(limit = 300) {
 // pasa a cancelado y libera el stock que seguía reservado en lo que faltaba
 // entregar. Si ya estaba cancelada no hace nada (la sincronización puede
 // encontrar la misma anulación más de una vez).
-export async function closeConfirmedOrder(orderId, user, reason) {
+export async function closeConfirmedOrder(orderId, user, reason, { fromOdoo = false } = {}) {
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
   return db.runTransaction(async (tx) => {
@@ -357,7 +339,7 @@ export async function closeConfirmedOrder(orderId, user, reason) {
     if (!snap.exists) throw new Error('Pedido no encontrado');
     const order = { id: snap.id, ...snap.data() };
     if (order.status === 'cancelado') return order;
-    if (order.status !== 'confirmado') throw new Error('Solo se anulan ventas confirmadas');
+    assertClosable(order, { fromOdoo });
     const deltas = reservationDeltas(order.lines, []);
     const reserved = await readReservations(db, [...deltas.keys()], tx);
     writeReservations(tx, db, reserved, deltas);

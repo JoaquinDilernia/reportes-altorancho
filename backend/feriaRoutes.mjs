@@ -2,17 +2,17 @@ import { Router } from 'express';
 import { requireFeriaAuth, requireFeriaRole, validateSellerPin, validateCajaCredentials, generateToken } from './feriaAuth.mjs';
 import {
   createOrder, listOrdersByStatus, getOrderById,
-  updateOrderPayment, markOrderError,
+  claimOrderForConfirm, markOrderError,
   applyOrderLineActions, cancelOrder, listLogisticsOrders, updateOrderShipping,
   addOrderLine, listOrderHistory, closeConfirmedOrder,
 } from './feriaOrders.mjs';
-import { deliverLines } from './feriaDelivery.mjs';
+import { deliverLines, withOrderLock } from './feriaDelivery.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
 // facturación automática está deshabilitada por ahora (ver feriaConfirm.mjs).
 import { confirmOrder } from './feriaConfirm.mjs';
 import { computeStats, rangeBounds } from './feriaStats.mjs';
 import { assertLineActionAllowed, assertAnnullable } from './feriaLines.mjs';
-import { findPartnerByDoc, cancelSaleOrder } from './feriaOdoo.mjs';
+import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
 import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
 import { PUBLIC_PRICE_OPTIONS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
@@ -161,17 +161,14 @@ router.get('/orders', requireFeriaAuth, requireFeriaRole('caja'), async (req, re
 });
 
 router.get('/orders/:id', requireFeriaAuth, async (req, res) => {
-  const order = await getOrderById(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
-  res.json({ order });
-});
-
-router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  // try/catch: en Express 4 un rechazo sin manejar en un handler async voltea
+  // el proceso entero, justo cuando Firestore está fallando.
   try {
-    await updateOrderPayment(req.params.id, req.body);
-    res.json({ order: await getOrderById(req.params.id) });
+    const order = await getOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+    res.json({ order });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -184,13 +181,17 @@ function feriaUserName(req) {
 // quedó en 'error': si ya había un odooOrderId guardado, no se crea otro
 // sale.order (reintentar no puede duplicar una venta ya cobrada).
 router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
-  const order = await getOrderById(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
-  if (order.status === 'cancelado') return res.status(400).json({ error: 'El pedido está cancelado' });
-
-  // Pedido ya confirmado/facturado: doble click o cajero reabriendo — inocuo.
-  if (order.invoiceId || order.status === 'facturado' || order.status === 'confirmado') {
-    return res.json({ order });
+  // Se reclama el pedido en una transacción y lo que viaja a Odoo es lo leído
+  // ahí: nadie puede cambiarlo, cancelarlo ni confirmarlo dos veces mientras
+  // tanto (ver isConfirming).
+  let order;
+  try {
+    const claim = await claimOrderForConfirm(req.params.id);
+    // Ya confirmado/facturado: doble click o cajero reabriendo — inocuo.
+    if (claim.alreadyConfirmed) return res.json({ order: claim.order });
+    order = claim.order;
+  } catch (err) {
+    return res.status(409).json({ error: err.message });
   }
 
   try {
@@ -265,15 +266,32 @@ router.post('/orders/:id/lines/:lineId/deliver', requireFeriaAuth, requireFeriaR
 // devolución.
 router.post('/orders/:id/annul', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   try {
-    const order = await getOrderById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
-    assertAnnullable(order);
-    try {
-      await cancelSaleOrder(order.odooOrderId);
-    } catch (err) {
-      return res.status(502).json({ error: `No se pudo cancelar en Odoo: ${err.message}` });
-    }
-    res.json({ order: await closeConfirmedOrder(order.id, feriaUserName(req), 'Anulado desde caja') });
+    const first = await getOrderById(req.params.id);
+    if (!first) return res.status(404).json({ error: 'Pedido no encontrado' });
+    assertAnnullable(first);
+    // Mismo candado por pedido que "Hecho": una entrega en curso termina antes
+    // de que se mire si se puede anular (y al revés).
+    const result = await withOrderLock(first.odooOrderId, async () => {
+      const order = await getOrderById(first.id);
+      assertAnnullable(order);
+      // La app puede no saber que algo ya salió (un "Hecho" que se cortó a
+      // mitad): se pregunta a Odoo, que es el que manda sobre el stock.
+      if (await hasDeliveredMoves(order.odooOrderId)) {
+        throw new Error('Parte del pedido ya se entregó en Odoo: anulalo en Odoo con la devolución correspondiente');
+      }
+      try {
+        await cancelSaleOrder(order.odooOrderId);
+      } catch (err) {
+        return { status: 502, error: `No se pudo cancelar en Odoo: ${err.message}` };
+      }
+      try {
+        return { order: await closeConfirmedOrder(order.id, feriaUserName(req), 'Anulado desde caja') };
+      } catch (err) {
+        return { status: 500, error: `Se canceló en Odoo pero no se pudo actualizar la app (${err.message}). Se corrige sola en unos minutos.` };
+      }
+    });
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json({ order: result.order });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -5,6 +5,7 @@ import {
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine, nextLineId, assertAnnullable,
+  isConfirming, assertClosable, CONFIRM_CLAIM_MS,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -208,4 +209,33 @@ test('assertAnnullable: con algo ya entregado se anula en Odoo (hace falta devol
 test('assertAnnullable: solo ventas confirmadas (las pendientes se cancelan con Cancelar pedido)', () => {
   assert.throws(() => assertAnnullable({ status: 'pendiente', lines: [base] }), /confirmadas/);
   assert.throws(() => assertAnnullable({ status: 'cancelado', odooOrderId: 5, lines: [base] }), /confirmadas/);
+});
+
+test('isConfirming: un pedido reclamado para confirmar hace menos de CONFIRM_CLAIM_MS', () => {
+  const t0 = new Date('2026-09-23T15:00:00Z');
+  assert.equal(isConfirming({ confirmingSince: t0 }, t0.getTime() + 1000), true);
+  assert.equal(isConfirming({ confirmingSince: t0 }, t0.getTime() + CONFIRM_CLAIM_MS + 1), false);
+  assert.equal(isConfirming({}, t0.getTime()), false);
+  // Timestamps de Firestore (toMillis).
+  assert.equal(isConfirming({ confirmingSince: { toMillis: () => t0.getTime() } }, t0.getTime() + 1000), true);
+});
+
+test('mientras se confirma no se cancela, ni se eliminan ni se editan cantidades', () => {
+  const order = { status: 'pendiente', confirmingSince: new Date(), lines: [base, { ...base, lineId: 'L2' }] };
+  assert.throws(() => assertCancellable(order), /confirmando/);
+  assert.throws(() => assertLineActionAllowed(order, base, 'remove'), /confirmando/);
+  assert.throws(() => assertLineActionAllowed(order, base, 'edit', { qty: 2 }), /confirmando/);
+});
+
+test('assertClosable: confirmadas siempre; con error solo si la cancelación viene de Odoo', () => {
+  assert.doesNotThrow(() => assertClosable({ status: 'confirmado', odooOrderId: 1 }, { fromOdoo: false }));
+  assert.doesNotThrow(() => assertClosable({ status: 'error', odooOrderId: 1 }, { fromOdoo: true }));
+  assert.throws(() => assertClosable({ status: 'error', odooOrderId: 1 }, { fromOdoo: false }), /confirmadas/);
+  assert.throws(() => assertClosable({ status: 'pendiente' }, { fromOdoo: true }), /confirmadas/);
+});
+
+test('assertClosable: desde caja no se cierra si algo ya se entregó', () => {
+  const order = { status: 'confirmado', odooOrderId: 1, lines: [{ ...base, status: 'entregado' }] };
+  assert.throws(() => assertClosable(order, { fromOdoo: false }), /ya se entregó/);
+  assert.doesNotThrow(() => assertClosable(order, { fromOdoo: true }));
 });
