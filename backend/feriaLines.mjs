@@ -1,7 +1,7 @@
 // Modelo de línea de pedido de la feria: de dónde sale (ubicación), cómo se
 // entrega y en qué estado está. Todo puro — la E/S (Firestore, Odoo) vive en
 // feriaOrders/feriaStock/feriaDelivery.
-import { SHIPPING_COST, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
+import { unitCostOf, SHIPPING_COST, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 export const LOCATIONS = ['exhibicion', 'rolon'];
 export const DELIVERIES = ['ahora', 'retira_feria', 'retira_rolon', 'envio'];
@@ -192,7 +192,7 @@ export function buildAddedLine(product, { condition, qty, location, delivery }, 
   if (!Number.isInteger(qty) || qty < 1) throw new Error(`Cantidad inválida para ${product.sku}`);
   const line = {
     lineId: nextLineId(lines), sku: product.sku, modelo: product.modelo, condition, qty,
-    listPrice, unitPrice: computeFinalPrice(product, condition, rebaja, paymentMethod),
+    listPrice, unitPrice: computeFinalPrice(product, condition, rebaja, paymentMethod), unitCost: unitCostOf(product),
     location, delivery, status: 'pendiente',
   };
   const errors = validateLineDelivery(line);

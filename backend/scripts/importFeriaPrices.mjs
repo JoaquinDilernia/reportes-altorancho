@@ -15,6 +15,7 @@ const COLUMN_MAP = {
   Proveedor: 'proveedor',
   Origen: 'origen',
   Stock: 'stock',
+  'Costo galpón ($)': 'costoGalpon',
   'Precio Discontinuo': 'precioDiscontinuo',
   'Precio Falla': 'precioFalla',
   'Precio Rebaja 1 Falla': 'precioRebaja1Falla',
@@ -23,7 +24,7 @@ const COLUMN_MAP = {
   'Precio Rebaja 2 Discontinuo': 'precioRebaja2Discontinuo',
 };
 const NUMERIC_FIELDS = new Set([
-  'stock', 'precioDiscontinuo', 'precioFalla',
+  'stock', 'costoGalpon', 'precioDiscontinuo', 'precioFalla',
   'precioRebaja1Falla', 'precioRebaja2Falla',
   'precioRebaja1Discontinuo', 'precioRebaja2Discontinuo',
 ]);

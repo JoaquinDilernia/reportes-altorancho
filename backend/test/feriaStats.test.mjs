@@ -42,7 +42,7 @@ test('computeStats agrupa por vendedor, medio de pago, condición y entrega', ()
 
 test('computeStats arma el ranking de productos y las ventas por hora (hora argentina)', () => {
   const s = computeStats(orders);
-  assert.deepEqual(s.topProducts[0], { sku: 'A', modelo: 'Mesa', units: 2, revenue: 1700 });
+  assert.deepEqual(s.topProducts[0], { sku: 'A', modelo: 'Mesa', units: 2, revenue: 1700, cost: 0, margin: null });
   assert.equal(s.byHour[15].orders, 1);
   assert.equal(s.byHour[10].orders, 1);
   assert.equal(s.byHour[10].revenue, 10090);
@@ -59,4 +59,32 @@ test('rangeBounds usa el día argentino (UTC-3)', () => {
 test('computeStats filtra por rango', () => {
   const s = computeStats(orders, { from: at('2026-09-23T15:00:00Z'), to: at('2026-09-23T20:00:00Z') });
   assert.equal(s.totals.orders, 1);
+});
+
+test('computeStats: costo y margen sin IVA sobre las líneas que tienen costo', () => {
+  const withCost = [
+    { status: 'confirmado', sellerName: 'Ana', paymentMethod: 'mp_debito', shippingCost: 10000, createdAtMs: at('2026-09-23T18:30:00Z'),
+      lines: [
+        line({ sku: 'A', qty: 2, unitPrice: 1210, unitCost: 400 }),
+        line({ sku: 'B', qty: 1, unitPrice: 605, unitCost: null }),
+        line({ sku: 'C', qty: 1, unitPrice: 999, unitCost: 1, status: 'eliminado' }),
+      ] },
+  ];
+  const t = computeStats(withCost).totals;
+  // A: 2 × 1210 con IVA = 2000 sin IVA; costo 800 → margen 1200 (60%).
+  assert.equal(t.cost, 800);
+  assert.equal(t.netRevenueWithCost, 2000);
+  assert.equal(t.margin, 1200);
+  assert.equal(t.marginPct, 0.6);
+  assert.equal(t.unitsWithoutCost, 1);
+  const a = computeStats(withCost).topProducts.find((p) => p.sku === 'A');
+  assert.equal(a.cost, 800);
+  assert.equal(a.margin, 1200);
+});
+
+test('computeStats: sin costos cargados el margen queda en null (no 0)', () => {
+  const t = computeStats(orders).totals;
+  assert.equal(t.cost, 0);
+  assert.equal(t.margin, null);
+  assert.equal(t.marginPct, null);
 });

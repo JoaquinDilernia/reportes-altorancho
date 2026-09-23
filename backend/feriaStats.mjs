@@ -9,6 +9,8 @@
 const AR_OFFSET_MS = 3 * 60 * 60 * 1000; // Argentina: UTC-3, sin horario de verano.
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SOLD = new Set(['confirmado', 'facturado']);
+const IVA = 1.21;
+const round2 = (n) => Math.round(n * 100) / 100;
 
 function arHour(ms) {
   return new Date(ms - AR_OFFSET_MS).getUTCHours();
@@ -33,7 +35,7 @@ const byRevenue = (a, b) => b.revenue - a.revenue;
 export function computeStats(orders, { from = 0, to = Infinity } = {}) {
   const sold = orders.filter((o) => SOLD.has(o.status) && o.createdAtMs >= from && o.createdAtMs < to);
 
-  const totals = { orders: 0, units: 0, productsRevenue: 0, shippingRevenue: 0, listTotal: 0 };
+  const totals = { orders: 0, units: 0, productsRevenue: 0, shippingRevenue: 0, listTotal: 0, cost: 0, netWithCost: 0, unitsWithoutCost: 0 };
   const sellers = new Map();
   const payments = new Map();
   const products = new Map();
@@ -63,7 +65,17 @@ export function computeStats(orders, { from = 0, to = Infinity } = {}) {
 
     for (const l of lines) {
       const lineRevenue = l.qty * l.unitPrice;
-      bump(products, l.sku, { units: l.qty, revenue: lineRevenue });
+      // Margen sin IVA (el costo galpón es sin IVA), solo donde hay costo.
+      const hasCost = typeof l.unitCost === 'number';
+      const lineCost = hasCost ? l.qty * l.unitCost : 0;
+      const lineNet = hasCost ? lineRevenue / IVA : 0;
+      if (hasCost) {
+        totals.cost += lineCost;
+        totals.netWithCost += lineNet;
+      } else {
+        totals.unitsWithoutCost += l.qty;
+      }
+      bump(products, l.sku, { units: l.qty, revenue: lineRevenue, cost: lineCost, net: lineNet });
       products.get(l.sku).modelo = l.modelo;
       byCondition[l.condition] ??= { units: 0, revenue: 0 };
       byCondition[l.condition].units += l.qty;
@@ -85,10 +97,18 @@ export function computeStats(orders, { from = 0, to = Infinity } = {}) {
       revenue,
       discount: totals.listTotal - totals.productsRevenue,
       avgTicket: totals.orders ? Math.round(revenue / totals.orders) : 0,
+      cost: round2(totals.cost),
+      netRevenueWithCost: round2(totals.netWithCost),
+      margin: totals.netWithCost ? round2(totals.netWithCost - totals.cost) : null,
+      marginPct: totals.netWithCost ? Math.round(((totals.netWithCost - totals.cost) / totals.netWithCost) * 10000) / 10000 : null,
+      unitsWithoutCost: totals.unitsWithoutCost,
     },
     bySeller: [...sellers].map(([name, v]) => ({ name, orders: v.orders, units: v.units, revenue: v.revenue })).sort(byRevenue),
     byPayment: [...payments].map(([method, v]) => ({ method, orders: v.orders, revenue: v.revenue, discount: v.discount })).sort(byRevenue),
-    topProducts: [...products].map(([sku, v]) => ({ sku, modelo: v.modelo, units: v.units, revenue: v.revenue })).sort(byRevenue).slice(0, 15),
+    topProducts: [...products].map(([sku, v]) => ({
+      sku, modelo: v.modelo, units: v.units, revenue: v.revenue,
+      cost: round2(v.cost), margin: v.net ? round2(v.net - v.cost) : null,
+    })).sort(byRevenue).slice(0, 15),
     byCondition,
     byDelivery,
     byHour,

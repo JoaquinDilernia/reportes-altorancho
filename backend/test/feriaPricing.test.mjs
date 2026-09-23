@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PAYMENT_METHODS, PUBLIC_PRICE_OPTIONS, rebajaLevels, withRebaja, tablePrice, computeFinalPrice, odooLinePricing, netOfIva, IVA_RATE, SHIPPING_COST } from '../feriaPricing.mjs';
+import { PAYMENT_METHODS, PUBLIC_PRICE_OPTIONS, rebajaLevels, withRebaja, unitCostOf, tablePrice, computeFinalPrice, odooLinePricing, netOfIva, IVA_RATE, SHIPPING_COST } from '../feriaPricing.mjs';
 
 const product = {
   precioFalla: 27990,
@@ -146,4 +146,11 @@ test('withRebaja: el producto con la rebaja nueva ya aplicada (la respuesta al a
   assert.equal(withRebaja(p, 'discontinuo', 1).rebajaDiscontinuoActiva, 1);
   assert.throws(() => withRebaja(p, 'falla', 3), /Nivel de rebaja inválido/);
   assert.throws(() => withRebaja(p, 'nueva', 1), /Condición inválida/);
+});
+
+test('unitCostOf: costo galpón (sin IVA) redondeado a centavos; null si el Excel no lo trae', () => {
+  assert.equal(unitCostOf({ costoGalpon: 52110.601314329 }), 52110.6);
+  assert.equal(unitCostOf({ costoGalpon: null }), null);
+  assert.equal(unitCostOf({}), null);
+  assert.equal(unitCostOf(null), null);
 });

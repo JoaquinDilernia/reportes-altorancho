@@ -179,7 +179,7 @@ test('buildAddedLine arma la línea con precio de tabla (rebaja activa) y el des
   const line = buildAddedLine(product, { condition: 'falla', qty: 2, location: 'exhibicion', delivery: 'ahora' }, 'transferencia', [base]);
   assert.deepEqual(line, {
     lineId: 'L2', sku: 'ALF029CG', modelo: 'Liso', condition: 'falla', qty: 2,
-    listPrice: 7990, unitPrice: Math.round(7990 * 0.85), location: 'exhibicion', delivery: 'ahora', status: 'pendiente',
+    listPrice: 7990, unitPrice: Math.round(7990 * 0.85), unitCost: null, location: 'exhibicion', delivery: 'ahora', status: 'pendiente',
   });
 });
 
@@ -250,4 +250,10 @@ test('assertInvoiceable: se factura una venta confirmada en Odoo que todavía no
   assert.throws(() => assertInvoiceable({ status: 'pendiente' }), /confirmadas/);
   assert.throws(() => assertInvoiceable({ status: 'cancelado', odooOrderId: 5 }), /confirmadas/);
   assert.throws(() => assertInvoiceable({ status: 'confirmado', odooOrderId: 5, invoiceName: 'FA-B 1' }), /ya tiene la factura FA-B 1/);
+});
+
+test('buildAddedLine guarda el costo galpón del producto en la línea', () => {
+  const product = { sku: 'ALF029CG', modelo: 'Liso', precioFalla: 9990, costoGalpon: 5420.99062134 };
+  const line = buildAddedLine(product, { condition: 'falla', qty: 1, location: 'exhibicion', delivery: 'ahora' }, 'efectivo', [base]);
+  assert.equal(line.unitCost, 5420.99);
 });

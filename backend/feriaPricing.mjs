@@ -86,6 +86,14 @@ export function rebajaLevels(product, condition) {
     }));
 }
 
+// Costo galpón (columna "Costo galpón ($)" del Excel, SIN IVA) de un
+// producto, en centavos. Se guarda en cada línea al venderse: si después
+// cambia el Excel, las ventas hechas conservan su costo.
+export function unitCostOf(product) {
+  const cost = product?.costoGalpon;
+  return typeof cost === 'number' && Number.isFinite(cost) ? Math.round(cost * 100) / 100 : null;
+}
+
 // Precio y descuento de una línea tal como viajan a Odoo: price_unit es el
 // precio de tabla completo (condición + rebaja, SIN el descuento del medio de
 // pago) y SIN IVA — Odoo agrega el impuesto — y el descuento del medio de

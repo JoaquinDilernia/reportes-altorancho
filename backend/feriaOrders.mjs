@@ -1,5 +1,5 @@
 import { getDb } from './feriaOdoo.mjs';
-import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST } from './feriaPricing.mjs';
+import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST, unitCostOf } from './feriaPricing.mjs';
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
@@ -51,6 +51,8 @@ export async function createOrder(input) {
   const lines = assignLineIds(input.lines.map((l) => ({
     sku: l.sku.toUpperCase(), modelo: l.modelo, condition: l.condition, qty: l.qty,
     unitPrice: l.unitPrice, listPrice: l.listPrice, location: l.location, delivery: l.delivery,
+    // El costo lo pone el servidor desde el catálogo, nunca la tablet.
+    unitCost: unitCostOf(getFeriaProduct(l.sku)),
   })));
   const withShipping = needsShipping(lines);
   const deltas = reservationDeltas([], lines);
