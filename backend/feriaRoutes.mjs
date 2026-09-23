@@ -2,22 +2,18 @@ import { Router } from 'express';
 import { requireFeriaAuth, requireFeriaRole, validateSellerPin, validateCajaCredentials, generateToken } from './feriaAuth.mjs';
 import {
   createOrder, listOrdersByStatus, getOrderById,
-  updateOrderPayment, saveOdooOrderId, markOrderConfirmed, markOrderError,
+  updateOrderPayment, markOrderError,
   applyOrderLineActions, cancelOrder, listLogisticsOrders,
 } from './feriaOrders.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
+// createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
+// facturación automática está deshabilitada por ahora (ver feriaConfirm.mjs).
 import { confirmOrder } from './feriaConfirm.mjs';
 import { assertLineActionAllowed } from './feriaLines.mjs';
-// createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se importa:
-// la facturación automática está deshabilitada por ahora (ver más abajo, en
-// /orders/:id/confirm). Volver a importarla al reactivarla.
-import {
-  findOrCreatePartner, findPartnerByDoc, findSalesTeamId, findPricelistId, findProductIdBySku,
-  findPaymentMethodId, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
-} from './feriaOdoo.mjs';
+import { findPartnerByDoc } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
 import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
-import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField, odooLinePricing } from './feriaPricing.mjs';
+import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 const router = Router();
 
