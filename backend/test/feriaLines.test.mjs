@@ -5,7 +5,7 @@ import {
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine, nextLineId, assertAnnullable,
-  isConfirming, assertClosable, CONFIRM_CLAIM_MS, assertInvoiceable,
+  isConfirming, assertClosable, CONFIRM_CLAIM_MS, assertInvoiceable, repriceLines, assertPaymentEditable,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -256,4 +256,35 @@ test('buildAddedLine guarda el costo galpón del producto en la línea', () => {
   const product = { sku: 'ALF029CG', modelo: 'Liso', precioFalla: 9990, costoGalpon: 5420.99062134 };
   const line = buildAddedLine(product, { condition: 'falla', qty: 1, location: 'exhibicion', delivery: 'ahora' }, 'efectivo', [base]);
   assert.equal(line.unitCost, 5420.99);
+});
+
+test('repriceLines: al cambiar el medio de pago recalcula el precio final desde el precio de lista', () => {
+  const lines = [
+    { ...base, listPrice: 58990, unitPrice: 58990 },
+    { ...base, lineId: 'L2', listPrice: 2990, unitPrice: 2990, status: 'eliminado' },
+  ];
+  const out = repriceLines(lines, 'mp_debito', 'transferencia');
+  assert.equal(out[0].unitPrice, 50142);
+  assert.equal(out[0].listPrice, 58990);
+  assert.equal(out[1].unitPrice, 2542, 'también las eliminadas, para que el historial sea coherente');
+  assert.equal(repriceLines(out, 'transferencia', 'efectivo')[0].unitPrice, 53091);
+});
+
+test('repriceLines: pedidos viejos sin listPrice lo reconstruyen deshaciendo el descuento anterior', () => {
+  const [line] = repriceLines([{ ...base, unitPrice: 8500 }], 'transferencia', 'mp_3_cuotas');
+  assert.equal(line.listPrice, 10000);
+  assert.equal(line.unitPrice, 10000);
+});
+
+test('repriceLines: rechaza un medio de pago inválido', () => {
+  assert.throws(() => repriceLines([base], 'efectivo', 'bitcoin'), /Medio de pago inválido/);
+});
+
+test('assertPaymentEditable: solo antes de que el pedido llegue a Odoo', () => {
+  assert.doesNotThrow(() => assertPaymentEditable({ status: 'pendiente' }));
+  assert.doesNotThrow(() => assertPaymentEditable({ status: 'error' }));
+  assert.throws(() => assertPaymentEditable({ status: 'confirmado', odooOrderId: 5 }), /ya se confirmó/);
+  assert.throws(() => assertPaymentEditable({ status: 'error', odooOrderId: 5 }), /ya existe en Odoo/);
+  assert.throws(() => assertPaymentEditable({ status: 'cancelado' }), /ya se confirmó|cancelado/);
+  assert.throws(() => assertPaymentEditable({ status: 'pendiente', confirmingSince: new Date() }), /confirmando/);
 });

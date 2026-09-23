@@ -4,7 +4,7 @@ import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine,
-  isConfirming, assertClosable, CONFIRMING_MESSAGE,
+  isConfirming, assertClosable, CONFIRMING_MESSAGE, assertPaymentEditable, repriceLines,
 } from './feriaLines.mjs';
 import { getFeriaProduct } from './feriaProducts.mjs';
 import { assertCanConfirmWithCash } from './feriaCash.mjs';
@@ -297,6 +297,28 @@ export async function updateOrderShipping(orderId, shipping) {
     const order = { id: snap.id, ...snap.data() };
     assertShippingEditable(order);
     const update = { shipping: clean, updatedAt: new Date() };
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
+}
+
+// Caja cambia el medio de pago antes de confirmar: se recalcula el precio
+// de cada línea con el descuento del medio nuevo.
+export async function updateOrderPayment(orderId, paymentMethod, user) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    assertPaymentEditable(order);
+    if (order.paymentMethod === paymentMethod) return order;
+    const update = {
+      paymentMethod,
+      lines: repriceLines(order.lines, order.paymentMethod, paymentMethod),
+      paymentChangedFrom: order.paymentMethod, paymentChangedBy: user, paymentChangedAt: new Date(),
+      updatedAt: new Date(),
+    };
     tx.update(ref, update);
     return { ...order, ...update };
   });

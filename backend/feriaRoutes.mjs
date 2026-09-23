@@ -4,7 +4,7 @@ import {
   createOrder, listOrdersByStatus, getOrderById,
   claimOrderForConfirm, markOrderError,
   applyOrderLineActions, cancelOrder, listLogisticsOrders, updateOrderShipping,
-  addOrderLine, listOrderHistory, closeConfirmedOrder,
+  addOrderLine, listOrderHistory, closeConfirmedOrder, updateOrderPayment,
 } from './feriaOrders.mjs';
 import { deliverLines, withOrderLock } from './feriaDelivery.mjs';
 import { confirmOrder } from './feriaConfirm.mjs';
@@ -309,6 +309,15 @@ router.post('/orders/:id/invoice', requireFeriaAuth, requireFeriaRole('caja'), a
     if (result.status === 'skipped') return res.status(400).json({ error: 'La facturación automática no está activada' });
     if (result.status === 'error') return res.status(502).json({ error: result.error });
     res.json({ order: await getOrderById(order.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Caja cambia el medio de pago de un pedido sin confirmar.
+router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ order: await updateOrderPayment(req.params.id, req.body?.paymentMethod, feriaUserName(req)) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

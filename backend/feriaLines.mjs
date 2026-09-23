@@ -1,7 +1,7 @@
 // Modelo de línea de pedido de la feria: de dónde sale (ubicación), cómo se
 // entrega y en qué estado está. Todo puro — la E/S (Firestore, Odoo) vive en
 // feriaOrders/feriaStock/feriaDelivery.
-import { unitCostOf, SHIPPING_COST, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
+import { PAYMENT_METHODS, unitCostOf, SHIPPING_COST, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 export const LOCATIONS = ['exhibicion', 'rolon'];
 export const DELIVERIES = ['ahora', 'retira_feria', 'retira_rolon', 'envio'];
@@ -250,4 +250,30 @@ export function assertClosable(order, { fromOdoo }) {
   if (!fromOdoo && (order.lines ?? []).some((l) => l.status === 'entregado')) {
     throw new Error('Parte del pedido ya se entregó: anulalo en Odoo con la devolución correspondiente');
   }
+}
+
+// Caja cambia el medio de pago de un pedido que todavía no llegó a Odoo (el
+// cliente decidió pagar distinto). Después de confirmar la venta ya está en
+// Odoo y en la caja: se cambia allá.
+export function assertPaymentEditable(order) {
+  if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
+  if (!['pendiente', 'error'].includes(order.status)) {
+    throw new Error('La venta ya se confirmó: el medio de pago se cambia en Odoo');
+  }
+  if (order.odooOrderId) throw new Error(ALREADY_IN_ODOO);
+  if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
+}
+
+// Precio final de cada línea con el medio de pago nuevo, desde el precio de
+// lista guardado (el de la venta, con la rebaja que estaba activa). Los
+// pedidos viejos sin listPrice lo reconstruyen deshaciendo el descuento
+// anterior.
+export function repriceLines(lines, fromMethod, toMethod) {
+  const to = PAYMENT_METHODS[toMethod];
+  if (!to) throw new Error(`Medio de pago inválido: ${toMethod}`);
+  const fromPct = PAYMENT_METHODS[fromMethod]?.discountPct ?? 0;
+  return lines.map((line) => {
+    const listPrice = line.listPrice ?? Math.round(line.unitPrice / (1 - fromPct / 100));
+    return { ...line, listPrice, unitPrice: Math.round(listPrice * (1 - to.discountPct / 100)) };
+  });
 }
