@@ -195,3 +195,15 @@ export function buildAddedLine(product, { condition, qty, location, delivery }, 
   if (errors.length) throw new Error(errors.join('; '));
   return line;
 }
+
+// Anular una venta ya confirmada desde la app. Si algo ya se entregó, esa
+// mercadería salió del stock en Odoo y hace falta una devolución: eso se hace
+// en Odoo (la sincronización trae la cancelación después).
+export function assertAnnullable(order) {
+  if (order.status !== 'confirmado' || !order.odooOrderId) {
+    throw new Error('Solo se anulan ventas confirmadas (las pendientes se cancelan con "Cancelar pedido")');
+  }
+  if ((order.lines ?? []).some((l) => l.status === 'entregado')) {
+    throw new Error('Parte del pedido ya se entregó: anulalo en Odoo con la devolución correspondiente');
+  }
+}

@@ -4,14 +4,14 @@ import {
   createOrder, listOrdersByStatus, getOrderById,
   updateOrderPayment, markOrderError,
   applyOrderLineActions, cancelOrder, listLogisticsOrders, updateOrderShipping,
-  addOrderLine, listOrderHistory,
+  addOrderLine, listOrderHistory, closeConfirmedOrder,
 } from './feriaOrders.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
 // facturación automática está deshabilitada por ahora (ver feriaConfirm.mjs).
 import { confirmOrder } from './feriaConfirm.mjs';
-import { assertLineActionAllowed } from './feriaLines.mjs';
-import { findPartnerByDoc } from './feriaOdoo.mjs';
+import { assertLineActionAllowed, assertAnnullable } from './feriaLines.mjs';
+import { findPartnerByDoc, cancelSaleOrder } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
 import { getAvailability, getDb, feriaLocationIds } from './feriaStock.mjs';
 import { PUBLIC_PRICE_OPTIONS, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
@@ -254,6 +254,25 @@ router.post('/orders/:id/lines/:lineId/deliver', requireFeriaAuth, requireFeriaR
       return res.status(502).json({ error: `No se pudo marcar en Odoo: ${err.message}` });
     }
     res.json({ order: await applyOrderLineActions(order.id, [line.lineId], 'deliver', { user: feriaUserName(req) }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Anular una venta confirmada: primero en Odoo, después en la app (libera el
+// stock reservado). Con algo ya entregado se rechaza: va por Odoo con la
+// devolución.
+router.post('/orders/:id/annul', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const order = await getOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+    assertAnnullable(order);
+    try {
+      await cancelSaleOrder(order.odooOrderId);
+    } catch (err) {
+      return res.status(502).json({ error: `No se pudo cancelar en Odoo: ${err.message}` });
+    }
+    res.json({ order: await closeConfirmedOrder(order.id, feriaUserName(req), 'Anulado desde caja') });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

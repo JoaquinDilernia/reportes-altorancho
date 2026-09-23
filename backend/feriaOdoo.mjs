@@ -224,3 +224,24 @@ export async function findProductIdBySku(sku) {
 }
 
 export { getDb } from './firestore.mjs';
+
+// Cuáles de estos sale.order quedaron cancelados en Odoo.
+export async function findCancelledOrderIds(orderIds) {
+  if (!orderIds.length) return [];
+  const results = await callKwReadWithRetry('sale.order', 'search_read', [
+    [['id', 'in', orderIds], ['state', '=', 'cancel']],
+  ], { fields: ['id'] });
+  return results.map((r) => r.id);
+}
+
+// Cancela el pedido en Odoo (y sus remitos no hechos). disable_cancel_warning
+// evita el asistente de "¿seguro?" que la API no puede contestar.
+export async function cancelSaleOrder(orderId) {
+  await ensureAuth();
+  const result = await callKw('sale.order', 'action_cancel', [[orderId]], {
+    context: { lang: 'es_AR', disable_cancel_warning: true },
+  });
+  if (result !== true && result?.res_model) {
+    throw new Error(`Odoo pidió confirmación manual (${result.res_model}) para cancelar el pedido`);
+  }
+}

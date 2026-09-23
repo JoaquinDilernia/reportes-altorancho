@@ -344,3 +344,26 @@ export async function listOrderHistory(limit = 300) {
   const snap = await db.collection(COLLECTION).orderBy('createdAt', 'desc').limit(limit).get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
+
+// Cierra en la app una venta confirmada que se anuló (desde Caja o en Odoo):
+// pasa a cancelado y libera el stock que seguía reservado en lo que faltaba
+// entregar. Si ya estaba cancelada no hace nada (la sincronización puede
+// encontrar la misma anulación más de una vez).
+export async function closeConfirmedOrder(orderId, user, reason) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    if (order.status === 'cancelado') return order;
+    if (order.status !== 'confirmado') throw new Error('Solo se anulan ventas confirmadas');
+    const deltas = reservationDeltas(order.lines, []);
+    const reserved = await readReservations(db, [...deltas.keys()], tx);
+    writeReservations(tx, db, reserved, deltas);
+    const now = new Date();
+    const update = { status: 'cancelado', cancelledAt: now, cancelledBy: user, cancelReason: reason, updatedAt: now };
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
+}

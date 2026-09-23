@@ -4,7 +4,7 @@ import {
   validateLineDelivery, validateShipping, needsShipping, isReserving,
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
-  formatOrderNumber, assertShippingEditable, buildAddedLine, nextLineId,
+  formatOrderNumber, assertShippingEditable, buildAddedLine, nextLineId, assertAnnullable,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -193,4 +193,19 @@ test('"Retira en Rolón" solo puede salir de Rolón; retira en feria y envío de
   assert.deepEqual(validateLineDelivery({ ...base, location: 'rolon', delivery: 'retira_rolon' }), []);
   assert.deepEqual(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'retira_feria' }), []);
   assert.deepEqual(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'envio' }), []);
+});
+
+test('assertAnnullable: se anula desde la app una venta confirmada sin nada entregado', () => {
+  const order = { status: 'confirmado', odooOrderId: 5, lines: [base, { ...base, lineId: 'L2', status: 'eliminado' }] };
+  assert.doesNotThrow(() => assertAnnullable(order));
+});
+
+test('assertAnnullable: con algo ya entregado se anula en Odoo (hace falta devolución)', () => {
+  const order = { status: 'confirmado', odooOrderId: 5, lines: [base, { ...base, lineId: 'L2', status: 'entregado' }] };
+  assert.throws(() => assertAnnullable(order), /ya se entregó/);
+});
+
+test('assertAnnullable: solo ventas confirmadas (las pendientes se cancelan con Cancelar pedido)', () => {
+  assert.throws(() => assertAnnullable({ status: 'pendiente', lines: [base] }), /confirmadas/);
+  assert.throws(() => assertAnnullable({ status: 'cancelado', odooOrderId: 5, lines: [base] }), /confirmadas/);
 });
