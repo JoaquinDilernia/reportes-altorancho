@@ -3,7 +3,7 @@ import { requireFeriaAuth, requireFeriaRole, validateSellerPin, validateCajaCred
 import {
   createOrder, listOrdersByStatus, getOrderById,
   updateOrderPayment, markOrderError,
-  applyOrderLineActions, cancelOrder, listLogisticsOrders,
+  applyOrderLineActions, cancelOrder, listLogisticsOrders, updateOrderShipping,
 } from './feriaOrders.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
@@ -253,6 +253,15 @@ router.post('/orders/:id/lines/:lineId/deliver', requireFeriaAuth, requireFeriaR
       return res.status(502).json({ error: `No se pudo marcar en Odoo: ${err.message}` });
     }
     res.json({ order: await applyOrderLineActions(order.id, [line.lineId], 'deliver', { user: feriaUserName(req) }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Cargar o corregir la dirección de envío (Caja o Logística).
+router.patch('/orders/:id/shipping', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ order: await updateOrderShipping(req.params.id, req.body ?? {}) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

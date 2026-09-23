@@ -3,10 +3,12 @@ import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST } from './feriaPr
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
+  formatOrderNumber, assertShippingEditable,
 } from './feriaLines.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
 const COLLECTION = 'feria_orders';
+const COUNTERS_COLLECTION = 'feria_counters';
 // Derivado de feriaPricing para que no haya dos listas de medios de pago que
 // se puedan desincronizar (p. ej. el 'tarjeta' viejo, ya eliminado).
 const PAYMENT_METHODS = new Set(Object.keys(PAYMENT_METHOD_INFO));
@@ -75,11 +77,18 @@ export async function createOrder(input) {
     updatedAt: new Date(),
   };
 
+  // El número interno sale de un contador leído y escrito en la misma
+  // transacción: dos vendedores enviando a la vez no pueden repetir número.
+  const counterRef = db.collection(COUNTERS_COLLECTION).doc('orders');
   await db.runTransaction(async (tx) => {
     const reserved = await readReservations(db, [...deltas.keys()], tx);
+    const counter = await tx.get(counterRef);
     const stockErrors = checkAvailability(odooStock, reserved, deltas);
     if (stockErrors.length) throw new Error(`Sin stock suficiente — ${stockErrors.join('; ')}`);
+    const next = (counter.exists ? counter.data().next : 0) + 1;
+    order.number = formatOrderNumber(next);
     writeReservations(tx, db, reserved, deltas);
+    tx.set(counterRef, { next });
     tx.set(ref, order);
   });
   return { id: ref.id, ...order };
@@ -161,11 +170,11 @@ export async function saveOdooOrderId(id, odooOrderId) {
   await db.collection(COLLECTION).doc(id).update({ odooOrderId, updatedAt: new Date() });
 }
 
-export async function markOrderConfirmed(id, { odooOrderId, invoiceId = null }) {
+export async function markOrderConfirmed(id, { odooOrderId, odooOrderName = null, invoiceId = null }) {
   const db = getDb();
   await db.collection(COLLECTION).doc(id).update({
     status: invoiceId ? 'facturado' : 'confirmado',
-    odooOrderId, invoiceId, errorDetail: null, updatedAt: new Date(),
+    odooOrderId, odooOrderName, invoiceId, errorDetail: null, updatedAt: new Date(),
   });
 }
 
@@ -268,5 +277,28 @@ export async function saveOdooLineIds(orderId, odooLineIdByLineId) {
       odooLineIdByLineId[l.lineId] ? { ...l, odooLineId: odooLineIdByLineId[l.lineId] } : l
     ));
     tx.update(ref, { lines, updatedAt: new Date() });
+  });
+}
+
+// Carga o corrige la dirección de envío. Antes de confirmar es la que viaja
+// a Odoo; después, Odoo ya tiene la suya y la app solo actualiza la que usa
+// Logística (la pantalla avisa que en Odoo hay que ajustarla a mano).
+export async function updateOrderShipping(orderId, shipping) {
+  const errors = validateShipping(shipping);
+  if (errors.length) throw new Error(errors.join('; '));
+  const clean = {
+    street: shipping.street.trim(), number: shipping.number.trim(), floor: (shipping.floor ?? '').trim(),
+    city: shipping.city.trim(), zip: shipping.zip.trim(), phone: shipping.phone.trim(), notes: (shipping.notes ?? '').trim(),
+  };
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    assertShippingEditable(order);
+    const update = { shipping: clean, updatedAt: new Date() };
+    tx.update(ref, update);
+    return { ...order, ...update };
   });
 }

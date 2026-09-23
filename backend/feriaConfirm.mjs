@@ -1,7 +1,7 @@
 import {
   findOrCreatePartner, findSalesTeamId, findPricelistId, findProductIdBySku, findPaymentMethodId,
   findShippingProductId, createShippingPartner, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
-  readOrderLineIds,
+  readOrderLineIds, readOrderName,
 } from './feriaOdoo.mjs';
 import { PAYMENT_METHODS, odooLinePricing, netOfIva, SHIPPING_COST } from './feriaPricing.mjs';
 import { needsShipping, RESERVING_STATUSES } from './feriaLines.mjs';
@@ -84,7 +84,8 @@ export async function confirmOrder(order, user) {
 
   // Re-confirmar uno ya confirmado es un no-op seguro en Odoo.
   await confirmSaleOrder(odooOrderId);
-  await markOrderConfirmed(order.id, { odooOrderId, invoiceId: null });
+  const odooOrderName = await readOrderName(odooOrderId);
+  await markOrderConfirmed(order.id, { odooOrderId, odooOrderName, invoiceId: null });
 
   // Lo que se lleva ahora sale ya de exhibición. Si falla, el pedido queda
   // confirmado igual (la venta está hecha) y se avisa para marcarlo con "Hecho".

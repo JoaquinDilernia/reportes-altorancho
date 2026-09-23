@@ -146,6 +146,12 @@ export async function findShippingProductId() {
   return results[0]?.id ?? null;
 }
 
+// Número del pedido en Odoo (S0xxxx): se muestra al lado del interno.
+export async function readOrderName(orderId) {
+  const [order] = await callKwReadWithRetry('sale.order', 'read', [[orderId]], { fields: ['name'] });
+  return order?.name ?? null;
+}
+
 // Ids de sale.order.line en el orden en que se crearon (Odoo los devuelve
 // ordenados por secuencia e id, que es el orden de creación).
 export async function readOrderLineIds(orderId) {

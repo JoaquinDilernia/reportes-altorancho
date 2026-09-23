@@ -4,6 +4,7 @@ import {
   validateLineDelivery, validateShipping, needsShipping, isReserving,
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
+  formatOrderNumber, assertShippingEditable,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -137,4 +138,16 @@ test('shippingCostFor: 10000 si queda alguna línea de envío activa, 0 si no', 
   assert.equal(shippingCostFor([{ ...base, delivery: 'envio' }]), 10000);
   assert.equal(shippingCostFor([{ ...base, delivery: 'envio', status: 'eliminado' }]), 0);
   assert.equal(shippingCostFor([base]), 0);
+});
+
+test('formatOrderNumber arma el número interno con 4 dígitos', () => {
+  assert.equal(formatOrderNumber(1), 'F-0001');
+  assert.equal(formatOrderNumber(128), 'F-0128');
+  assert.equal(formatOrderNumber(12345), 'F-12345');
+});
+
+test('assertShippingEditable: se puede cargar dirección salvo en pedidos cancelados', () => {
+  assert.doesNotThrow(() => assertShippingEditable({ status: 'pendiente' }));
+  assert.doesNotThrow(() => assertShippingEditable({ status: 'confirmado', odooOrderId: 1 }));
+  assert.throws(() => assertShippingEditable({ status: 'cancelado' }), /cancelado/);
 });

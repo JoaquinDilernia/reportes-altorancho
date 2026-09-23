@@ -135,7 +135,7 @@ export function assertLineActionAllowed(order, line, action, changes = {}) {
   // Antes de confirmar, pasar a envío sin dirección haría fallar el confirm
   // (no hay a dónde mandarlo). Después de confirmar la app solo avisa.
   if (action === 'edit' && changes.delivery === 'envio' && !order.shipping && !order.odooOrderId) {
-    throw new Error('Este pedido no tiene datos de envío: para mandarlo a domicilio, cargá el pedido de nuevo con la dirección');
+    throw new Error('Este pedido no tiene datos de envío: cargá primero la dirección de envío');
   }
 }
 
@@ -143,4 +143,16 @@ export function assertLineActionAllowed(order, line, action, changes = {}) {
 // status por línea) no cuentan: nunca pasaron por este flujo.
 export function hasPendingDeliveries(order) {
   return (order.lines ?? []).some((l) => l.delivery && isReserving(l));
+}
+
+// Número de pedido para hablar en la feria ("el F-0012"). Correlativo, lo
+// asigna createOrder con un contador en Firestore.
+export function formatOrderNumber(n) {
+  return `F-${String(n).padStart(4, '0')}`;
+}
+
+// La dirección de envío se puede cargar o corregir en cualquier momento
+// (Logística la lee de la app); solo un pedido cancelado queda cerrado.
+export function assertShippingEditable(order) {
+  if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
 }
