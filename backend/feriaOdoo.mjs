@@ -2,7 +2,7 @@ import { authenticate, callKw } from './odoo.mjs';
 
 let authenticated = false;
 
-async function ensureAuth() {
+export async function ensureAuth() {
   if (!authenticated) {
     await authenticate();
     authenticated = true;
@@ -15,7 +15,7 @@ async function ensureAuth() {
 // se perdió a una desconexión de red, un reintento crearría duplicados.
 // El panel Caja ya tiene un botón "Reintentar" manual para pedidos en estado
 // 'error', así que es seguro fallar directo en el primer intento.
-async function callKwReadWithRetry(model, method, args = [], kwargs = {}) {
+export async function callKwReadWithRetry(model, method, args = [], kwargs = {}) {
   await ensureAuth();
   try {
     return await callKw(model, method, args, kwargs);
