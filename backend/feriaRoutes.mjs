@@ -12,6 +12,7 @@ import {
   findPaymentMethodId, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
 } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
+import { getAvailability, getDb } from './feriaStock.mjs';
 import { PAYMENT_METHODS, tablePrice, computeFinalPrice, activeRebajaField, odooLinePricing } from './feriaPricing.mjs';
 
 const router = Router();
@@ -69,8 +70,21 @@ router.get('/products/search', requireFeriaAuth, async (req, res) => {
   try {
     const q = req.query.q?.trim();
     if (!q) return res.json({ products: [] });
-    const products = searchFeriaProducts(q).map((p) => ({
-      sku: p.sku, modelo: p.modelo, color: p.color, stock: p.stock ?? null,
+    const found = searchFeriaProducts(q);
+
+    // Stock en vivo desde Odoo menos lo reservado en la app. Si Odoo no
+    // responde, stock: null — el panel no deja agregar (decisión explícita:
+    // sin stock confirmado no se vende).
+    let availability = null;
+    try {
+      availability = found.length ? await getAvailability(getDb(), found.map((p) => p.sku)) : new Map();
+    } catch (err) {
+      console.error('[feria] stock en vivo no disponible:', err.message);
+    }
+
+    const products = found.map((p) => ({
+      sku: p.sku, modelo: p.modelo, color: p.color,
+      stock: availability ? (availability.get(p.sku.toUpperCase()) ?? { exhibicion: 0, rolon: 0 }) : null,
       condiciones: buildConditionsPayload(p),
     }));
     res.json({ products });
