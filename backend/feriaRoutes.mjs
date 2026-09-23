@@ -4,6 +4,7 @@ import {
   createOrder, listOrdersByStatus, getOrderById,
   updateOrderPayment, markOrderError,
   applyOrderLineActions, cancelOrder, listLogisticsOrders, updateOrderShipping,
+  addOrderLine, listOrderHistory,
 } from './feriaOrders.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
@@ -216,9 +217,9 @@ router.delete('/orders/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('c
 
 router.patch('/orders/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   try {
-    const { location, delivery } = req.body;
+    const { location, delivery, qty } = req.body;
     res.json({ order: await applyOrderLineActions(req.params.id, [req.params.lineId], 'edit', {
-      user: feriaUserName(req), changes: { location, delivery },
+      user: feriaUserName(req), changes: { location, delivery, qty },
     }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -255,6 +256,25 @@ router.post('/orders/:id/lines/:lineId/deliver', requireFeriaAuth, requireFeriaR
     res.json({ order: await applyOrderLineActions(order.id, [line.lineId], 'deliver', { user: feriaUserName(req) }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Caja agrega un producto a un pedido sin confirmar.
+router.post('/orders/:id/lines', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const { sku, condition, qty, location, delivery } = req.body ?? {};
+    res.json({ order: await addOrderLine(req.params.id, { sku, condition, qty, location, delivery }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Historial: todos los pedidos (pendientes, confirmados, cancelados, con error).
+router.get('/history', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ orders: await listOrderHistory() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

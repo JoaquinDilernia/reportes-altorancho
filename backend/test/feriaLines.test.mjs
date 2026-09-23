@@ -4,7 +4,7 @@ import {
   validateLineDelivery, validateShipping, needsShipping, isReserving,
   reservationKey, parseReservationKey, reservationDeltas, assignLineIds,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
-  formatOrderNumber, assertShippingEditable,
+  formatOrderNumber, assertShippingEditable, buildAddedLine, nextLineId,
 } from '../feriaLines.mjs';
 
 const now = new Date('2026-09-23T15:00:00Z');
@@ -150,4 +150,47 @@ test('assertShippingEditable: se puede cargar dirección salvo en pedidos cancel
   assert.doesNotThrow(() => assertShippingEditable({ status: 'pendiente' }));
   assert.doesNotThrow(() => assertShippingEditable({ status: 'confirmado', odooOrderId: 1 }));
   assert.throws(() => assertShippingEditable({ status: 'cancelado' }), /cancelado/);
+});
+
+test('applyLineAction edit cambia la cantidad y rechaza cantidades inválidas', () => {
+  assert.equal(applyLineAction(base, 'edit', { user: 'C', now, changes: { qty: 3 } }).qty, 3);
+  assert.throws(() => applyLineAction(base, 'edit', { user: 'C', now, changes: { qty: 0 } }), /Cantidad inválida/);
+  assert.throws(() => applyLineAction(base, 'edit', { user: 'C', now, changes: { qty: 1.5 } }), /Cantidad inválida/);
+});
+
+test('reservationDeltas: subir la cantidad reserva la diferencia', () => {
+  assert.deepEqual([...reservationDeltas([base], [{ ...base, qty: 3 }])], [['ALF029CG__exhibicion', 2]]);
+});
+
+test('assertLineActionAllowed: la cantidad no se cambia si el pedido ya existe en Odoo', () => {
+  const order = { status: 'confirmado', odooOrderId: 1, lines: [base] };
+  assert.throws(() => assertLineActionAllowed(order, base, 'edit', { qty: 2 }), /cantidad/);
+  assert.doesNotThrow(() => assertLineActionAllowed({ status: 'pendiente', lines: [base] }, base, 'edit', { qty: 2 }));
+});
+
+test('nextLineId sigue la numeración aunque haya líneas eliminadas', () => {
+  assert.equal(nextLineId([{ lineId: 'L1' }, { lineId: 'L3', status: 'eliminado' }]), 'L4');
+  assert.equal(nextLineId([]), 'L1');
+});
+
+test('buildAddedLine arma la línea con precio de tabla (rebaja activa) y el descuento del medio de pago', () => {
+  const product = { sku: 'ALF029CG', modelo: 'Liso', precioFalla: 9990, precioRebaja1Falla: 7990, rebajaFallaActiva: 1 };
+  const line = buildAddedLine(product, { condition: 'falla', qty: 2, location: 'exhibicion', delivery: 'ahora' }, 'transferencia', [base]);
+  assert.deepEqual(line, {
+    lineId: 'L2', sku: 'ALF029CG', modelo: 'Liso', condition: 'falla', qty: 2,
+    listPrice: 7990, unitPrice: Math.round(7990 * 0.85), location: 'exhibicion', delivery: 'ahora', status: 'pendiente',
+  });
+});
+
+test('buildAddedLine rechaza condición sin precio o combinación inválida', () => {
+  const product = { sku: 'X', modelo: 'X', precioFalla: null, precioDiscontinuo: 100 };
+  assert.throws(() => buildAddedLine(product, { condition: 'falla', qty: 1, location: 'exhibicion', delivery: 'ahora' }, 'efectivo', []), /no tiene precio/);
+  assert.throws(() => buildAddedLine(product, { condition: 'discontinuo', qty: 1, location: 'rolon', delivery: 'ahora' }, 'efectivo', []), /solo puede salir de Exhibición/);
+});
+
+test('"Retira en Rolón" solo puede salir de Rolón; retira en feria y envío desde cualquier ubicación', () => {
+  assert.match(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'retira_rolon' }).join(), /solo puede salir de Rolón/);
+  assert.deepEqual(validateLineDelivery({ ...base, location: 'rolon', delivery: 'retira_rolon' }), []);
+  assert.deepEqual(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'retira_feria' }), []);
+  assert.deepEqual(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'envio' }), []);
 });

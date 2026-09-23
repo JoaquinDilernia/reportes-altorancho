@@ -1,7 +1,7 @@
 // Modelo de línea de pedido de la feria: de dónde sale (ubicación), cómo se
 // entrega y en qué estado está. Todo puro — la E/S (Firestore, Odoo) vive en
 // feriaOrders/feriaStock/feriaDelivery.
-import { SHIPPING_COST } from './feriaPricing.mjs';
+import { SHIPPING_COST, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 export const LOCATIONS = ['exhibicion', 'rolon'];
 export const DELIVERIES = ['ahora', 'retira_feria', 'retira_rolon', 'envio'];
@@ -19,6 +19,12 @@ export function validateLineDelivery(line) {
   if (!DELIVERIES.includes(line.delivery)) errors.push(`Forma de entrega inválida para ${sku}`);
   if (line.delivery === 'ahora' && line.location !== 'exhibicion') {
     errors.push(`${sku}: "Se lleva ahora" solo puede salir de Exhibición`);
+  }
+  // Retirar en Rolón es llevarse lo que ya está en Rolón. Retira en feria y
+  // envío sí pueden salir de exhibición (se aparta y se busca otro día, o se
+  // manda desde ahí).
+  if (line.delivery === 'retira_rolon' && line.location !== 'rolon') {
+    errors.push(`${sku}: "Retira en Rolón" solo puede salir de Rolón`);
   }
   return errors;
 }
@@ -90,6 +96,10 @@ export function applyLineAction(line, action, { user, now, changes = {} }) {
       const next = { ...line };
       if (changes.location !== undefined) next.location = changes.location;
       if (changes.delivery !== undefined) next.delivery = changes.delivery;
+      if (changes.qty !== undefined) {
+        if (!Number.isInteger(changes.qty) || changes.qty < 1) throw new Error(`Cantidad inválida para ${line.sku}`);
+        next.qty = changes.qty;
+      }
       const errors = validateLineDelivery(next);
       if (errors.length) throw new Error(errors.join('; '));
       // "Enviado a feria" solo tiene sentido para retira_feria.
@@ -132,6 +142,11 @@ export function assertLineActionAllowed(order, line, action, changes = {}) {
   if (action === 'deliver' && (order.status !== 'confirmado' || !line.odooLineId)) {
     throw new Error('Primero hay que confirmar el pedido en caja');
   }
+  // La cantidad ya viajó a Odoo al confirmar (o en un intento anterior):
+  // cambiarla solo en la app dejaría las dos puntas distintas.
+  if (action === 'edit' && changes.qty !== undefined && (order.odooOrderId || !['pendiente', 'error'].includes(order.status))) {
+    throw new Error('El pedido ya está en Odoo: la cantidad se cambia en Odoo');
+  }
   // Antes de confirmar, pasar a envío sin dirección haría fallar el confirm
   // (no hay a dónde mandarlo). Después de confirmar la app solo avisa.
   if (action === 'edit' && changes.delivery === 'envio' && !order.shipping && !order.odooOrderId) {
@@ -155,4 +170,28 @@ export function formatOrderNumber(n) {
 // (Logística la lee de la app); solo un pedido cancelado queda cerrado.
 export function assertShippingEditable(order) {
   if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
+}
+
+// Id para una línea nueva: sigue después del mayor existente (las eliminadas
+// quedan en el historial, así que su id no se reutiliza).
+export function nextLineId(lines) {
+  const max = lines.reduce((m, l) => Math.max(m, Number(String(l.lineId ?? '').replace('L', '')) || 0), 0);
+  return `L${max + 1}`;
+}
+
+// Línea que Caja agrega a un pedido: el precio lo calcula el servidor con la
+// rebaja activa de esa condición y el descuento del medio de pago del pedido.
+export function buildAddedLine(product, { condition, qty, location, delivery }, paymentMethod, lines) {
+  const rebaja = product[activeRebajaField(condition)] ?? 0;
+  const listPrice = tablePrice(product, condition, rebaja);
+  if (listPrice == null) throw new Error(`${product.sku} no tiene precio para esa condición`);
+  if (!Number.isInteger(qty) || qty < 1) throw new Error(`Cantidad inválida para ${product.sku}`);
+  const line = {
+    lineId: nextLineId(lines), sku: product.sku, modelo: product.modelo, condition, qty,
+    listPrice, unitPrice: computeFinalPrice(product, condition, rebaja, paymentMethod),
+    location, delivery, status: 'pendiente',
+  };
+  const errors = validateLineDelivery(line);
+  if (errors.length) throw new Error(errors.join('; '));
+  return line;
 }

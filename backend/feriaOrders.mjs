@@ -3,8 +3,9 @@ import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST } from './feriaPr
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
-  formatOrderNumber, assertShippingEditable,
+  formatOrderNumber, assertShippingEditable, buildAddedLine,
 } from './feriaLines.mjs';
+import { getFeriaProduct } from './feriaProducts.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
 const COLLECTION = 'feria_orders';
@@ -194,7 +195,7 @@ export async function applyOrderLineActions(orderId, lineIds, action, { user, ch
   // Mover una línea de ubicación reserva en la nueva: hace falta el stock de
   // Odoo, que se lee afuera de la transacción.
   let odooStock = null;
-  if (action === 'edit' && changes?.location) {
+  if (action === 'edit' && (changes?.location || changes?.qty)) {
     const snap = await ref.get();
     const skus = (snap.data()?.lines ?? []).filter((l) => lineIds.includes(l.lineId)).map((l) => l.sku);
     odooStock = await fetchOdooStock(skus);
@@ -301,4 +302,45 @@ export async function updateOrderShipping(orderId, shipping) {
     tx.update(ref, update);
     return { ...order, ...update };
   });
+}
+
+// Caja agrega un producto a un pedido que todavía no llegó a Odoo. Precio
+// calculado acá (rebaja activa + medio de pago del pedido) y stock reservado
+// en la misma transacción que la línea, igual que al crear el pedido.
+export async function addOrderLine(orderId, input) {
+  const product = getFeriaProduct(input.sku);
+  if (!product) throw new Error(`${input.sku} no está en la lista de precios de la feria`);
+  const odooStock = await fetchOdooStock([product.sku]);
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    if (!['pendiente', 'error'].includes(order.status) || order.odooOrderId) {
+      throw new Error('Solo se agregan productos a pedidos que todavía no se confirmaron');
+    }
+    const line = buildAddedLine(product, input, order.paymentMethod, order.lines);
+    if (line.delivery === 'envio' && !order.shipping) {
+      throw new Error('Este pedido no tiene datos de envío: cargá primero la dirección de envío');
+    }
+    const deltas = reservationDeltas([], [line]);
+    const reserved = await readReservations(db, [...deltas.keys()], tx);
+    const stockErrors = checkAvailability(odooStock, reserved, deltas);
+    if (stockErrors.length) throw new Error(`Sin stock suficiente — ${stockErrors.join('; ')}`);
+    writeReservations(tx, db, reserved, deltas);
+    const lines = [...order.lines, line];
+    const update = { lines, shippingCost: shippingCostFor(lines), updatedAt: new Date() };
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
+}
+
+// Todos los pedidos, del más nuevo al más viejo. orderBy sobre un solo campo
+// (sin where) usa el índice automático de Firestore: no hace falta índice
+// compuesto.
+export async function listOrderHistory(limit = 300) {
+  const db = getDb();
+  const snap = await db.collection(COLLECTION).orderBy('createdAt', 'desc').limit(limit).get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
