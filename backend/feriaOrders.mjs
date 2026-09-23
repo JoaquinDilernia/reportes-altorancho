@@ -248,3 +248,17 @@ export async function setOrderErrorDetail(id, errorDetail) {
   const db = getDb();
   await db.collection(COLLECTION).doc(id).update({ errorDetail, updatedAt: new Date() });
 }
+
+// Guarda el id de sale.order.line de cada línea de la app: lo necesita
+// "Hecho" para validar justo esa línea del remito.
+export async function saveOdooLineIds(orderId, odooLineIdByLineId) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const lines = snap.data().lines.map((l) => (
+      odooLineIdByLineId[l.lineId] ? { ...l, odooLineId: odooLineIdByLineId[l.lineId] } : l
+    ));
+    tx.update(ref, { lines, updatedAt: new Date() });
+  });
+}

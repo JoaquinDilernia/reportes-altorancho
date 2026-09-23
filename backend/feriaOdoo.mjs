@@ -68,7 +68,7 @@ export async function findOrCreatePartner({ name, docNumber }) {
   return id;
 }
 
-export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, lines }) {
+export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, warehouseId, partnerShippingId, lines }) {
   const payload = {
     partner_id: partnerId,
     pricelist_id: pricelistId,
@@ -83,6 +83,10 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentM
   // payment_method_ids es un many2one (a pesar del sufijo _ids) a
   // payment.method: el campo "Medio de pago" del pedido en este Odoo.
   if (paymentMethodId) payload.payment_method_ids = paymentMethodId;
+  // Almacén Feria: el remito sale de ahí (y de sus ubicaciones exhibición /
+  // Rolón), no del almacén por defecto.
+  if (warehouseId) payload.warehouse_id = warehouseId;
+  if (partnerShippingId) payload.partner_shipping_id = partnerShippingId;
   return payload;
 }
 
@@ -92,6 +96,43 @@ export async function findPaymentMethodId(name) {
     [['name', '=', name]],
   ], { fields: ['id'], limit: 1 });
   return results[0]?.id ?? null;
+}
+
+export function buildShippingPartnerVals(parentId, customerName, shipping) {
+  return {
+    parent_id: parentId,
+    type: 'delivery',
+    name: customerName,
+    street: `${shipping.street} ${shipping.number}`.trim(),
+    street2: shipping.floor || false,
+    city: shipping.city,
+    zip: shipping.zip,
+    phone: shipping.phone,
+    comment: shipping.notes || false,
+  };
+}
+
+// Dirección de entrega como contacto hijo del cliente: así el pedido lleva
+// su propia dirección sin pisar la dirección principal del cliente en Odoo.
+export async function createShippingPartner(parentId, customerName, shipping) {
+  await ensureAuth();
+  const [id] = await callKw('res.partner', 'create', [[buildShippingPartnerVals(parentId, customerName, shipping)]]);
+  return id;
+}
+
+export async function findShippingProductId() {
+  const name = process.env.ODOO_FERIA_SHIPPING_PRODUCT_NAME || 'Otros envíos terciarizados';
+  const results = await callKwReadWithRetry('product.product', 'search_read', [
+    [['name', '=', name]],
+  ], { fields: ['id'], limit: 1 });
+  return results[0]?.id ?? null;
+}
+
+// Ids de sale.order.line en el orden en que se crearon (Odoo los devuelve
+// ordenados por secuencia e id, que es el orden de creación).
+export async function readOrderLineIds(orderId) {
+  const [order] = await callKwReadWithRetry('sale.order', 'read', [[orderId]], { fields: ['order_line'] });
+  return order?.order_line ?? [];
 }
 
 export async function createSaleOrder(vals) {

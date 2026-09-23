@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSaleOrderPayload } from '../feriaOdoo.mjs';
+import { buildSaleOrderPayload, buildShippingPartnerVals } from '../feriaOdoo.mjs';
 
 test('arma el payload de sale.order con las líneas en formato Odoo (0,0,{...})', () => {
   const payload = buildSaleOrderPayload({
@@ -53,4 +53,28 @@ test('sin medio de pago lo omite en vez de mandar null', () => {
     ],
   });
   assert.equal('payment_method_ids' in payload, false);
+});
+
+test('con almacén y dirección de envío los carga en el pedido', () => {
+  const payload = buildSaleOrderPayload({
+    partnerId: 42, pricelistId: 7, teamId: 3, paymentMethodId: 6, warehouseId: 43, partnerShippingId: 99,
+    lines: [{ productId: 100, qty: 1, unitPrice: 8256.2, discountPct: 20 }],
+  });
+  assert.equal(payload.warehouse_id, 43);
+  assert.equal(payload.partner_shipping_id, 99);
+});
+
+test('sin almacén ni envío no manda esas claves', () => {
+  const payload = buildSaleOrderPayload({ partnerId: 42, pricelistId: 7, lines: [] });
+  assert.equal('warehouse_id' in payload, false);
+  assert.equal('partner_shipping_id' in payload, false);
+});
+
+test('buildShippingPartnerVals arma un contacto de entrega hijo del cliente', () => {
+  assert.deepEqual(buildShippingPartnerVals(42, 'Juan Pérez', {
+    street: 'Av. Siempreviva', number: '742', floor: '3B', city: 'Tigre', zip: '1648', phone: '1155555555', notes: 'Tocar timbre',
+  }), {
+    parent_id: 42, type: 'delivery', name: 'Juan Pérez', street: 'Av. Siempreviva 742', street2: '3B',
+    city: 'Tigre', zip: '1648', phone: '1155555555', comment: 'Tocar timbre',
+  });
 });

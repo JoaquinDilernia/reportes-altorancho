@@ -6,6 +6,7 @@ import {
   applyOrderLineActions, cancelOrder, listLogisticsOrders,
 } from './feriaOrders.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
+import { confirmOrder } from './feriaConfirm.mjs';
 import { assertLineActionAllowed } from './feriaLines.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se importa:
 // la facturación automática está deshabilitada por ahora (ver más abajo, en
@@ -176,79 +177,30 @@ router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), 
   }
 });
 
-// Confirma el pedido: crea (o busca) el partner, resuelve el product_id de
-// Odoo de cada línea por SKU, y arma y crea el sale.order con la pricelist y
-// el Equipo de ventas de la feria, y lo confirma. NO factura: la facturación
-// automática está deshabilitada por ahora (ver el comentario más abajo), así
-// que todo pedido confirmado queda en estado 'confirmado', nunca 'facturado'.
-// Se puede llamar de nuevo sin problema si quedó en 'error' — es idempotente
-// respecto de la creación del pedido en Odoo: si esta orden ya tiene un
-// odooOrderId guardado (de un intento anterior que llegó a crear el pedido
-// pero falló después), un reintento NO vuelve a crear el sale.order. Sin
-// esto, reintentar crearía un pedido duplicado en Odoo con plata real ya
-// cobrada.
+function feriaUserName(req) {
+  return req.feriaUser?.name || req.feriaUser?.email || 'caja';
+}
+
+// Confirma el pedido en Odoo (ver feriaConfirm.mjs). NO factura: la
+// facturación automática está deshabilitada por ahora. Es reintentable si
+// quedó en 'error': si ya había un odooOrderId guardado, no se crea otro
+// sale.order (reintentar no puede duplicar una venta ya cobrada).
 router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   const order = await getOrderById(req.params.id);
   if (!order) return res.status(404).json({ error: 'Pedido no encontrado' });
+  if (order.status === 'cancelado') return res.status(400).json({ error: 'El pedido está cancelado' });
 
-  // Pedido ya terminado (facturado): no se toca Odoo de nuevo. Un doble
-  // click o un cajero reabriendo un pedido completo tiene que ser inocuo —
-  // ni una segunda factura, ni pasar a 'error' una venta ya cerrada.
-  if (order.invoiceId || order.status === 'facturado') {
+  // Pedido ya confirmado/facturado: doble click o cajero reabriendo — inocuo.
+  if (order.invoiceId || order.status === 'facturado' || order.status === 'confirmado') {
     return res.json({ order });
   }
 
   try {
-    let odooOrderId = order.odooOrderId;
-
-    if (!odooOrderId) {
-      const partnerId = await findOrCreatePartner({
-        name: order.customer.name, docNumber: order.customer.docNumber,
-      });
-      const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
-      const pricelistId = await findPricelistId(process.env.ODOO_FERIA_PRICELIST_NAME);
-      if (!pricelistId) throw new Error(`Pricelist de feria no encontrada en Odoo: "${process.env.ODOO_FERIA_PRICELIST_NAME}"`);
-      const odooPaymentName = PAYMENT_METHODS[order.paymentMethod]?.odooName;
-      const paymentMethodId = await findPaymentMethodId(odooPaymentName);
-      if (!paymentMethodId) throw new Error(`Medio de pago no encontrado en Odoo: "${odooPaymentName ?? order.paymentMethod}"`);
-
-      const resolvedLines = [];
-      for (const line of order.lines) {
-        const productId = await findProductIdBySku(line.sku);
-        if (!productId) throw new Error(`SKU no encontrado en Odoo: ${line.sku}`);
-        resolvedLines.push({ productId, qty: line.qty, ...odooLinePricing(line, order.paymentMethod) });
-      }
-
-      const vals = buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, lines: resolvedLines });
-      odooOrderId = await createSaleOrder(vals);
-      // El id se guarda ANTES de confirmar: si confirmSaleOrder falla, el
-      // pedido de Odoo YA existe, y sin el id guardado un reintento del
-      // cajero crearía un segundo sale.order por una venta ya hecha.
-      await saveOdooOrderId(order.id, odooOrderId);
-    }
-
-    // Fuera del if a propósito: se confirma en TODOS los intentos, no solo
-    // cuando el pedido se acaba de crear. Si confirmSaleOrder falló en un
-    // intento anterior, el odooOrderId ya está guardado y el reintento se
-    // saltea la creación — si el confirm también quedara adentro del if, ese
-    // sale.order se quedaría como presupuesto en borrador para siempre.
-    // Re-confirmar uno ya confirmado es un no-op seguro en Odoo (chequea el
-    // state y no hace nada si ya está en 'sale').
-    await confirmSaleOrder(odooOrderId);
-
-    // Facturación automática deshabilitada temporalmente: falló en producción
-    // contra Odoo real y el mecanismo exacto (cron vs. disparo al confirmar,
-    // ver spec) todavía no está resuelto. El pedido se crea y confirma en Odoo
-    // igual, con el precio correcto — solo se deja de intentar generar la
-    // factura. Reactivar cuando se resuelva el mecanismo de facturación.
-    await markOrderConfirmed(order.id, { odooOrderId, invoiceId: null });
-    res.json({ order: await getOrderById(order.id) });
+    res.json({ order: await confirmOrder(order, feriaUserName(req)) });
   } catch (err) {
-    // markOrderError escribe en Firestore: si lo que está caído es Firestore,
-    // tirar acá adentro del catch sería un rechazo sin manejar en un handler
-    // async de Express 4 — es decir, voltear el proceso entero justo cuando
-    // ya hay un error en curso. Se registra y se sigue: al cajero le importa
-    // recibir el 502, no que el pedido haya quedado marcado.
+    // markOrderError escribe en Firestore: si lo caído es Firestore, tirar acá
+    // voltearía el proceso (rechazo sin manejar en Express 4). Se registra y
+    // se sigue: al cajero le importa recibir el 502.
     try {
       await markOrderError(order.id, err.message);
     } catch (markErr) {
@@ -257,10 +209,6 @@ router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), a
     res.status(502).json({ error: `No se pudo confirmar en Odoo: ${err.message}` });
   }
 });
-
-function feriaUserName(req) {
-  return req.feriaUser?.name || req.feriaUser?.email || 'caja';
-}
 
 router.delete('/orders/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   try {
