@@ -10,6 +10,7 @@ import { deliverLines } from './feriaDelivery.mjs';
 // createInvoiceForOrder sigue existiendo en feriaOdoo.mjs pero no se usa: la
 // facturación automática está deshabilitada por ahora (ver feriaConfirm.mjs).
 import { confirmOrder } from './feriaConfirm.mjs';
+import { computeStats, rangeBounds } from './feriaStats.mjs';
 import { assertLineActionAllowed, assertAnnullable } from './feriaLines.mjs';
 import { findPartnerByDoc, cancelSaleOrder } from './feriaOdoo.mjs';
 import { searchFeriaProducts, getFeriaProduct, setRebajaActiva } from './feriaProducts.mjs';
@@ -285,6 +286,17 @@ router.post('/orders/:id/lines', requireFeriaAuth, requireFeriaRole('caja'), asy
     res.json({ order: await addOrderLine(req.params.id, { sku, condition, qty, location, delivery }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Estadísticas de ventas confirmadas: range = hoy | ayer | todo (día argentino).
+router.get('/stats', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    const range = ['hoy', 'ayer', 'todo'].includes(req.query.range) ? req.query.range : 'hoy';
+    const orders = (await listOrderHistory(5000)).map((o) => ({ ...o, createdAtMs: o.createdAt?.toMillis?.() ?? 0 }));
+    res.json({ range, stats: computeStats(orders, rangeBounds(range)) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
