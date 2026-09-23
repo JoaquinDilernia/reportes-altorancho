@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planMoveLineWrites } from '../feriaDelivery.mjs';
+import { planMoveLineWrites, pickLots } from '../feriaDelivery.mjs';
 
 const EXHIB = 427;
 const ROLON = 428;
@@ -58,4 +58,34 @@ test('una línea cuyo movimiento ya está hecho vuelve como alreadyDone, no como
 test('una línea sin movimiento en ningún remito abierto vuelve como missing', () => {
   const plan = planMoveLineWrites({ moves, moveLines, items: [{ odooLineId: 99, qty: 1, locationId: EXHIB }], openPickingIds: [900] });
   assert.deepEqual(plan.missing, [99]);
+});
+
+test('producto con lote: la move line creada lleva el lote que tiene stock en esa ubicación', () => {
+  const lots = new Map([['501:427', 21887]]);
+  const plan = planMoveLineWrites({ moves, moveLines, items: [{ odooLineId: 11, qty: 1, locationId: EXHIB }], openPickingIds: [900], lots });
+  assert.equal(plan.creates[0].lot_id, 21887);
+});
+
+test('producto con lote: si la move line de esa ubicación no tiene lote, se lo agrega', () => {
+  const lots = new Map([['502:427', 555]]);
+  const noLot = [{ ...moveLines[1], lot_id: false }];
+  const plan = planMoveLineWrites({ moves, moveLines: noLot, items: [{ odooLineId: 12, qty: 1, locationId: EXHIB }], openPickingIds: [900], lots });
+  assert.deepEqual(plan.writes, [{ id: 102, vals: { qty_done: 1, lot_id: 555 } }]);
+});
+
+test('producto con lote: una move line que ya tiene lote lo conserva', () => {
+  const lots = new Map([['502:427', 555]]);
+  const withLot = [{ ...moveLines[1], lot_id: [777, 'L-777'] }];
+  const plan = planMoveLineWrites({ moves, moveLines: withLot, items: [{ odooLineId: 12, qty: 1, locationId: EXHIB }], openPickingIds: [900], lots });
+  assert.deepEqual(plan.writes, [{ id: 102, vals: { qty_done: 1 } }]);
+});
+
+test('pickLots elige, por producto y ubicación, el lote con más stock', () => {
+  const quants = [
+    { product_id: [501, 'A'], location_id: [427, 'x'], lot_id: [1, 'L1'], quantity: 1 },
+    { product_id: [501, 'A'], location_id: [427, 'x'], lot_id: [2, 'L2'], quantity: 4 },
+    { product_id: [501, 'A'], location_id: [428, 'y'], lot_id: [3, 'L3'], quantity: 2 },
+    { product_id: [502, 'B'], location_id: [427, 'x'], lot_id: false, quantity: 9 },
+  ];
+  assert.deepEqual([...pickLots(quants)], [['501:427', 2], ['501:428', 3]]);
 });

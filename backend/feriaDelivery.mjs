@@ -10,10 +10,26 @@ const VALIDATE_CONTEXT = {
   lang: 'es_AR', skip_backorder: true, skip_immediate: true, skip_sms: true, skip_expired: true,
 };
 
+const lotKey = (productId, locationId) => `${productId}:${locationId}`;
+
+// Muchos productos se controlan por lote en Odoo (tracking 'lot'): validar
+// una move line sin lote falla con "Debe proporcionar un número de lote".
+// Por producto+ubicación se toma el lote con más stock ahí.
+export function pickLots(quants) {
+  const best = new Map();
+  for (const q of quants) {
+    if (!q.lot_id) continue;
+    const key = lotKey(q.product_id[0], q.location_id[0]);
+    if (!best.has(key) || q.quantity > best.get(key).quantity) best.set(key, { lotId: q.lot_id[0], quantity: q.quantity });
+  }
+  return new Map([...best].map(([key, { lotId }]) => [key, lotId]));
+}
+
 // Decide qué escribir en las stock.move.line para que al validar salga
 // EXACTAMENTE lo pedido (cantidad y ubicación de origen) y nada más.
+// `lots` (de pickLots) trae el lote a usar para productos con lote.
 // Puro para poder testearlo sin Odoo.
-export function planMoveLineWrites({ moves, moveLines, items, openPickingIds }) {
+export function planMoveLineWrites({ moves, moveLines, items, openPickingIds, lots = new Map() }) {
   const open = new Set(openPickingIds);
   const writes = [];
   const creates = [];
@@ -31,9 +47,12 @@ export function planMoveLineWrites({ moves, moveLines, items, openPickingIds }) 
       continue;
     }
     pickingIds.add(openMove.picking_id[0]);
+    const lotId = lots.get(lotKey(openMove.product_id[0], item.locationId));
     const atLocation = moveLines.find((ml) => ml.move_id[0] === openMove.id && ml.location_id[0] === item.locationId);
     if (atLocation) {
-      writes.push({ id: atLocation.id, vals: { qty_done: item.qty } });
+      const vals = { qty_done: item.qty };
+      if (lotId && !atLocation.lot_id) vals.lot_id = lotId;
+      writes.push({ id: atLocation.id, vals });
       targetedMoveLineIds.add(atLocation.id);
     } else {
       creates.push({
@@ -44,6 +63,7 @@ export function planMoveLineWrites({ moves, moveLines, items, openPickingIds }) 
         location_id: item.locationId,
         location_dest_id: openMove.location_dest_id[0],
         qty_done: item.qty,
+        ...(lotId ? { lot_id: lotId } : {}),
       });
     }
   }
@@ -74,10 +94,20 @@ export async function deliverLines(odooOrderId, items) {
   const moveLines = openPickingIds.length
     ? await callKwReadWithRetry('stock.move.line', 'search_read', [
       [['picking_id', 'in', openPickingIds]],
-    ], { fields: ['id', 'move_id', 'location_id', 'qty_done'] })
+    ], { fields: ['id', 'move_id', 'location_id', 'lot_id', 'qty_done'] })
     : [];
 
-  const plan = planMoveLineWrites({ moves, moveLines, items, openPickingIds });
+  // Lotes con stock en las ubicaciones pedidas (los productos sin lote no
+  // tienen quants con lot_id, así que no aparecen y no llevan lote).
+  const productIds = [...new Set(moves.map((m) => m.product_id[0]))];
+  const locationIds = [...new Set(items.map((i) => i.locationId))];
+  const lotQuants = productIds.length
+    ? await callKwReadWithRetry('stock.quant', 'search_read', [
+      [['product_id', 'in', productIds], ['location_id', 'in', locationIds], ['lot_id', '!=', false], ['quantity', '>', 0]],
+    ], { fields: ['product_id', 'location_id', 'lot_id', 'quantity'] })
+    : [];
+
+  const plan = planMoveLineWrites({ moves, moveLines, items, openPickingIds, lots: pickLots(lotQuants) });
   if (plan.missing.length) {
     throw new Error(`Líneas sin remito abierto en Odoo: ${plan.missing.join(', ')}`);
   }
