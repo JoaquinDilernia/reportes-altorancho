@@ -3,7 +3,7 @@ import admin from 'firebase-admin';
 
 let db;
 
-function getDb() {
+export function getDb() {
   if (!db) {
     if (!admin.apps.length) {
       admin.initializeApp({
