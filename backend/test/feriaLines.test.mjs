@@ -183,11 +183,16 @@ test('buildAddedLine rechaza condición sin precio o combinación inválida', ()
   assert.throws(() => buildAddedLine(product, { condition: 'discontinuo', qty: 1, location: 'rolon', delivery: 'ahora' }, 'efectivo', []), /solo puede salir de Exhibición/);
 });
 
-test('"Retira en Rolón" solo puede salir de Rolón; retira en feria y envío desde cualquier ubicación', () => {
+test('"Retira en Rolón" solo puede salir de Rolón; retira en feria desde cualquier ubicación', () => {
   assert.match(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'retira_rolon' }).join(), /solo puede salir de Rolón/);
   assert.deepEqual(validateLineDelivery({ ...base, location: 'rolon', delivery: 'retira_rolon' }), []);
   assert.deepEqual(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'retira_feria' }), []);
-  assert.deepEqual(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'envio' }), []);
+});
+
+test('Envío a domicilio solo para lo que sale de Rolón (lo que está en la feria se lleva o se retira ahí)', () => {
+  assert.deepEqual(validateLineDelivery({ ...base, location: 'rolon', delivery: 'envio' }), []);
+  assert.match(validateLineDelivery({ ...base, location: 'exhibicion', delivery: 'envio' }).join(), /Envío a domicilio solo para lo que sale de Rolón/);
+  assert.match(validateLineDelivery({ ...base, condition: 'falla', location: 'fallados', delivery: 'envio' }).join(), /Envío a domicilio solo para lo que sale de Rolón/);
 });
 
 test('assertAnnullable: se anula desde la app una venta confirmada sin nada entregado', () => {
@@ -293,9 +298,10 @@ test('falla sale siempre de Fallados; discontinuo, de Exhibición o Rolón', () 
   assert.match(validateLineDelivery({ ...disc, location: 'fallados' }).join(), /Discontinuo sale de Exhibición o Rolón/);
 });
 
-test('falla: se lleva ahora, retira en feria o envío; no retira en Rolón', () => {
+test('falla: se lleva ahora o se retira en la feria; ni retira en Rolón ni envío', () => {
   const falla = { ...base, condition: 'falla', location: 'fallados' };
-  for (const delivery of ['ahora', 'retira_feria', 'envio']) assert.deepEqual(validateLineDelivery({ ...falla, delivery }), [], delivery);
+  for (const delivery of ['ahora', 'retira_feria']) assert.deepEqual(validateLineDelivery({ ...falla, delivery }), [], delivery);
+  assert.match(validateLineDelivery({ ...falla, delivery: 'envio' }).join(), /solo para lo que sale de Rolón/);
   assert.match(validateLineDelivery({ ...falla, delivery: 'retira_rolon' }).join(), /solo puede salir de Rolón/);
 });
 

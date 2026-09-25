@@ -31,11 +31,15 @@ export function validateLineDelivery(line) {
   if (line.delivery === 'ahora' && !['exhibicion', FALLADOS].includes(line.location)) {
     errors.push(`${sku}: "Me llevo ahora" solo puede salir de Exhibición o Fallados`);
   }
-  // Retirar en Rolón es llevarse lo que ya está en Rolón. Retira en feria y
-  // envío sí pueden salir de exhibición (se aparta y se busca otro día, o se
-  // manda desde ahí).
+  // Retirar en Rolón es llevarse lo que ya está en Rolón. Retira en feria sí
+  // puede salir de exhibición (se aparta y se busca, hasta el sábado 18 hs).
   if (line.delivery === 'retira_rolon' && line.location !== 'rolon') {
     errors.push(`${sku}: "Retira en Rolón" solo puede salir de Rolón`);
+  }
+  // Envío a domicilio (CABA/GBA) solo para el stock de Rolón: lo que está
+  // físicamente en la feria (exhibición, fallados) se lleva o se retira ahí.
+  if (line.delivery === 'envio' && line.location !== 'rolon') {
+    errors.push(`${sku}: Envío a domicilio solo para lo que sale de Rolón`);
   }
   return errors;
 }
