@@ -5,7 +5,7 @@ import {
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine,
   isConfirming, assertClosable, CONFIRMING_MESSAGE, assertPaymentEditable, repriceLines,
-  validatePayments, assertPaymentsMatchTotal, hasCancelledItems, applyRestock,
+  validatePayments, assertPaymentsMatchTotal, hasCancelledItems, applyRestock, shouldAutoRetry,
 } from './feriaLines.mjs';
 import { getFeriaProduct } from './feriaProducts.mjs';
 import { getSellerCode } from './feriaAuth.mjs';
@@ -458,5 +458,21 @@ export async function restockOrderLine(orderId, lineId, user) {
     const update = { lines: applyRestock(order, lineId, { user, now: new Date() }), updatedAt: new Date() };
     tx.update(ref, update);
     return { ...order, ...update };
+  });
+}
+
+// Anota un intento automático de confirmar, en una transacción: si el pedido
+// ya no está en error o todavía no le toca (otro intento, un cajero), no hace
+// nada y devuelve false.
+export async function recordAutoRetry(orderId) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const order = snap.data();
+    if (!shouldAutoRetry(order)) return false;
+    tx.update(ref, { autoRetryCount: (order.autoRetryCount ?? 0) + 1, lastAutoRetryAt: new Date() });
+    return true;
   });
 }

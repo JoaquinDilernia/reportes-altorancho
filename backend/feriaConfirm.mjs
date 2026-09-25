@@ -10,6 +10,7 @@ import { deliverLines } from './feriaDelivery.mjs';
 import { invoiceOrder } from './feriaInvoice.mjs';
 import {
   getOrderById, saveOdooOrderId, saveOdooLineIds, markOrderConfirmed, applyOrderLineActions, setOrderErrorDetail,
+  claimOrderForConfirm, markOrderError,
 } from './feriaOrders.mjs';
 
 export function buildOdooLines(activeLines, paymentMethod, productIds, shippingProductId) {
@@ -111,4 +112,34 @@ export async function confirmOrder(order, user) {
   // en invoiceError para que Caja reintente (no tira).
   await invoiceOrder({ ...confirmed, odooOrderId });
   return getOrderById(order.id);
+}
+
+// Reclama el pedido, lo confirma en Odoo y, si Odoo falla, lo deja en
+// 'error' con el motivo. Lo usan el botón de Caja y el reintento automático:
+// los dos caminos son el mismo. `err.stage` distingue si falló el reclamo
+// ('claim': cancelado, caja cerrada, otro confirmando…) o Odoo ('odoo').
+export async function claimAndConfirm(orderId, user) {
+  let order;
+  try {
+    const claim = await claimOrderForConfirm(orderId);
+    // Ya confirmado/facturado: doble click o cajero reabriendo — inocuo.
+    if (claim.alreadyConfirmed) return claim.order;
+    order = claim.order;
+  } catch (err) {
+    err.stage = 'claim';
+    throw err;
+  }
+  try {
+    return await confirmOrder(order, user);
+  } catch (err) {
+    // markOrderError escribe en Firestore: si lo caído es Firestore, se
+    // registra y se sigue (el error que importa es el de Odoo).
+    try {
+      await markOrderError(order.id, err.message);
+    } catch (markErr) {
+      console.error('[feria] no se pudo marcar el pedido como error:', markErr.message);
+    }
+    err.stage = 'odoo';
+    throw err;
+  }
 }

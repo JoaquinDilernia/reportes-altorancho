@@ -7,13 +7,12 @@ import {
 } from './feriaUsers.mjs';
 import {
   createOrder, listOrdersByStatus, getOrderById,
-  claimOrderForConfirm, markOrderError,
   applyOrderLineActions, cancelOrder, listLogisticsOrders, updateOrderShipping,
   addOrderLine, listOrderHistory, closeConfirmedOrder, updateOrderPayments, updateOrderNotes,
   listCancelledItemsOrders, restockOrderLine,
 } from './feriaOrders.mjs';
 import { deliverLines, withOrderLock } from './feriaDelivery.mjs';
-import { confirmOrder } from './feriaConfirm.mjs';
+import { claimAndConfirm } from './feriaConfirm.mjs';
 import { invoiceOrder } from './feriaInvoice.mjs';
 import {
   getCurrentCash, openCashSession, closeCashSession, listCashSessions,
@@ -282,31 +281,15 @@ function feriaUserName(req) {
 // facturación automática está deshabilitada por ahora. Es reintentable si
 // quedó en 'error': si ya había un odooOrderId guardado, no se crea otro
 // sale.order (reintentar no puede duplicar una venta ya cobrada).
+// Se reclama el pedido en una transacción y lo que viaja a Odoo es lo leído
+// ahí: nadie puede cambiarlo, cancelarlo ni confirmarlo dos veces mientras
+// tanto (ver isConfirming y claimAndConfirm, que usa también el reintento
+// automático).
 router.post('/orders/:id/confirm', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
-  // Se reclama el pedido en una transacción y lo que viaja a Odoo es lo leído
-  // ahí: nadie puede cambiarlo, cancelarlo ni confirmarlo dos veces mientras
-  // tanto (ver isConfirming).
-  let order;
   try {
-    const claim = await claimOrderForConfirm(req.params.id);
-    // Ya confirmado/facturado: doble click o cajero reabriendo — inocuo.
-    if (claim.alreadyConfirmed) return res.json({ order: claim.order });
-    order = claim.order;
+    res.json({ order: await claimAndConfirm(req.params.id, feriaUserName(req)) });
   } catch (err) {
-    return res.status(409).json({ error: err.message });
-  }
-
-  try {
-    res.json({ order: await confirmOrder(order, feriaUserName(req)) });
-  } catch (err) {
-    // markOrderError escribe en Firestore: si lo caído es Firestore, tirar acá
-    // voltearía el proceso (rechazo sin manejar en Express 4). Se registra y
-    // se sigue: al cajero le importa recibir el 502.
-    try {
-      await markOrderError(order.id, err.message);
-    } catch (markErr) {
-      console.error('[feria] no se pudo marcar el pedido como error:', markErr.message);
-    }
+    if (err.stage === 'claim') return res.status(409).json({ error: err.message });
     res.status(502).json({ error: `No se pudo confirmar en Odoo: ${err.message}` });
   }
 });

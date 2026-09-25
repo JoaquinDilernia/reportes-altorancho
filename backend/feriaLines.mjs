@@ -292,6 +292,25 @@ export function isConfirming(order, now = Date.now()) {
   return since != null && now - since < CONFIRM_CLAIM_MS;
 }
 
+// Reintento automático de los pedidos que fallaron al confirmar (Odoo caído,
+// se cortó la conexión): espera creciente y un tope, para no insistir para
+// siempre con un error que no es pasajero (ese lo resuelve Caja).
+export const AUTO_RETRY_MAX = 6;
+const AUTO_RETRY_BASE_MS = 3 * 60 * 1000;
+const AUTO_RETRY_CAP_MS = 30 * 60 * 1000;
+
+export function autoRetryDelayMs(count) {
+  return Math.min(AUTO_RETRY_BASE_MS * 2 ** count, AUTO_RETRY_CAP_MS);
+}
+
+export function shouldAutoRetry(order, now = Date.now()) {
+  if (order.status !== 'error' || isConfirming(order, now)) return false;
+  const count = order.autoRetryCount ?? 0;
+  if (count >= AUTO_RETRY_MAX) return false;
+  const last = toMs(order.lastAutoRetryAt ?? order.updatedAt) ?? 0;
+  return now - last >= autoRetryDelayMs(count);
+}
+
 // Cerrar en la app una venta que se anuló. Desde Caja: solo confirmadas y
 // sin nada entregado. Desde Odoo (sincronización): también las que quedaron
 // en error con pedido ya creado allá, y aunque algo se haya entregado (Odoo
