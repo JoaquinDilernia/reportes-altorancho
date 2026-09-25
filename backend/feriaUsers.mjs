@@ -8,7 +8,8 @@ export { SUPERADMIN_EMAIL, adminRoleOf };
 
 const SELLERS = 'feria_sellers';
 const ADMINS = 'feria_admins';
-export const ADMIN_ROLES = { caja: 'Caja', logistica: 'Logística' };
+// Caja no ve estadísticas, rebajas ni usuarios; el super admin ve todo.
+export const ADMIN_ROLES = { caja: 'Caja', logistica: 'Logística', superadmin: 'Super admin' };
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // `sellers`: los vendedores actuales; `selfId`: el que se está editando (puede
@@ -33,7 +34,7 @@ export function validateAdminInput({ email, name, password, role }, { isNew }) {
   if (!EMAIL_PATTERN.test(cleanEmail)) throw new Error('Email inválido');
   const cleanName = String(name ?? '').trim();
   if (!cleanName) throw new Error('Falta el nombre');
-  if (!ADMIN_ROLES[role]) throw new Error('Rol inválido: tiene que ser caja o logística');
+  if (!ADMIN_ROLES[role]) throw new Error('Rol inválido: tiene que ser caja, logística o super admin');
   const cleanPassword = password ? String(password) : null;
   if ((isNew || cleanPassword) && (!cleanPassword || cleanPassword.length < 6)) {
     throw new Error('La contraseña tiene que tener al menos 6 caracteres');
@@ -54,7 +55,10 @@ export async function listUsers() {
     .sort((a, b) => Number(a.code ?? 999) - Number(b.code ?? 999));
   const adminsSnap = await getDb().collection(ADMINS).get();
   const admins = adminsSnap.docs
-    .map((d) => ({ id: d.id, email: d.data().email ?? d.id, name: d.data().name, role: adminRoleOf(d.id, d.data()), test: !!d.data().test }))
+    .map((d) => ({
+      id: d.id, email: d.data().email ?? d.id, name: d.data().name, role: adminRoleOf(d.id, d.data()),
+      test: !!d.data().test, protected: isProtectedAdmin(d.id),
+    }))
     .sort((a, b) => a.email.localeCompare(b.email));
   return { sellers, admins };
 }
@@ -89,11 +93,17 @@ export async function createAdmin(input) {
 }
 
 // El super admin no se edita ni se borra desde acá (no se puede quedar sin él).
+// El super admin original no se edita ni se borra: así nunca se pierde el
+// acceso a la administración. Los demás super admin sí.
+export function isProtectedAdmin(id) {
+  return id === SUPERADMIN_EMAIL;
+}
+
 async function editableAdmin(id) {
   const ref = getDb().collection(ADMINS).doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new Error('Usuario no encontrado');
-  if (adminRoleOf(id, snap.data()) === 'superadmin') throw new Error('El super admin no se modifica desde acá');
+  if (isProtectedAdmin(id)) throw new Error('El super admin principal no se modifica desde acá');
   return { ref, data: snap.data() };
 }
 

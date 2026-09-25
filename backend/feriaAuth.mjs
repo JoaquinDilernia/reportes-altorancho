@@ -109,7 +109,7 @@ export function requireFeriaAuth(req, res, next) {
 // Solo el super admin (administra usuarios).
 export function requireSuperadmin(req, res, next) {
   if (req.feriaUser?.role !== 'caja' || req.feriaUser?.adminRole !== 'superadmin') {
-    return res.status(403).json({ error: 'Solo el super admin puede administrar usuarios' });
+    return res.status(403).json({ error: 'Solo el super admin puede hacer esto' });
   }
   next();
 }

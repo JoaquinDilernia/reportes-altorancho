@@ -144,7 +144,8 @@ router.get('/products/search', requireFeriaAuth, async (req, res) => {
 
 // Qué está rebajado: contadores por nivel y, con ?level=1|2|3, esos productos
 // (sin stock: es para revisar precios, no para vender).
-router.get('/products/rebajas', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+// Rebajas y estadísticas: solo super admin (Caja normal no las ve).
+router.get('/products/rebajas', requireFeriaAuth, requireSuperadmin, async (req, res) => {
   try {
     const level = req.query.level ? Number(req.query.level) : null;
     const { counts, products } = filterCachedByRebaja(level);
@@ -158,7 +159,7 @@ router.get('/products/rebajas', requireFeriaAuth, requireFeriaRole('caja'), asyn
   }
 });
 
-router.patch('/products/:sku/rebaja', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+router.patch('/products/:sku/rebaja', requireFeriaAuth, requireSuperadmin, async (req, res) => {
   try {
     // `price`: solo para la rebaja 3 (precio manual, con IVA).
     const { condition, level, price } = req.body;
@@ -422,7 +423,7 @@ router.post('/orders/:id/lines', requireFeriaAuth, requireFeriaRole('caja'), asy
 });
 
 // Estadísticas de ventas confirmadas: range = hoy | ayer | todo (día argentino).
-router.get('/stats', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+router.get('/stats', requireFeriaAuth, requireSuperadmin, async (req, res) => {
   try {
     const range = ['hoy', 'ayer', 'todo'].includes(req.query.range) ? req.query.range : 'hoy';
     const orders = (await listOrderHistory(5000)).map((o) => ({ ...o, createdAtMs: o.createdAt?.toMillis?.() ?? 0 }));
