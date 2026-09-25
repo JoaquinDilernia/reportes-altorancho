@@ -111,3 +111,59 @@ export function writeReservations(tx, db, reserved, deltas) {
     tx.set(db.collection(RESERVATIONS_COLLECTION).doc(key), { sku, location, reserved: value, updatedAt: new Date() });
   }
 }
+
+// ---- Alerta de stock: exhibición vacía con stock en Rolón ----
+// Para que Logística reponga la exhibición (el traslado se hace en Odoo; la
+// alerta desaparece sola cuando exhibición vuelve a tener disponible).
+// Solo discontinuo: exhibición y Rolón no venden falla.
+const TRANSIT_COLLECTION = 'feria_stock_transit';
+
+export function computeStockAlerts(catalog, odooStock, reserved, inTransit) {
+  const alerts = [];
+  for (const product of catalog) {
+    if (product.precioDiscontinuo == null) continue;
+    const sku = product.sku.toUpperCase();
+    if (!odooStock.has(sku)) continue;
+    const { exhibicion, rolon } = availabilityFor(odooStock, reserved, sku);
+    if (exhibicion > 0 || rolon <= 0) continue;
+    alerts.push({
+      sku, modelo: product.modelo, color: product.color ?? null,
+      exhibicion, rolon, enCamino: inTransit.get(sku) ?? null,
+    });
+  }
+  return alerts.sort((a, b) => (a.modelo ?? '').localeCompare(b.modelo ?? '', 'es'));
+}
+
+// Todo el stock de exhibición y Rolón en una sola consulta (sin filtrar SKUs).
+export async function fetchAllOdooStock() {
+  const locationIds = feriaLocationIds();
+  const quants = await callKwReadWithRetry('stock.quant', 'search_read', [
+    [['location_id', 'in', Object.values(locationIds)]],
+  ], { fields: ['product_id', 'location_id', 'quantity'] });
+  return sumQuantsBySku(quants, locationIds);
+}
+
+async function readAllReservations(db) {
+  const snap = await db.collection(RESERVATIONS_COLLECTION).get();
+  return new Map(snap.docs.map((d) => [d.id, d.data().reserved ?? 0]));
+}
+
+export async function listStockAlerts(catalog) {
+  const db = getDb();
+  const [odooStock, reserved, transitSnap] = await Promise.all([
+    fetchAllOdooStock(), readAllReservations(db), db.collection(TRANSIT_COLLECTION).get(),
+  ]);
+  const inTransit = new Map(transitSnap.docs.map((d) => [d.id, { by: d.data().by, at: d.data().at }]));
+  const alerts = computeStockAlerts(catalog, odooStock, reserved, inTransit);
+  // "En camino" de productos que ya se repusieron: se borra, así si vuelve a
+  // vaciarse aparece como alerta nueva.
+  const stillAlerted = new Set(alerts.map((a) => a.sku));
+  await Promise.all(transitSnap.docs.filter((d) => !stillAlerted.has(d.id)).map((d) => d.ref.delete()));
+  return alerts;
+}
+
+export async function setInTransit(sku, user, inTransit) {
+  const ref = getDb().collection(TRANSIT_COLLECTION).doc(sku.toUpperCase());
+  if (inTransit) await ref.set({ by: user, at: new Date() });
+  else await ref.delete();
+}

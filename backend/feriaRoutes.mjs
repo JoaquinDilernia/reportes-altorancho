@@ -24,9 +24,9 @@ import {
   createCart, listSellerCarts, addCartLine, updateCartLine, removeCartLine, discardCart, submitCart,
 } from './feriaCarts.mjs';
 import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves, findOrderInvoices } from './feriaOdoo.mjs';
-import { searchFeriaProducts, setRebajaActiva, getFeriaProduct, filterCachedByRebaja } from './feriaProducts.mjs';
+import { searchFeriaProducts, setRebajaActiva, getFeriaProduct, filterCachedByRebaja, allFeriaProducts } from './feriaProducts.mjs';
 import { productImages } from './feriaImages.mjs';
-import { getAvailability, getDb, deliveryLocationId } from './feriaStock.mjs';
+import { getAvailability, getDb, deliveryLocationId, listStockAlerts, setInTransit } from './feriaStock.mjs';
 import { PUBLIC_PRICE_OPTIONS, rebajaLevels, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
 const router = Router();
@@ -558,6 +558,26 @@ router.get('/logistics/orders', requireFeriaAuth, requireFeriaRole('caja'), asyn
     res.json({ orders: await listLogisticsOrders() });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Alerta de stock (pestaña de Caja): exhibición en 0 con stock en Rolón ----
+router.get('/stock/alerts', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    res.json({ alerts: await listStockAlerts(allFeriaProducts()) });
+  } catch (err) {
+    console.error('[feria] stock/alerts error:', err.message);
+    res.status(502).json({ error: `No se pudo leer el stock de Odoo: ${err.message}` });
+  }
+});
+
+// Logística marca que ya está trasladando de Rolón a exhibición (o lo desmarca).
+router.put('/stock/alerts/:sku/transit', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
+  try {
+    await setInTransit(req.params.sku, feriaUserName(req), req.body?.enCamino !== false);
+    res.json({ alerts: await listStockAlerts(allFeriaProducts()) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

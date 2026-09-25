@@ -81,3 +81,7 @@ export function filterByRebaja(products, level) {
 export function filterCachedByRebaja(level) {
   return filterByRebaja(cache.values(), level);
 }
+
+export function allFeriaProducts() {
+  return [...cache.values()];
+}
