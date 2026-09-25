@@ -5,7 +5,7 @@ import {
 } from './feriaOdoo.mjs';
 import { PAYMENT_METHODS, odooLinePricing, netOfIva, SHIPPING_COST } from './feriaPricing.mjs';
 import { needsShipping, RESERVING_STATUSES } from './feriaLines.mjs';
-import { feriaLocationIds } from './feriaStock.mjs';
+import { deliveryLocationId } from './feriaStock.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
 import { invoiceOrder } from './feriaInvoice.mjs';
 import {
@@ -42,6 +42,7 @@ export async function confirmOrder(order, user) {
   if (!odooOrderId) {
     const partnerId = await findOrCreatePartner({
       name: order.customer.name, docNumber: order.customer.docNumber, phone: order.customer.phone,
+      email: order.customer.email,
     });
     const teamId = await findSalesTeamId(process.env.ODOO_FERIA_TEAM_NAME);
     const pricelistId = await findPricelistId(process.env.ODOO_FERIA_PRICELIST_NAME);
@@ -89,18 +90,20 @@ export async function confirmOrder(order, user) {
   const odooOrderName = await readOrderName(odooOrderId);
   await markOrderConfirmed(order.id, { odooOrderId, odooOrderName });
 
-  // Lo que se lleva ahora sale ya de exhibición. Si falla, el pedido queda
-  // confirmado igual (la venta está hecha) y se avisa para marcarlo con "Hecho".
+  // Lo que se lleva ahora sale ya de su ubicación (exhibición, o Fallados si
+  // es falla). Si falla, el pedido queda confirmado igual (la venta está
+  // hecha) y se avisa para marcarlo con "Hecho".
   const confirmed = await getOrderById(order.id);
   const ahora = confirmed.lines.filter((l) => l.delivery === 'ahora' && RESERVING_STATUSES.has(l.status) && l.odooLineId);
   if (ahora.length) {
     try {
-      const exhibicionId = feriaLocationIds().exhibicion;
-      await deliverLines(odooOrderId, ahora.map((l) => ({ odooLineId: l.odooLineId, qty: l.qty, locationId: exhibicionId })));
+      await deliverLines(odooOrderId, ahora.map((l) => ({
+        odooLineId: l.odooLineId, qty: l.qty, locationId: deliveryLocationId(l.location),
+      })));
       await applyOrderLineActions(order.id, ahora.map((l) => l.lineId), 'deliver', { user });
     } catch (err) {
       await setOrderErrorDetail(order.id,
-        `Pedido confirmado, pero no se pudo marcar como entregado lo que se lleva ahora (${err.message}). Marcalo con "Hecho".`);
+        `Pedido confirmado, pero no se pudo marcar como entregado lo de “Me llevo ahora” (${err.message}). Marcalo con "Hecho".`);
     }
   }
 

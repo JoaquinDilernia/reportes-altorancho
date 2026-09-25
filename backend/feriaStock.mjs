@@ -1,7 +1,7 @@
 import { callKwReadWithRetry } from './feriaOdoo.mjs';
 import { getDb } from './firestore.mjs';
 import { extractSkuFromDisplayName } from './normalize.mjs';
-import { reservationKey, parseReservationKey, LOCATIONS, LOCATION_LABELS } from './feriaLines.mjs';
+import { reservationKey, parseReservationKey, LOCATIONS, LOCATION_LABELS, FALLADOS } from './feriaLines.mjs';
 
 export const RESERVATIONS_COLLECTION = 'feria_reservations';
 
@@ -12,6 +12,16 @@ export function feriaLocationIds() {
   const rolon = Number(process.env.ODOO_FERIA_LOCATION_ROLON_ID);
   if (!exhibicion || !rolon) throw new Error('Faltan ODOO_FERIA_LOCATION_EXHIBICION_ID / ODOO_FERIA_LOCATION_ROLON_ID');
   return { exhibicion, rolon };
+}
+
+// Ubicación de Odoo desde la que se entrega una línea. Fallados
+// (FER/Stock/Fallados) no entra en feriaLocationIds porque no se consulta
+// su stock: solo se descuenta de ahí al entregar falla.
+export function deliveryLocationId(location) {
+  if (location !== FALLADOS) return feriaLocationIds()[location];
+  const fallados = Number(process.env.ODOO_FERIA_LOCATION_FALLADOS_ID);
+  if (!fallados) throw new Error('Falta ODOO_FERIA_LOCATION_FALLADOS_ID');
+  return fallados;
 }
 
 // '=ilike' y no 'in': los default_code de Odoo pueden estar en minúsculas o

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planInvoiceStep, invoiceWizardContext, buildSaleOrderPayload, buildShippingPartnerVals, buildNewPartnerVals, partnerPhoneUpdate } from '../feriaOdoo.mjs';
+import { planInvoiceStep, invoiceWizardContext, buildSaleOrderPayload, buildShippingPartnerVals, buildNewPartnerVals, partnerPhoneUpdate, existingPartnerUpdate } from '../feriaOdoo.mjs';
 
 test('arma el payload de sale.order con las líneas en formato Odoo (0,0,{...})', () => {
   const payload = buildSaleOrderPayload({
@@ -114,4 +114,20 @@ test('planInvoiceStep: una factura cancelada no cuenta (se crea otra)', () => {
 
 test('invoiceWizardContext: el asistente Crear factura de Odoo actúa sobre ese pedido', () => {
   assert.deepEqual(invoiceWizardContext(60081), { active_model: 'sale.order', active_ids: [60081], active_id: 60081 });
+});
+
+test('buildNewPartnerVals carga el email del cliente nuevo', () => {
+  assert.deepEqual(buildNewPartnerVals({ name: 'Juan', docNumber: '20304050607', phone: '1155555555', email: 'juan@mail.com' }), {
+    name: 'Juan', vat: '20304050607', phone: '1155555555', email: 'juan@mail.com',
+  });
+});
+
+test('existingPartnerUpdate: el email se pisa si cambió (la factura sale a ese mail); el teléfono solo se completa', () => {
+  assert.deepEqual(existingPartnerUpdate({ phone: '1144444444', email: 'viejo@mail.com' }, { phone: '1155555555', email: 'nuevo@mail.com' }),
+    { email: 'nuevo@mail.com' });
+  assert.deepEqual(existingPartnerUpdate({ phone: false, email: false }, { phone: '1155555555', email: 'juan@mail.com' }),
+    { phone: '1155555555', email: 'juan@mail.com' });
+  assert.equal(existingPartnerUpdate({ phone: '1144444444', email: 'Juan@Mail.com' }, { phone: '1155555555', email: 'juan@mail.com' }), null);
+  // Pedidos viejos (sin email) no borran el email de Odoo.
+  assert.equal(existingPartnerUpdate({ phone: '1144444444', email: 'juan@mail.com' }, { phone: '1155555555' }), null);
 });

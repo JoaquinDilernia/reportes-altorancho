@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { skuDomain, sumQuantsBySku, availabilityFor, checkAvailability, nextReserved } from '../feriaStock.mjs';
+import { skuDomain, sumQuantsBySku, availabilityFor, checkAvailability, nextReserved, deliveryLocationId } from '../feriaStock.mjs';
 
 const ids = { exhibicion: 427, rolon: 428 };
 
@@ -56,4 +56,19 @@ test('checkAvailability al mover de ubicación solo exige stock en la nueva', ()
 test('nextReserved aplica los deltas sin bajar de 0', () => {
   const next = nextReserved(new Map([['A__rolon', 1]]), new Map([['A__rolon', -3], ['B__exhibicion', 2]]));
   assert.deepEqual([...next], [['A__rolon', 0], ['B__exhibicion', 2]]);
+});
+
+test('deliveryLocationId: cada ubicación de la app a su ubicación de Odoo; Fallados exige su variable', () => {
+  const saved = { ...process.env };
+  Object.assign(process.env, { ODOO_FERIA_LOCATION_EXHIBICION_ID: '427', ODOO_FERIA_LOCATION_ROLON_ID: '428', ODOO_FERIA_LOCATION_FALLADOS_ID: '429' });
+  try {
+    assert.equal(deliveryLocationId('exhibicion'), 427);
+    assert.equal(deliveryLocationId('rolon'), 428);
+    assert.equal(deliveryLocationId('fallados'), 429);
+    delete process.env.ODOO_FERIA_LOCATION_FALLADOS_ID;
+    assert.throws(() => deliveryLocationId('fallados'), /ODOO_FERIA_LOCATION_FALLADOS_ID/);
+    assert.equal(deliveryLocationId('exhibicion'), 427);
+  } finally {
+    process.env = saved;
+  }
 });

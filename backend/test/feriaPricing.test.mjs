@@ -48,7 +48,7 @@ test('tablePrice rechaza una condición inválida', () => {
 });
 
 test('tablePrice rechaza un nivel de rebaja inválido', () => {
-  assert.throws(() => tablePrice(product, 'falla', 3), /Nivel de rebaja inválido/);
+  assert.throws(() => tablePrice(product, 'falla', 4), /Nivel de rebaja inválido/);
   assert.throws(() => tablePrice(product, 'falla', -1), /Nivel de rebaja inválido/);
   assert.throws(() => tablePrice(product, 'falla', undefined), /Nivel de rebaja inválido/);
   assert.throws(() => tablePrice(product, 'falla', '1'), /Nivel de rebaja inválido/);
@@ -86,8 +86,8 @@ test('netOfIva saca el 21% y redondea a centavos', () => {
   assert.equal(netOfIva(10000), 8264.46);
 });
 
-test('SHIPPING_COST es 10000', () => {
-  assert.equal(SHIPPING_COST, 10000);
+test('SHIPPING_COST es 25000', () => {
+  assert.equal(SHIPPING_COST, 25000);
 });
 
 test('odooLinePricing manda el precio de tabla SIN IVA y el descuento del medio de pago aparte', () => {
@@ -144,7 +144,7 @@ test('withRebaja: el producto con la rebaja nueva ya aplicada (la respuesta al a
   assert.equal(tablePrice(updated, 'falla', updated.rebajaFallaActiva), 15990);
   assert.equal(p.rebajaFallaActiva, 1, 'no modifica el original');
   assert.equal(withRebaja(p, 'discontinuo', 1).rebajaDiscontinuoActiva, 1);
-  assert.throws(() => withRebaja(p, 'falla', 3), /Nivel de rebaja inválido/);
+  assert.throws(() => withRebaja(p, 'falla', 4), /Nivel de rebaja inválido/);
   assert.throws(() => withRebaja(p, 'nueva', 1), /Condición inválida/);
 });
 

@@ -1,21 +1,24 @@
 import { getDb } from './feriaOdoo.mjs';
-import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST, unitCostOf } from './feriaPricing.mjs';
+import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST, unitCostOf, principalPaymentMethod } from './feriaPricing.mjs';
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
   formatOrderNumber, assertShippingEditable, buildAddedLine,
   isConfirming, assertClosable, CONFIRMING_MESSAGE, assertPaymentEditable, repriceLines,
+  validatePayments, assertPaymentsMatchTotal, hasCancelledItems, applyRestock,
 } from './feriaLines.mjs';
 import { getFeriaProduct } from './feriaProducts.mjs';
-import { assertCanConfirmWithCash } from './feriaCash.mjs';
+import { getSellerCode } from './feriaAuth.mjs';
+import { assertCanConfirmWithCash, cleanNotes } from './feriaCash.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 
-const COLLECTION = 'feria_orders';
+export const COLLECTION = 'feria_orders';
 const COUNTERS_COLLECTION = 'feria_counters';
 // Derivado de feriaPricing para que no haya dos listas de medios de pago que
 // se puedan desincronizar (p. ej. el 'tarjeta' viejo, ya eliminado).
 const PAYMENT_METHODS = new Set(Object.keys(PAYMENT_METHOD_INFO));
 const CONDITIONS = new Set(['falla', 'discontinuo']);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function validateOrderInput(input) {
   const errors = [];
@@ -25,6 +28,10 @@ export function validateOrderInput(input) {
   const phone = input.customer?.phone?.trim() ?? '';
   if (!phone) errors.push('Falta el teléfono del cliente');
   else if (phone.replace(/\D/g, '').length < 8) errors.push('Teléfono inválido: tiene que tener al menos 8 números');
+  // Obligatorio: Odoo manda la factura al email del cliente.
+  const email = input.customer?.email?.trim() ?? '';
+  if (!email) errors.push('Falta el email del cliente');
+  else if (!EMAIL_PATTERN.test(email)) errors.push('Email inválido: revisá que esté bien escrito');
   if (!PAYMENT_METHODS.has(input.paymentMethod)) errors.push('Método de pago inválido');
   if (!input.lines?.length) errors.push('El pedido necesita al menos una línea de producto');
   for (const line of input.lines ?? []) {
@@ -61,44 +68,63 @@ export async function createOrder(input) {
   // transacciones de Firestore se reintentan); las reservas, adentro.
   const odooStock = await fetchOdooStock(lines.map((l) => l.sku));
 
+  const sellerCode = await getSellerCode(input.sellerId);
   const db = getDb();
   const ref = db.collection(COLLECTION).doc();
   const order = {
-    sellerId: input.sellerId,
-    sellerName: input.sellerName,
-    customer: {
-      name: input.customer.name.trim(), docNumber: input.customer.docNumber.trim(), phone: input.customer.phone.trim(),
-    },
+    ...newOrderFields({ sellerId: input.sellerId, sellerName: input.sellerName, sellerCode, lines }),
+    customer: cleanCustomer(input.customer),
     paymentMethod: input.paymentMethod,
-    lines,
     shipping: withShipping ? input.shipping : null,
     shippingCost: withShipping ? SHIPPING_COST : 0,
-    invoiceType: null,
     status: 'pendiente',
-    errorDetail: null,
-    odooOrderId: null,
-    invoiceId: null,
-    invoiceName: null,
-    invoiceError: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    sentAt: new Date(),
   };
 
-  // El número interno sale de un contador leído y escrito en la misma
-  // transacción: dos vendedores enviando a la vez no pueden repetir número.
-  const counterRef = db.collection(COUNTERS_COLLECTION).doc('orders');
+  const counterRef = sellerCounterRef(db, sellerCode);
   await db.runTransaction(async (tx) => {
     const reserved = await readReservations(db, [...deltas.keys()], tx);
     const counter = await tx.get(counterRef);
     const stockErrors = checkAvailability(odooStock, reserved, deltas);
     if (stockErrors.length) throw new Error(`Sin stock suficiente — ${stockErrors.join('; ')}`);
-    const next = (counter.exists ? counter.data().next : 0) + 1;
-    order.number = formatOrderNumber(next);
+    const next = nextCounterValue(counter);
+    order.number = formatOrderNumber(next, sellerCode);
     writeReservations(tx, db, reserved, deltas);
     tx.set(counterRef, { next });
     tx.set(ref, order);
   });
   return { id: ref.id, ...order };
+}
+
+// El número interno sale de un contador por vendedor, leído y escrito en la
+// misma transacción que crea el pedido: dos pedidos a la vez no pueden
+// repetir número.
+export function sellerCounterRef(db, sellerCode) {
+  return db.collection(COUNTERS_COLLECTION).doc(`orders_F${sellerCode}`);
+}
+
+export function nextCounterValue(counterSnap) {
+  return (counterSnap.exists ? counterSnap.data().next : 0) + 1;
+}
+
+export function cleanCustomer(customer) {
+  return {
+    name: customer.name.trim(), docNumber: customer.docNumber.trim(), phone: customer.phone.trim(),
+    email: customer.email.trim(),
+  };
+}
+
+// Campos de un pedido recién creado (carrito o pedido directo); el que
+// llama completa estado, cliente, pago y envío.
+export function newOrderFields({ sellerId, sellerName, sellerCode, lines }) {
+  const now = new Date();
+  return {
+    sellerId, sellerName, sellerCode, lines,
+    customer: null, paymentMethod: null, shipping: null, shippingCost: 0,
+    invoiceType: null, errorDetail: null, odooOrderId: null,
+    invoiceId: null, invoiceName: null, invoiceError: null,
+    createdAt: now, updatedAt: now,
+  };
 }
 
 export async function listOrdersByStatus(status) {
@@ -144,6 +170,8 @@ export async function claimOrderForConfirm(id) {
     if (order.status === 'cancelado') throw new Error('El pedido está cancelado');
     if (!['pendiente', 'error'].includes(order.status)) return { order, alreadyConfirmed: true };
     if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
+    // Si se cambiaron productos después de dividir el pago, no cierra.
+    assertPaymentsMatchTotal(order);
     // La venta entra en la caja abierta; con la caja cerrada no se confirma.
     const cashSessionId = assertCanConfirmWithCash((await tx.get(db.collection(COUNTERS_COLLECTION).doc('cash'))).data());
     const confirmingSince = new Date();
@@ -224,6 +252,7 @@ export async function applyOrderLineActions(orderId, lineIds, action, { user, ch
     // líneas (sacar o cambiar la única línea de envío lo saca del total).
     // Una vez en Odoo, el cargo ya viajó y queda como está.
     if (!order.odooOrderId) update.shippingCost = shippingCostFor(newLines);
+    update.hasCancelledItems = hasCancelledItems({ ...order, ...update });
     tx.update(ref, update);
     return { ...order, ...update };
   });
@@ -244,6 +273,7 @@ export async function cancelOrder(orderId, user) {
     writeReservations(tx, db, reserved, deltas);
     const now = new Date();
     const update = { status: 'cancelado', cancelledAt: now, cancelledBy: user, updatedAt: now };
+    update.hasCancelledItems = hasCancelledItems({ ...order, ...update });
     tx.update(ref, update);
     return { ...order, ...update };
   });
@@ -302,9 +332,13 @@ export async function updateOrderShipping(orderId, shipping) {
   });
 }
 
-// Caja cambia el medio de pago antes de confirmar: se recalcula el precio
-// de cada línea con el descuento del medio nuevo.
-export async function updateOrderPayment(orderId, paymentMethod, user) {
+// Caja cambia el pago antes de confirmar: uno o varios medios con su monto.
+// El medio de mayor costo es el que va a Odoo y fija el precio de todo el
+// pedido; con varios, los montos tienen que sumar exacto ese total. Con un
+// solo medio no se guarda división (todo el total va a ese medio).
+export async function updateOrderPayments(orderId, payments, user) {
+  const clean = validatePayments(payments);
+  const paymentMethod = principalPaymentMethod(clean.map((p) => p.method));
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
   return db.runTransaction(async (tx) => {
@@ -312,13 +346,16 @@ export async function updateOrderPayment(orderId, paymentMethod, user) {
     if (!snap.exists) throw new Error('Pedido no encontrado');
     const order = { id: snap.id, ...snap.data() };
     assertPaymentEditable(order);
-    if (order.paymentMethod === paymentMethod) return order;
     const update = {
       paymentMethod,
+      payments: clean.length > 1 ? clean : null,
       lines: repriceLines(order.lines, order.paymentMethod, paymentMethod),
-      paymentChangedFrom: order.paymentMethod, paymentChangedBy: user, paymentChangedAt: new Date(),
       updatedAt: new Date(),
     };
+    if (order.paymentMethod !== paymentMethod) {
+      Object.assign(update, { paymentChangedFrom: order.paymentMethod, paymentChangedBy: user, paymentChangedAt: new Date() });
+    }
+    assertPaymentsMatchTotal({ ...order, ...update });
     tx.update(ref, update);
     return { ...order, ...update };
   });
@@ -384,6 +421,41 @@ export async function closeConfirmedOrder(orderId, user, reason, { fromOdoo = fa
     writeReservations(tx, db, reserved, deltas);
     const now = new Date();
     const update = { status: 'cancelado', cancelledAt: now, cancelledBy: user, cancelReason: reason, updatedAt: now };
+    update.hasCancelledItems = hasCancelledItems({ ...order, ...update });
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
+}
+
+// Observación de Caja sobre el pedido: se puede escribir en cualquier estado
+// (una aclaración del cobro, algo a revisar en Odoo…).
+export async function updateOrderNotes(orderId, notes, user) {
+  const ref = getDb().collection(COLLECTION).doc(orderId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Pedido no encontrado');
+  const update = { cajaNotes: cleanNotes(notes), cajaNotesBy: user, cajaNotesAt: new Date() };
+  await ref.update(update);
+  return { id: snap.id, ...snap.data(), ...update };
+}
+
+// Pedidos con algo cancelado (eliminado, o de un pedido cancelado/anulado)
+// para la pestaña Cancelados de Entregas. Un solo where; se ordena acá.
+export async function listCancelledItemsOrders() {
+  const snap = await getDb().collection(COLLECTION).where('hasCancelledItems', '==', true).get();
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0));
+}
+
+// Quien tiene el producto (depósito feria, Rolón…) lo volvió a su lugar.
+export async function restockOrderLine(orderId, lineId, user) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = { id: snap.id, ...snap.data() };
+    const update = { lines: applyRestock(order, lineId, { user, now: new Date() }), updatedAt: new Date() };
     tx.update(ref, update);
     return { ...order, ...update };
   });

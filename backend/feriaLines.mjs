@@ -3,22 +3,33 @@
 // feriaOrders/feriaStock/feriaDelivery.
 import { PAYMENT_METHODS, unitCostOf, SHIPPING_COST, tablePrice, computeFinalPrice, activeRebajaField } from './feriaPricing.mjs';
 
+// Ubicaciones con stock controlado (reservas y disponible): solo para
+// discontinuo. Falla sale siempre de Fallados, un stock ficticio en Odoo
+// que puede quedar en negativo: la app no lo reserva ni lo controla.
 export const LOCATIONS = ['exhibicion', 'rolon'];
+export const FALLADOS = 'fallados';
 export const DELIVERIES = ['ahora', 'retira_feria', 'retira_rolon', 'envio'];
 // Mientras una línea está en alguno de estos estados, su stock está
 // reservado en la app (todavía no salió físicamente para el cliente).
 export const RESERVING_STATUSES = new Set(['pendiente', 'enviado_feria']);
 
-export const LOCATION_LABELS = { exhibicion: 'Exhibición', rolon: 'Rolón' };
+export const LOCATION_LABELS = { exhibicion: 'Exhibición', rolon: 'Rolón', fallados: 'Fallados' };
+
+export function controlsStock(location) {
+  return LOCATIONS.includes(location);
+}
 const SHIPPING_REQUIRED = { street: 'la calle', number: 'el número', city: 'la localidad', zip: 'el código postal', phone: 'el teléfono' };
 
 export function validateLineDelivery(line) {
   const errors = [];
   const sku = line.sku ?? 'un producto';
-  if (!LOCATIONS.includes(line.location)) errors.push(`Ubicación inválida para ${sku}`);
+  if (![...LOCATIONS, FALLADOS].includes(line.location)) errors.push(`Ubicación inválida para ${sku}`);
+  else if (line.condition === 'falla' && line.location !== FALLADOS) errors.push(`${sku}: Falla sale de Fallados`);
+  else if (line.condition !== 'falla' && line.location === FALLADOS) errors.push(`${sku}: Discontinuo sale de Exhibición o Rolón`);
   if (!DELIVERIES.includes(line.delivery)) errors.push(`Forma de entrega inválida para ${sku}`);
-  if (line.delivery === 'ahora' && line.location !== 'exhibicion') {
-    errors.push(`${sku}: "Se lleva ahora" solo puede salir de Exhibición`);
+  // Fallados también está en la feria: falla se puede llevar en el momento.
+  if (line.delivery === 'ahora' && !['exhibicion', FALLADOS].includes(line.location)) {
+    errors.push(`${sku}: "Me llevo ahora" solo puede salir de Exhibición o Fallados`);
   }
   // Retirar en Rolón es llevarse lo que ya está en Rolón. Retira en feria y
   // envío sí pueden salir de exhibición (se aparta y se busca otro día, o se
@@ -63,8 +74,8 @@ function addDelta(deltas, line, sign) {
 // ubicación.
 export function reservationDeltas(beforeLines, afterLines) {
   const deltas = new Map();
-  for (const line of beforeLines) if (isReserving(line)) addDelta(deltas, line, -1);
-  for (const line of afterLines) if (isReserving(line)) addDelta(deltas, line, +1);
+  for (const line of beforeLines) if (isReserving(line) && controlsStock(line.location)) addDelta(deltas, line, -1);
+  for (const line of afterLines) if (isReserving(line) && controlsStock(line.location)) addDelta(deltas, line, +1);
   for (const [key, value] of deltas) if (value === 0) deltas.delete(key);
   return deltas;
 }
@@ -88,7 +99,7 @@ export function applyLineAction(line, action, { user, now, changes = {} }) {
       return { ...line, status: 'entregado', deliveredAt: now, deliveredBy: user };
     case 'sendToFeria':
       if (line.delivery !== 'retira_feria' || line.status !== 'pendiente') {
-        throw new Error(`Solo se envían a la feria líneas pendientes de "Retira en feria" (${line.sku})`);
+        throw new Error(`Solo se envían a la feria líneas pendientes de "Retira en depósito feria" (${line.sku})`);
       }
       return { ...line, status: 'enviado_feria', sentToFeriaAt: now, sentToFeriaBy: user };
     case 'edit': {
@@ -164,10 +175,38 @@ export function hasPendingDeliveries(order) {
   return (order.lines ?? []).some((l) => l.delivery && isReserving(l));
 }
 
-// Número de pedido para hablar en la feria ("el F-0012"). Correlativo, lo
-// asigna createOrder con un contador en Firestore.
-export function formatOrderNumber(n) {
-  return `F-${String(n).padStart(4, '0')}`;
+// Número de pedido para hablar en la feria y para la etiqueta de "vendido"
+// ("el F2-0012"): prefijo con el número del vendedor y un contador propio
+// de cada vendedor en Firestore.
+export function formatOrderNumber(n, sellerCode) {
+  return `F${sellerCode}-${String(n).padStart(4, '0')}`;
+}
+
+// El vendedor arma el pedido como carrito ('carrito'): ya tiene número y
+// reserva stock mientras recorre la feria con el cliente. Al mandarlo a caja
+// pasa a 'pendiente'; si lo vacía, a 'descartado'. Caja no ve carritos.
+export function isSentOrder(order) {
+  return order.status !== 'carrito' && order.status !== 'descartado';
+}
+
+export function assertCartEditable(order, sellerId) {
+  if (order.sellerId !== sellerId) throw new Error('Este carrito es de otro vendedor');
+  if (order.status === 'descartado') throw new Error('Este carrito se vació');
+  if (order.status !== 'carrito') throw new Error(`El pedido ${order.number} ya se mandó a caja`);
+}
+
+// Al mandar a caja se toma la rebaja vigente en ese momento (pudo cambiar
+// mientras el cliente recorría) y se aplica el descuento del medio de pago.
+export function priceCartForSubmit(lines, paymentMethod, getProduct) {
+  const method = PAYMENT_METHODS[paymentMethod];
+  if (!method) throw new Error(`Medio de pago inválido: ${paymentMethod}`);
+  return lines.map((line) => {
+    const product = getProduct(line.sku);
+    if (!product) throw new Error(`${line.sku} ya no está en la lista de precios de la feria`);
+    const listPrice = tablePrice(product, line.condition, product[activeRebajaField(line.condition)] ?? 0);
+    if (listPrice == null) throw new Error(`${line.sku} ya no tiene precio para esa condición`);
+    return { ...line, listPrice, unitPrice: Math.round(listPrice * (1 - method.discountPct / 100)) };
+  });
 }
 
 // La dirección de envío se puede cargar o corregir en cualquier momento
@@ -183,21 +222,30 @@ export function nextLineId(lines) {
   return `L${max + 1}`;
 }
 
-// Línea que Caja agrega a un pedido: el precio lo calcula el servidor con la
-// rebaja activa de esa condición y el descuento del medio de pago del pedido.
-export function buildAddedLine(product, { condition, qty, location, delivery }, paymentMethod, lines) {
+// Línea que el vendedor suma al carrito: precio de lista con la rebaja
+// activa, calculado por el servidor. Todavía no hay medio de pago, así que
+// el precio final es el de lista hasta que se manda a caja.
+export function buildCartLine(product, { condition, qty, location, delivery }, lines) {
   const rebaja = product[activeRebajaField(condition)] ?? 0;
   const listPrice = tablePrice(product, condition, rebaja);
   if (listPrice == null) throw new Error(`${product.sku} no tiene precio para esa condición`);
   if (!Number.isInteger(qty) || qty < 1) throw new Error(`Cantidad inválida para ${product.sku}`);
   const line = {
     lineId: nextLineId(lines), sku: product.sku, modelo: product.modelo, condition, qty,
-    listPrice, unitPrice: computeFinalPrice(product, condition, rebaja, paymentMethod), unitCost: unitCostOf(product),
+    listPrice, unitPrice: listPrice, unitCost: unitCostOf(product),
     location, delivery, status: 'pendiente',
   };
   const errors = validateLineDelivery(line);
   if (errors.length) throw new Error(errors.join('; '));
   return line;
+}
+
+// Línea que Caja agrega a un pedido: como la del carrito, pero ya con el
+// descuento del medio de pago del pedido.
+export function buildAddedLine(product, input, paymentMethod, lines) {
+  const line = buildCartLine(product, input, lines);
+  const rebaja = product[activeRebajaField(input.condition)] ?? 0;
+  return { ...line, unitPrice: computeFinalPrice(product, input.condition, rebaja, paymentMethod) };
 }
 
 // Anular una venta ya confirmada desde la app. Si algo ya se entregó, esa
@@ -276,4 +324,73 @@ export function repriceLines(lines, fromMethod, toMethod) {
     const listPrice = line.listPrice ?? Math.round(line.unitPrice / (1 - fromPct / 100));
     return { ...line, listPrice, unitPrice: Math.round(listPrice * (1 - to.discountPct / 100)) };
   });
+}
+
+// ---- Pago (uno o dividido en varios medios) ----
+
+const round2 = (n) => Math.round(n * 100) / 100;
+const pesos = (n) => `$ ${n.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
+
+// Lo que cobra la venta: productos no eliminados más el envío.
+export function orderTotal(order) {
+  const products = (order.lines ?? [])
+    .filter((l) => l.status !== 'eliminado')
+    .reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
+  return products + (order.shippingCost || 0);
+}
+
+// Cómo entró la plata de una venta. Sin pago dividido, todo el total en su
+// único medio. `payments` solo existe cuando Caja dividió el pago.
+export function paymentsOf(order) {
+  if (order.payments?.length) return order.payments;
+  return [{ method: order.paymentMethod, amount: orderTotal(order) }];
+}
+
+// Con un solo medio el monto no importa (es todo el total), así que no se pide.
+export function validatePayments(payments) {
+  if (!Array.isArray(payments) || !payments.length) throw new Error('Cargá al menos un medio de pago');
+  const seen = new Set();
+  return payments.map(({ method, amount }) => {
+    if (!PAYMENT_METHODS[method]) throw new Error(`Medio de pago inválido: ${method}`);
+    if (seen.has(method)) throw new Error(`${PAYMENT_METHODS[method].label} está repetido: sumá los montos en uno solo`);
+    seen.add(method);
+    if (payments.length === 1) return { method };
+    const n = typeof amount === 'string' && amount.trim() !== '' ? Number(amount) : amount;
+    if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) throw new Error(`Monto inválido para ${PAYMENT_METHODS[method].label}`);
+    return { method, amount: round2(n) };
+  });
+}
+
+// El pago dividido tiene que cubrir exacto el total. Si Caja cambió los
+// productos después de dividir el pago, esto frena la confirmación.
+export function assertPaymentsMatchTotal(order) {
+  if (!order.payments?.length) return;
+  const total = orderTotal(order);
+  const paid = round2(order.payments.reduce((sum, p) => sum + p.amount, 0));
+  if (Math.abs(paid - total) >= 0.01) {
+    throw new Error(`Los pagos suman ${pesos(paid)} y el total es ${pesos(total)}: corregí los montos del pago dividido`);
+  }
+}
+
+// ---- Cancelados: lo que hay que devolver físicamente a stock ----
+// Productos eliminados de un pedido, o de un pedido cancelado/anulado que no
+// se habían entregado. La reserva de la app ya se liberó; esto es para que
+// quien lo tenga (depósito feria, Rolón…) lo vuelva a su lugar y lo marque.
+// Los carritos no cuentan: lo que no pasó por caja no se movió.
+export function restockLines(order) {
+  if (!isSentOrder(order)) return [];
+  return (order.lines ?? []).filter((l) => l.status === 'eliminado' || (order.status === 'cancelado' && isReserving(l)));
+}
+
+// Marca del pedido para listarlo en Cancelados con un solo where.
+export function hasCancelledItems(order) {
+  return restockLines(order).length > 0;
+}
+
+export function applyRestock(order, lineId, { user, now }) {
+  const line = (order.lines ?? []).find((l) => l.lineId === lineId);
+  if (!line) throw new Error('Línea no encontrada');
+  if (!restockLines(order).includes(line)) throw new Error(`${line.sku} no está cancelado: no hay nada que devolver`);
+  if (line.restockedAt) throw new Error(`${line.sku} ya se devolvió a stock`);
+  return order.lines.map((l) => (l.lineId === lineId ? { ...l, restockedAt: now, restockedBy: user } : l));
 }

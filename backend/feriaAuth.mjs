@@ -18,8 +18,18 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-function hashPassword(password) {
+export function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// Único usuario que administra a los demás (pestaña Usuarios de Caja).
+export const SUPERADMIN_EMAIL = 'joaquin.dilernia@altorancho.com';
+
+// Rol dentro de caja: superadmin, caja o logistica. Los admins creados antes
+// de los roles no tienen `role`: el super admin se reconoce por su email y el
+// resto es caja.
+export function adminRoleOf(id, data) {
+  return data.role ?? (id === SUPERADMIN_EMAIL ? 'superadmin' : 'caja');
 }
 
 // Mismo esquema de token que auth.mjs (payload + firma HMAC en vez de
@@ -45,14 +55,22 @@ export function verifyToken(token) {
   }
 }
 
-// feria_sellers/{id} = { name, pin }. Se carga a mano en Firestore cuando
-// esté definida la lista real de vendedores (ver spec, punto pendiente).
+// feria_sellers/{id} = { name, pin, code }. Se carga a mano en Firestore
+// cuando esté definida la lista real de vendedores. `code` (1, 2, 3…) es el
+// prefijo de los números de pedido de ese vendedor (F2-0001).
 export async function validateSellerPin(pin) {
   const db = getDb();
   const snap = await db.collection(SELLERS_COLLECTION).where('pin', '==', pin).limit(1).get();
   if (snap.empty) return null;
   const doc = snap.docs[0];
   return { id: doc.id, name: doc.data().name };
+}
+
+export async function getSellerCode(sellerId) {
+  const doc = await getDb().collection(SELLERS_COLLECTION).doc(sellerId).get();
+  const code = doc.exists ? String(doc.data().code ?? '').trim() : '';
+  if (!code) throw new Error('Tu usuario no tiene número de vendedor asignado: pedíselo a administración');
+  return code;
 }
 
 export async function validateCajaCredentials(email, password) {
@@ -62,14 +80,14 @@ export async function validateCajaCredentials(email, password) {
   if (!doc.exists) return null;
   const data = doc.data();
   if (!safeEqual(data.passwordHash, hashPassword(password))) return null;
-  return { id, email: data.email, name: data.name };
+  return { id, email: data.email, name: data.name, adminRole: adminRoleOf(id, data) };
 }
 
 // Primer usuario de caja para poder entrar la primera vez — cambiar la
 // contraseña después de correr esto una vez.
 export async function seedCajaAdminIfNeeded() {
   const db = getDb();
-  const email = 'joaquin.dilernia@altorancho.com';
+  const email = SUPERADMIN_EMAIL;
   const doc = await db.collection(ADMINS_COLLECTION).doc(email).get();
   if (doc.exists) return;
   await db.collection(ADMINS_COLLECTION).doc(email).set({
@@ -85,6 +103,14 @@ export function requireFeriaAuth(req, res, next) {
   const decoded = verifyToken(token);
   if (!decoded) return res.status(401).json({ error: 'No autenticado' });
   req.feriaUser = decoded;
+  next();
+}
+
+// Solo el super admin (administra usuarios).
+export function requireSuperadmin(req, res, next) {
+  if (req.feriaUser?.role !== 'caja' || req.feriaUser?.adminRole !== 'superadmin') {
+    return res.status(403).json({ error: 'Solo el super admin puede administrar usuarios' });
+  }
   next();
 }
 

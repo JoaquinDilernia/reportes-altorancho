@@ -8,6 +8,15 @@ export const PAYMENT_METHODS = {
   mp_3_cuotas: { label: 'Mercado Pago 3 cuotas', discountPct: 0, odooName: 'Mercado Pago 3 cuotas' },
 };
 
+// Con el pago dividido en varios medios, a Odoo va uno solo (la misma
+// factura no admite varios): el de mayor costo, en este orden. Ese medio
+// fija también el precio de todo el pedido.
+const ODOO_PAYMENT_PRIORITY = ['mp_3_cuotas', 'mp_1_cuota', 'mp_debito', 'transferencia', 'efectivo'];
+
+export function principalPaymentMethod(methods) {
+  return ODOO_PAYMENT_PRIORITY.find((m) => methods.includes(m)) ?? null;
+}
+
 // Precios que ve el cliente en el buscador público: los tres de Mercado Pago
 // tienen el mismo precio, así que se muestran como uno solo (`method` es el
 // medio de pago con el que se calcula ese precio).
@@ -27,7 +36,7 @@ export const IVA_RATE = 0.21;
 
 // Cargo fijo de envío a domicilio, por pedido, con IVA incluido y sin
 // descuento por medio de pago.
-export const SHIPPING_COST = 10000;
+export const SHIPPING_COST = 25000;
 
 export function netOfIva(price) {
   return Math.round((price / (1 + IVA_RATE)) * 100) / 100;
@@ -38,10 +47,15 @@ export function activeRebajaField(condition) {
   return condition === 'falla' ? 'rebajaFallaActiva' : 'rebajaDiscontinuoActiva';
 }
 
+// Niveles: 0 normal, 1 y 2 del Excel, 3 precio manual que carga Caja (para
+// liquidar un producto). El import del Excel no toca el precio manual.
+const REBAJA_LEVELS = [0, 1, 2, 3];
+const suffixOf = (condition) => (condition === 'falla' ? 'Falla' : 'Discontinuo');
+
 // El producto con otra rebaja activa para esa condición (sin tocar el original).
 export function withRebaja(product, condition, level) {
   const field = activeRebajaField(condition);
-  if (![0, 1, 2].includes(level)) throw new Error(`Nivel de rebaja inválido: ${level}`);
+  if (!REBAJA_LEVELS.includes(level)) throw new Error(`Nivel de rebaja inválido: ${level}`);
   return { ...product, [field]: level };
 }
 
@@ -50,14 +64,25 @@ export function withRebaja(product, condition, level) {
 // tiene precio cargado para esa condición (no todos los SKU tienen las dos).
 export function tablePrice(product, condition, rebajaLevel) {
   if (!CONDITIONS.has(condition)) throw new Error(`Condición inválida: ${condition}`);
-  if (rebajaLevel !== 0 && rebajaLevel !== 1 && rebajaLevel !== 2) {
-    throw new Error(`Nivel de rebaja inválido: ${rebajaLevel}`);
-  }
-  const suffix = condition === 'falla' ? 'Falla' : 'Discontinuo';
-  const field = rebajaLevel === 1 ? `precioRebaja1${suffix}`
-    : rebajaLevel === 2 ? `precioRebaja2${suffix}`
-    : `precio${suffix}`;
+  if (!REBAJA_LEVELS.includes(rebajaLevel)) throw new Error(`Nivel de rebaja inválido: ${rebajaLevel}`);
+  const suffix = suffixOf(condition);
+  const field = rebajaLevel === 0 ? `precio${suffix}` : `precioRebaja${rebajaLevel}${suffix}`;
   return product[field] ?? null;
+}
+
+// Campos a guardar al cambiar la rebaja activa. La rebaja 3 lleva su precio
+// (con IVA, como todos los de tabla): si no viene, se usa el que ya tenía.
+export function rebajaUpdate(product, condition, level, manualPrice) {
+  const update = { [activeRebajaField(condition)]: withRebaja(product, condition, level)[activeRebajaField(condition)] };
+  if (level !== 3) return update;
+  const field = `precioRebaja3${suffixOf(condition)}`;
+  if (manualPrice == null || manualPrice === '') {
+    if (product[field] == null) throw new Error('Cargá el precio de la rebaja 3');
+    return update;
+  }
+  const price = Number(manualPrice);
+  if (!Number.isFinite(price) || price <= 0) throw new Error('Precio inválido para la rebaja 3');
+  return { ...update, [field]: Math.round(price) };
 }
 
 // Precio final que paga el cliente: precio de tabla (condición + rebaja
@@ -75,7 +100,7 @@ export function computeFinalPrice(product, condition, rebajaLevel, paymentMethod
 // tres precios que ve el cliente: para que Caja elija la rebaja sabiendo el
 // precio final. Los niveles sin precio en el Excel no se ofrecen.
 export function rebajaLevels(product, condition) {
-  return [0, 1, 2]
+  return REBAJA_LEVELS
     .map((level) => ({ level, precioTabla: tablePrice(product, condition, level) }))
     .filter((l) => l.precioTabla != null)
     .map((l) => ({

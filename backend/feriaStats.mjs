@@ -5,6 +5,7 @@
 // las canceladas no son venta) y, dentro de cada una, las líneas no
 // eliminadas. El envío se suma a la facturación total pero va aparte de los
 // productos.
+import { paymentsOf } from './feriaLines.mjs';
 
 const AR_OFFSET_MS = 3 * 60 * 60 * 1000; // Argentina: UTC-3, sin horario de verano.
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -58,7 +59,13 @@ export function computeStats(orders, { from = 0, to = Infinity } = {}) {
     totals.listTotal += listTotal;
 
     bump(sellers, order.sellerName ?? 'Sin vendedor', { orders: 1, units, revenue });
-    bump(payments, order.paymentMethod ?? 'sin_dato', { orders: 1, revenue, discount: listTotal - productsRevenue });
+    // Pago dividido: la facturación se reparte por medio; el descuento es
+    // del medio que fijó el precio (el que fue a Odoo).
+    for (const { method, amount } of paymentsOf(order)) {
+      bump(payments, method ?? 'sin_dato', {
+        orders: 1, revenue: amount, discount: method === order.paymentMethod ? listTotal - productsRevenue : 0,
+      });
+    }
     const hour = byHour[arHour(order.createdAtMs)];
     hour.orders += 1;
     hour.revenue += revenue;

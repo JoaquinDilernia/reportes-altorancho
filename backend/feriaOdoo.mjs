@@ -54,10 +54,11 @@ export async function findSalesTeamId(teamName) {
 // No se cargan campos de responsabilidad fiscal AR (l10n_ar_*) porque
 // dependen de qué localización tenga instalada este Odoo — confirmar
 // contra la instancia real antes de necesitar Factura A (ver spec).
-export function buildNewPartnerVals({ name, docNumber, phone }) {
+export function buildNewPartnerVals({ name, docNumber, phone, email }) {
   const vals = { name };
   if (docNumber) vals.vat = docNumber;
   if (phone) vals.phone = phone;
+  if (email) vals.email = email;
   return vals;
 }
 
@@ -67,13 +68,21 @@ export function partnerPhoneUpdate(existingPhone, phone) {
   return !existingPhone && phone ? { phone } : null;
 }
 
-export async function findOrCreatePartner({ name, docNumber, phone }) {
+// El email sí se pisa si el vendedor lo cambió: Odoo manda la factura al
+// email del cliente, y el vendedor lo acaba de confirmar con él.
+export function existingPartnerUpdate(existing, { phone, email }) {
+  const update = { ...partnerPhoneUpdate(existing.phone, phone) };
+  if (email && email.toLowerCase() !== (existing.email || '').toLowerCase()) update.email = email;
+  return Object.keys(update).length ? update : null;
+}
+
+export async function findOrCreatePartner({ name, docNumber, phone, email }) {
   if (docNumber) {
     const existing = await callKwReadWithRetry('res.partner', 'search_read', [
       [['vat', '=', docNumber]],
-    ], { fields: ['id', 'phone'], limit: 1 });
+    ], { fields: ['id', 'phone', 'email'], limit: 1 });
     if (existing[0]) {
-      const update = partnerPhoneUpdate(existing[0].phone, phone);
+      const update = existingPartnerUpdate(existing[0], { phone, email });
       if (update) {
         await ensureAuth();
         await callKw('res.partner', 'write', [[existing[0].id], update]);
@@ -82,7 +91,7 @@ export async function findOrCreatePartner({ name, docNumber, phone }) {
     }
   }
   await ensureAuth();
-  const [id] = await callKw('res.partner', 'create', [[buildNewPartnerVals({ name, docNumber, phone })]]);
+  const [id] = await callKw('res.partner', 'create', [[buildNewPartnerVals({ name, docNumber, phone, email })]]);
   return id;
 }
 

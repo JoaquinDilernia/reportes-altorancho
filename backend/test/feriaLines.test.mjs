@@ -20,7 +20,7 @@ test('validateLineDelivery rechaza ubicación o entrega inválidas', () => {
   assert.match(validateLineDelivery({ ...base, delivery: 'flete' }).join(), /Forma de entrega inválida/);
 });
 
-test('"Se lleva ahora" solo puede salir de Exhibición', () => {
+test('"Me llevo ahora" no puede salir de Rolón', () => {
   assert.match(validateLineDelivery({ ...base, location: 'rolon' }).join(), /solo puede salir de Exhibición/);
 });
 
@@ -135,16 +135,10 @@ test('assertLineActionAllowed: pasar a "Envío a domicilio" un pedido sin datos 
   assert.doesNotThrow(() => assertLineActionAllowed(withShipping, base, 'edit', { location: 'rolon', delivery: 'envio' }));
 });
 
-test('shippingCostFor: 10000 si queda alguna línea de envío activa, 0 si no', () => {
-  assert.equal(shippingCostFor([{ ...base, delivery: 'envio' }]), 10000);
+test('shippingCostFor: 25000 si queda alguna línea de envío activa, 0 si no', () => {
+  assert.equal(shippingCostFor([{ ...base, delivery: 'envio' }]), 25000);
   assert.equal(shippingCostFor([{ ...base, delivery: 'envio', status: 'eliminado' }]), 0);
   assert.equal(shippingCostFor([base]), 0);
-});
-
-test('formatOrderNumber arma el número interno con 4 dígitos', () => {
-  assert.equal(formatOrderNumber(1), 'F-0001');
-  assert.equal(formatOrderNumber(128), 'F-0128');
-  assert.equal(formatOrderNumber(12345), 'F-12345');
 });
 
 test('assertShippingEditable: se puede cargar dirección salvo en pedidos cancelados', () => {
@@ -176,16 +170,16 @@ test('nextLineId sigue la numeración aunque haya líneas eliminadas', () => {
 
 test('buildAddedLine arma la línea con precio de tabla (rebaja activa) y el descuento del medio de pago', () => {
   const product = { sku: 'ALF029CG', modelo: 'Liso', precioFalla: 9990, precioRebaja1Falla: 7990, rebajaFallaActiva: 1 };
-  const line = buildAddedLine(product, { condition: 'falla', qty: 2, location: 'exhibicion', delivery: 'ahora' }, 'transferencia', [base]);
+  const line = buildAddedLine(product, { condition: 'falla', qty: 2, location: 'fallados', delivery: 'ahora' }, 'transferencia', [base]);
   assert.deepEqual(line, {
     lineId: 'L2', sku: 'ALF029CG', modelo: 'Liso', condition: 'falla', qty: 2,
-    listPrice: 7990, unitPrice: Math.round(7990 * 0.85), unitCost: null, location: 'exhibicion', delivery: 'ahora', status: 'pendiente',
+    listPrice: 7990, unitPrice: Math.round(7990 * 0.85), unitCost: null, location: 'fallados', delivery: 'ahora', status: 'pendiente',
   });
 });
 
 test('buildAddedLine rechaza condición sin precio o combinación inválida', () => {
   const product = { sku: 'X', modelo: 'X', precioFalla: null, precioDiscontinuo: 100 };
-  assert.throws(() => buildAddedLine(product, { condition: 'falla', qty: 1, location: 'exhibicion', delivery: 'ahora' }, 'efectivo', []), /no tiene precio/);
+  assert.throws(() => buildAddedLine(product, { condition: 'falla', qty: 1, location: 'fallados', delivery: 'ahora' }, 'efectivo', []), /no tiene precio/);
   assert.throws(() => buildAddedLine(product, { condition: 'discontinuo', qty: 1, location: 'rolon', delivery: 'ahora' }, 'efectivo', []), /solo puede salir de Exhibición/);
 });
 
@@ -254,7 +248,7 @@ test('assertInvoiceable: se factura una venta confirmada en Odoo que todavía no
 
 test('buildAddedLine guarda el costo galpón del producto en la línea', () => {
   const product = { sku: 'ALF029CG', modelo: 'Liso', precioFalla: 9990, costoGalpon: 5420.99062134 };
-  const line = buildAddedLine(product, { condition: 'falla', qty: 1, location: 'exhibicion', delivery: 'ahora' }, 'efectivo', [base]);
+  const line = buildAddedLine(product, { condition: 'falla', qty: 1, location: 'fallados', delivery: 'ahora' }, 'efectivo', [base]);
   assert.equal(line.unitCost, 5420.99);
 });
 
@@ -287,4 +281,26 @@ test('assertPaymentEditable: solo antes de que el pedido llegue a Odoo', () => {
   assert.throws(() => assertPaymentEditable({ status: 'error', odooOrderId: 5 }), /ya existe en Odoo/);
   assert.throws(() => assertPaymentEditable({ status: 'cancelado' }), /ya se confirmó|cancelado/);
   assert.throws(() => assertPaymentEditable({ status: 'pendiente', confirmingSince: new Date() }), /confirmando/);
+});
+
+test('falla sale siempre de Fallados; discontinuo, de Exhibición o Rolón', () => {
+  const falla = { ...base, condition: 'falla', location: 'fallados' };
+  assert.deepEqual(validateLineDelivery(falla), []);
+  assert.match(validateLineDelivery({ ...falla, location: 'exhibicion' }).join(), /Falla sale de Fallados/);
+  assert.match(validateLineDelivery({ ...falla, location: 'rolon', delivery: 'envio' }).join(), /Falla sale de Fallados/);
+  const disc = { ...base, condition: 'discontinuo' };
+  assert.deepEqual(validateLineDelivery(disc), []);
+  assert.match(validateLineDelivery({ ...disc, location: 'fallados' }).join(), /Discontinuo sale de Exhibición o Rolón/);
+});
+
+test('falla: se lleva ahora, retira en feria o envío; no retira en Rolón', () => {
+  const falla = { ...base, condition: 'falla', location: 'fallados' };
+  for (const delivery of ['ahora', 'retira_feria', 'envio']) assert.deepEqual(validateLineDelivery({ ...falla, delivery }), [], delivery);
+  assert.match(validateLineDelivery({ ...falla, delivery: 'retira_rolon' }).join(), /solo puede salir de Rolón/);
+});
+
+test('reservationDeltas: las líneas de Fallados no reservan (sin control de stock)', () => {
+  const falla = { ...base, lineId: 'L2', condition: 'falla', location: 'fallados' };
+  assert.deepEqual([...reservationDeltas([], [base, falla])], [['ALF029CG__exhibicion', 1]]);
+  assert.deepEqual([...reservationDeltas([falla], [{ ...falla, status: 'entregado' }])], []);
 });
