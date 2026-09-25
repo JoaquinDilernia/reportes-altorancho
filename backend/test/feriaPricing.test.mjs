@@ -20,11 +20,11 @@ test('PAYMENT_METHODS tiene los 5 medios de pago con sus %', () => {
   assert.equal(PAYMENT_METHODS.mp_3_cuotas.discountPct, 0);
 });
 
-test('PUBLIC_PRICE_OPTIONS agrupa Mercado Pago en un solo precio para el buscador público', () => {
+test('PUBLIC_PRICE_OPTIONS agrupa las tarjetas en un solo precio para el buscador público', () => {
   assert.deepEqual(PUBLIC_PRICE_OPTIONS.map((o) => [o.key, o.method]), [
     ['transferencia', 'transferencia'], ['efectivo', 'efectivo'], ['mercadopago', 'mp_debito'],
   ]);
-  assert.equal(PUBLIC_PRICE_OPTIONS[2].label, 'Mercado Pago (débito o cuotas)');
+  assert.equal(PUBLIC_PRICE_OPTIONS[2].label, 'Tarjeta (débito o crédito 1 y 3 cuotas)');
 });
 
 test('tablePrice devuelve el precio normal cuando la rebaja activa es 0', () => {

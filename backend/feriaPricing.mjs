@@ -1,11 +1,11 @@
 export const PAYMENT_METHODS = {
   // odooName: nombre exacto del payment.method en Odoo (campo "Medio de
   // pago" del sale.order).
-  transferencia: { label: 'Transferencia', discountPct: 15, odooName: 'Transferencia' },
+  transferencia: { label: 'Transferencia (Mercado Pago)', discountPct: 15, odooName: 'Transferencia' },
   efectivo: { label: 'Efectivo', discountPct: 10, odooName: 'Efectivo' },
-  mp_debito: { label: 'Mercado Pago Débito', discountPct: 0, odooName: 'Mercado Pago Debito' },
-  mp_1_cuota: { label: 'Mercado Pago 1 cuota', discountPct: 0, odooName: 'Mercado Pago 1 cuota' },
-  mp_3_cuotas: { label: 'Mercado Pago 3 cuotas', discountPct: 0, odooName: 'Mercado Pago 3 cuotas' },
+  mp_debito: { label: 'Tarjeta débito', discountPct: 0, odooName: 'Mercado Pago Debito' },
+  mp_1_cuota: { label: 'Tarjeta crédito 1 cuota', discountPct: 0, odooName: 'Mercado Pago 1 cuota' },
+  mp_3_cuotas: { label: 'Tarjeta crédito 3 cuotas', discountPct: 0, odooName: 'Mercado Pago 3 cuotas' },
 };
 
 // Con el pago dividido en varios medios, a Odoo va uno solo (la misma
@@ -17,13 +17,13 @@ export function principalPaymentMethod(methods) {
   return ODOO_PAYMENT_PRIORITY.find((m) => methods.includes(m)) ?? null;
 }
 
-// Precios que ve el cliente en el buscador público: los tres de Mercado Pago
+// Precios que ve el cliente en el buscador público: las tres tarjetas
 // tienen el mismo precio, así que se muestran como uno solo (`method` es el
 // medio de pago con el que se calcula ese precio).
 export const PUBLIC_PRICE_OPTIONS = [
-  { key: 'transferencia', label: 'Transferencia', method: 'transferencia' },
+  { key: 'transferencia', label: 'Transferencia (desde Mercado Pago)', method: 'transferencia' },
   { key: 'efectivo', label: 'Efectivo', method: 'efectivo' },
-  { key: 'mercadopago', label: 'Mercado Pago (débito o cuotas)', method: 'mp_debito' },
+  { key: 'mercadopago', label: 'Tarjeta (débito o crédito 1 y 3 cuotas)', method: 'mp_debito' },
 ];
 
 const CONDITIONS = new Set(['falla', 'discontinuo']);
