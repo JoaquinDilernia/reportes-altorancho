@@ -3,7 +3,7 @@ import {
   requireFeriaAuth, requireFeriaRole, requireSuperadmin, validateSellerPin, validateCajaCredentials, generateToken,
 } from './feriaAuth.mjs';
 import {
-  listUsers, createSeller, updateSeller, deleteSeller, createAdmin, updateAdmin, deleteAdmin,
+  listUsers, listLoginAdmins, createSeller, updateSeller, deleteSeller, createAdmin, updateAdmin, deleteAdmin,
 } from './feriaUsers.mjs';
 import {
   createOrder, listOrdersByStatus, getOrderById,
@@ -31,6 +31,15 @@ import { PUBLIC_PRICE_OPTIONS, rebajaLevels, tablePrice, computeFinalPrice, acti
 
 const router = Router();
 
+// Nombres para el desplegable del login de caja / logística.
+router.get('/auth/users', async (req, res) => {
+  try {
+    res.json({ admins: await listLoginAdmins() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/auth/vendedor', async (req, res) => {
   try {
     const { pin } = req.body;
@@ -49,7 +58,7 @@ router.post('/auth/caja', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Faltan credenciales' });
     const user = await validateCajaCredentials(email, password);
-    if (!user) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+    if (!user) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     const token = generateToken({ role: 'caja', id: user.id, email: user.email, name: user.name, adminRole: user.adminRole });
     res.json({ token, user });
   } catch (err) {
