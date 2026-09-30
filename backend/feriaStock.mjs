@@ -5,8 +5,10 @@ import { reservationKey, parseReservationKey, LOCATIONS, LOCATION_LABELS, FALLAD
 
 export const RESERVATIONS_COLLECTION = 'feria_reservations';
 
-// Ids de FER/Stock/exhibicion y FER/Stock/Rolon. Por variable de entorno y no
-// hardcodeados: si alguien recrea las ubicaciones en Odoo, se cambia el env.
+// Ids de FER/Stock/exhibicion y FER/Stock (lo que queda en Rolón). FER/Stock es
+// la ubicación padre de exhibición y Fallados, pero no se suman: el stock se
+// lee por location_id exacto. Por variable de entorno y no hardcodeados: si
+// alguien recrea las ubicaciones en Odoo, se cambia el env.
 export function feriaLocationIds() {
   const exhibicion = Number(process.env.ODOO_FERIA_LOCATION_EXHIBICION_ID);
   const rolon = Number(process.env.ODOO_FERIA_LOCATION_ROLON_ID);

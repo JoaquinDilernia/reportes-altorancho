@@ -1,7 +1,7 @@
 // Spike manual (Task 2 del plan 2026-09-23): prueba deliverLines contra el
 // Odoo REAL. Mueve stock de verdad. Correr solo con OK del usuario.
 //
-// Sin argumentos: lista qué hay en FER/Stock/exhibicion y FER/Stock/Rolon.
+// Sin argumentos: lista qué hay en FER/Stock/exhibicion y FER/Stock (Rolón).
 // Con dos SKUs:   node scripts/feriaDeliverySpike.mjs <SKU_EXHIBICION> <SKU_ROLON>
 //   1. crea un sale.order (partner 77753, almacén Feria) con 1 u. de cada SKU
 //   2. lo confirma
@@ -12,7 +12,7 @@ import { authenticate, callKw } from '../odoo.mjs';
 import { deliverLines } from '../feriaDelivery.mjs';
 
 const EXHIB = Number(process.env.ODOO_FERIA_LOCATION_EXHIBICION_ID || 427);
-const ROLON = Number(process.env.ODOO_FERIA_LOCATION_ROLON_ID || 428);
+const ROLON = Number(process.env.ODOO_FERIA_LOCATION_ROLON_ID || 419);
 const WAREHOUSE = Number(process.env.ODOO_FERIA_WAREHOUSE_ID || 43);
 const TEST_PARTNER = 77753; // "Altorancho Nordelta" — cliente de prueba acordado
 
