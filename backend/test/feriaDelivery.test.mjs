@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planMoveLineWrites, pickLots, undeliveredLineIds, withOrderLock } from '../feriaDelivery.mjs';
+import { planMoveLineWrites, pickLots, undeliveredLineIds, withOrderLock, productsNeedingFalladoLot } from '../feriaDelivery.mjs';
 
 const EXHIB = 427;
 const ROLON = 428;
@@ -114,4 +114,34 @@ test('withOrderLock serializa las entregas del mismo pedido', async () => {
 test('withOrderLock no traba el pedido si una entrega falla', async () => {
   await assert.rejects(withOrderLock(2, async () => { throw new Error('boom'); }), /boom/);
   assert.equal(await withOrderLock(2, async () => 'ok'), 'ok');
+});
+
+const FALLADOS = 429;
+
+test('productsNeedingFalladoLot: producto con lote entregado desde Fallados sin lote con stock → necesita FALLADO', () => {
+  const items = [{ odooLineId: 11, qty: 1, locationId: FALLADOS }];
+  const tracking = new Map([[501, 'lot']]);
+  assert.deepEqual(productsNeedingFalladoLot({ moves, items, lots: new Map(), tracking, falladosLocationId: FALLADOS }), [501]);
+});
+
+test('productsNeedingFalladoLot: si ya hay un lote con stock en Fallados, se usa ese', () => {
+  const items = [{ odooLineId: 11, qty: 1, locationId: FALLADOS }];
+  const tracking = new Map([[501, 'lot']]);
+  const lots = new Map([[`501:${FALLADOS}`, 77]]);
+  assert.deepEqual(productsNeedingFalladoLot({ moves, items, lots, tracking, falladosLocationId: FALLADOS }), []);
+});
+
+test('productsNeedingFalladoLot: productos sin lote o fuera de Fallados no llevan FALLADO', () => {
+  const items = [
+    { odooLineId: 11, qty: 1, locationId: FALLADOS },
+    { odooLineId: 12, qty: 1, locationId: EXHIB },
+  ];
+  const tracking = new Map([[501, 'none'], [502, 'lot']]);
+  assert.deepEqual(productsNeedingFalladoLot({ moves, items, lots: new Map(), tracking, falladosLocationId: FALLADOS }), []);
+});
+
+test('productsNeedingFalladoLot: sin ubicación de Fallados configurada no hace nada', () => {
+  const items = [{ odooLineId: 11, qty: 1, locationId: FALLADOS }];
+  const tracking = new Map([[501, 'lot']]);
+  assert.deepEqual(productsNeedingFalladoLot({ moves, items, lots: new Map(), tracking, falladosLocationId: null }), []);
 });

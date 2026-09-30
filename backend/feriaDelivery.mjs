@@ -49,6 +49,44 @@ export function pickLots(quants) {
   return new Map([...best].map(([key, { lotId }]) => [key, lotId]));
 }
 
+// Fallados tiene stock ficticio: sus productos con lote casi nunca tienen un
+// lote con stock ahí, y sin lote Odoo no deja validar la entrega. Para esos se
+// usa un lote fijo por producto (puede quedar en negativo), así la falla se
+// entrega siempre. Devuelve los productId que lo necesitan. Puro.
+export const FALLADO_LOT_NAME = 'FALLADO';
+
+export function productsNeedingFalladoLot({ moves, items, lots, tracking, falladosLocationId }) {
+  if (!falladosLocationId) return [];
+  const needed = new Set();
+  for (const item of items) {
+    if (item.locationId !== falladosLocationId) continue;
+    const move = moves.find((m) => m.sale_line_id?.[0] === item.odooLineId && m.state !== 'cancel' && m.state !== 'done');
+    if (!move) continue;
+    const productId = move.product_id[0];
+    if ((tracking.get(productId) ?? 'none') === 'none') continue;
+    if (lots.has(lotKey(productId, item.locationId))) continue;
+    needed.add(productId);
+  }
+  return [...needed];
+}
+
+// Lote FALLADO de cada producto: el existente o uno nuevo.
+async function ensureFalladoLots(productIds, companyId) {
+  const existing = await callKwReadWithRetry('stock.lot', 'search_read', [
+    [['product_id', 'in', productIds], ['name', '=', FALLADO_LOT_NAME]],
+  ], { fields: ['id', 'product_id'] });
+  const byProduct = new Map(existing.map((l) => [l.product_id[0], l.id]));
+  await ensureAuth();
+  for (const productId of productIds) {
+    if (byProduct.has(productId)) continue;
+    const [id] = await callKw('stock.lot', 'create', [[{
+      name: FALLADO_LOT_NAME, product_id: productId, ...(companyId ? { company_id: companyId } : {}),
+    }]]);
+    byProduct.set(productId, id);
+  }
+  return byProduct;
+}
+
 // Decide qué escribir en las stock.move.line para que al validar salga
 // EXACTAMENTE lo pedido (cantidad y ubicación de origen) y nada más.
 // `lots` (de pickLots) trae el lote a usar para productos con lote.
@@ -117,7 +155,7 @@ async function deliverLinesNow(odooOrderId, items) {
 
   const moves = await callKwReadWithRetry('stock.move', 'search_read', [
     [['sale_line_id', 'in', items.map((i) => i.odooLineId)], ['state', '!=', 'cancel']],
-  ], { fields: ['id', 'sale_line_id', 'picking_id', 'product_id', 'product_uom', 'location_dest_id', 'state'] });
+  ], { fields: ['id', 'sale_line_id', 'picking_id', 'product_id', 'product_uom', 'location_dest_id', 'state', 'company_id'] });
 
   const moveLines = openPickingIds.length
     ? await callKwReadWithRetry('stock.move.line', 'search_read', [
@@ -135,7 +173,20 @@ async function deliverLinesNow(odooOrderId, items) {
     ], { fields: ['product_id', 'location_id', 'lot_id', 'quantity'] })
     : [];
 
-  const plan = planMoveLineWrites({ moves, moveLines, items, openPickingIds, lots: pickLots(lotQuants) });
+  const lots = pickLots(lotQuants);
+  const falladosLocationId = Number(process.env.ODOO_FERIA_LOCATION_FALLADOS_ID) || null;
+  if (falladosLocationId && items.some((i) => i.locationId === falladosLocationId) && productIds.length) {
+    const products = await callKwReadWithRetry('product.product', 'read', [productIds], { fields: ['tracking'] });
+    const tracking = new Map(products.map((p) => [p.id, p.tracking]));
+    const needLot = productsNeedingFalladoLot({ moves, items, lots, tracking, falladosLocationId });
+    if (needLot.length) {
+      const companyId = moves.find((m) => m.company_id)?.company_id?.[0];
+      const falladoLots = await ensureFalladoLots(needLot, companyId);
+      for (const [productId, lotId] of falladoLots) lots.set(lotKey(productId, falladosLocationId), lotId);
+    }
+  }
+
+  const plan = planMoveLineWrites({ moves, moveLines, items, openPickingIds, lots });
   if (plan.missing.length) {
     throw new Error(`Líneas sin remito abierto en Odoo: ${plan.missing.join(', ')}`);
   }
