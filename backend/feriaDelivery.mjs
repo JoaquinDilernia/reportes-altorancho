@@ -71,7 +71,7 @@ export function productsNeedingFalladoLot({ moves, items, lots, tracking, fallad
 }
 
 // Lote FALLADO de cada producto: el existente o uno nuevo.
-async function ensureFalladoLots(productIds, companyId) {
+export async function ensureFalladoLots(productIds, companyId) {
   const existing = await callKwReadWithRetry('stock.lot', 'search_read', [
     [['product_id', 'in', productIds], ['name', '=', FALLADO_LOT_NAME]],
   ], { fields: ['id', 'product_id'] });

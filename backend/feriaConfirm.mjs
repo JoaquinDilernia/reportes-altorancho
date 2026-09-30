@@ -8,6 +8,7 @@ import { needsShipping, RESERVING_STATUSES } from './feriaLines.mjs';
 import { deliveryLocationId } from './feriaStock.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
 import { invoiceOrder } from './feriaInvoice.mjs';
+import { placeOrderStock } from './feriaPlacement.mjs';
 import {
   getOrderById, saveOdooOrderId, saveOdooLineIds, markOrderConfirmed, applyOrderLineActions, setOrderErrorDetail,
   claimOrderForConfirm, markOrderError,
@@ -97,7 +98,17 @@ export async function confirmOrder(order, user) {
   // es falla). Si falla, el pedido queda confirmado igual (la venta está
   // hecha) y se avisa para marcarlo con "Hecho".
   const confirmed = await getOrderById(order.id);
-  const ahora = confirmed.lines.filter((l) => l.delivery === 'ahora' && RESERVING_STATUSES.has(l.status) && l.odooLineId);
+
+  // Remito desde la ubicación real de cada línea (y Fallados con stock). No
+  // frena la venta: si falla, "Hecho" igual entrega desde la ubicación de la
+  // línea; solo queda el remito de Odoo apuntando a FER/Stock.
+  try {
+    await placeOrderStock(odooOrderId, confirmed.lines);
+  } catch (err) {
+    console.error(`[feriaConfirm] ${order.number ?? order.id}: no se pudo ubicar el remito:`, err.message);
+  }
+
+  const ahora =confirmed.lines.filter((l) => l.delivery === 'ahora' && RESERVING_STATUSES.has(l.status) && l.odooLineId);
   if (ahora.length) {
     try {
       await deliverLines(odooOrderId, ahora.map((l) => ({
