@@ -223,7 +223,9 @@ router.post('/orders', requireFeriaAuth, requireFeriaRole('vendedor'), async (re
 });
 
 // ---- Carritos del vendedor (ver feriaCarts.mjs) ----
-const sellerOf = (req) => ({ id: req.feriaUser.id, name: req.feriaUser.name });
+// Caja usa los mismos carritos para cargar pedidos sin vendedor (FC-0001).
+const sellerOf = (req) => ({ id: req.feriaUser.id, name: req.feriaUser.name, role: req.feriaUser.role });
+const cartAuth = [requireFeriaAuth, requireFeriaRole('vendedor', 'caja')];
 const lineInput = ({ sku, condition, qty, location, delivery } = {}) => ({ sku, condition, qty, location, delivery });
 
 function cartRoute(handler) {
@@ -236,29 +238,29 @@ function cartRoute(handler) {
   };
 }
 
-router.get('/carts', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => (
+router.get('/carts', ...cartAuth, cartRoute(async (req) => (
   { carts: await listSellerCarts(req.feriaUser.id) })));
 
 // Crea el carrito con su primer producto (ya reservado) y su número.
-router.post('/carts', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => (
+router.post('/carts', ...cartAuth, cartRoute(async (req) => (
   { cart: await createCart(sellerOf(req), lineInput(req.body)) })));
 
-router.post('/carts/:id/lines', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => (
+router.post('/carts/:id/lines', ...cartAuth, cartRoute(async (req) => (
   { cart: await addCartLine(req.params.id, req.feriaUser.id, lineInput(req.body)) })));
 
-router.patch('/carts/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => {
+router.patch('/carts/:id/lines/:lineId', ...cartAuth, cartRoute(async (req) => {
   const { qty, location, delivery } = req.body ?? {};
   return { cart: await updateCartLine(req.params.id, req.feriaUser.id, req.params.lineId, { qty, location, delivery }) };
 }));
 
-router.delete('/carts/:id/lines/:lineId', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => (
+router.delete('/carts/:id/lines/:lineId', ...cartAuth, cartRoute(async (req) => (
   { cart: await removeCartLine(req.params.id, req.feriaUser.id, req.params.lineId) })));
 
 // "Vaciar carrito": el cliente no compra, se devuelve todo el stock.
-router.delete('/carts/:id', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => (
+router.delete('/carts/:id', ...cartAuth, cartRoute(async (req) => (
   { cart: await discardCart(req.params.id, req.feriaUser.id) })));
 
-router.post('/carts/:id/submit', requireFeriaAuth, requireFeriaRole('vendedor'), cartRoute(async (req) => {
+router.post('/carts/:id/submit', ...cartAuth, cartRoute(async (req) => {
   const { customer, paymentMethod, shipping } = req.body ?? {};
   return { order: await submitCart(req.params.id, sellerOf(req), { customer, paymentMethod, shipping }) };
 }));

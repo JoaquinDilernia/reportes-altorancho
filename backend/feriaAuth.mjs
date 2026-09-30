@@ -114,9 +114,9 @@ export function requireSuperadmin(req, res, next) {
   next();
 }
 
-export function requireFeriaRole(role) {
+export function requireFeriaRole(...roles) {
   return (req, res, next) => {
-    if (req.feriaUser?.role !== role) return res.status(403).json({ error: 'Acceso restringido' });
+    if (!roles.includes(req.feriaUser?.role)) return res.status(403).json({ error: 'Acceso restringido' });
     next();
   };
 }

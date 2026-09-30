@@ -36,10 +36,18 @@ async function reserve(tx, db, odooStock, beforeLines, afterLines) {
   return () => writeReservations(tx, db, reserved, deltas);
 }
 
+// Caja también arma pedidos (pestaña "Nuevo pedido") con su propio
+// contador, compartido entre todos los usuarios de caja: FC-0001.
+export const CAJA_SELLER_CODE = 'C';
+
+export function sellerCodeFor(seller) {
+  return seller.role === 'caja' ? CAJA_SELLER_CODE : getSellerCode(seller.id);
+}
+
 export async function createCart(seller, lineInput) {
   const product = productOrThrow(lineInput.sku);
   const line = buildCartLine(product, lineInput, []);
-  const sellerCode = await getSellerCode(seller.id);
+  const sellerCode = await sellerCodeFor(seller);
   const odooStock = await stockFor([line]);
   const db = getDb();
   const ref = db.collection(COLLECTION).doc();

@@ -23,3 +23,18 @@ test('verifyToken devuelve null para un token con formato inválido', () => {
   assert.equal(verifyToken(''), null);
   assert.equal(verifyToken(null), null);
 });
+
+test('requireFeriaRole acepta cualquiera de los roles indicados', async () => {
+  const { requireFeriaRole } = await import('../feriaAuth.mjs');
+  const guard = requireFeriaRole('vendedor', 'caja');
+  const run = (role) => {
+    let status = null;
+    let passed = false;
+    const res = { status: (s) => { status = s; return { json: () => {} }; } };
+    guard({ feriaUser: { role } }, res, () => { passed = true; });
+    return { status, passed };
+  };
+  assert.deepEqual(run('vendedor'), { status: null, passed: true });
+  assert.deepEqual(run('caja'), { status: null, passed: true });
+  assert.deepEqual(run('otro'), { status: 403, passed: false });
+});
