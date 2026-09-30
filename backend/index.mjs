@@ -13,6 +13,7 @@ import { seedCajaAdminIfNeeded } from './feriaAuth.mjs';
 import { startFeriaProductsCache } from './feriaProducts.mjs';
 import { startCancellationSync } from './feriaSync.mjs';
 import { startAutoRetry } from './feriaRetry.mjs';
+import { startPriceSync } from './feriaPriceSync.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
@@ -172,6 +173,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startFeriaProductsCache();
   startCancellationSync();
   startAutoRetry();
+  startPriceSync();
   seedCajaAdminIfNeeded().catch(err => console.error('[feria] Error seedeando admin:', err.message));
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
 }

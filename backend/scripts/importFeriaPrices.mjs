@@ -1,98 +1,29 @@
 import 'dotenv/config';
-import XLSX from 'xlsx';
+import fs from 'node:fs';
 import { getDb } from '../firestore.mjs';
+import { parsePriceWorkbook, planPriceWrites, writePricePlan } from '../feriaPriceSync.mjs';
 
+// Carga a mano de la lista de precios (la misma lógica que la sincronización
+// en vivo desde Dropbox, feriaPriceSync.mjs): escribe solo lo nuevo o lo que
+// cambió, saltea filas sin precio y no toca las rebajas activas.
 const filePath = process.argv[2];
 if (!filePath) {
   console.error('Uso: node scripts/importFeriaPrices.mjs <ruta-al-excel>');
   process.exit(1);
 }
 
-const COLUMN_MAP = {
-  SKU: 'sku',
-  Modelo: 'modelo',
-  Color: 'color',
-  Proveedor: 'proveedor',
-  Origen: 'origen',
-  Stock: 'stock',
-  'Costo galpón ($)': 'costoGalpon',
-  'Precio Discontinuo': 'precioDiscontinuo',
-  'Precio Falla': 'precioFalla',
-  'Precio Rebaja 1 Falla': 'precioRebaja1Falla',
-  'Precio Rebaja 2 Falla': 'precioRebaja2Falla',
-  'Precio Rebaja 1 Discontinuo': 'precioRebaja1Discontinuo',
-  'Precio Rebaja 2 Discontinuo': 'precioRebaja2Discontinuo',
-};
-const NUMERIC_FIELDS = new Set([
-  'stock', 'costoGalpon', 'precioDiscontinuo', 'precioFalla',
-  'precioRebaja1Falla', 'precioRebaja2Falla',
-  'precioRebaja1Discontinuo', 'precioRebaja2Discontinuo',
-]);
-
-function normalizeRow(row) {
-  const doc = {};
-  for (const [excelCol, field] of Object.entries(COLUMN_MAP)) {
-    if (field === 'sku') continue;
-    const value = row[excelCol];
-    doc[field] = NUMERIC_FIELDS.has(field) ? (typeof value === 'number' ? value : null) : (value ?? null);
-  }
-  return doc;
-}
-
 async function main() {
-  const workbook = XLSX.readFile(filePath);
-  const sheet = workbook.Sheets['Precios Feria'];
-  if (!sheet) throw new Error('No se encontró la hoja "Precios Feria" en el excel');
-  const rows = XLSX.utils.sheet_to_json(sheet);
-
-  const db = getDb();
-  const collection = db.collection('feria_products');
-  const existingSnap = await collection.get();
-  const existingSkus = new Set(existingSnap.docs.map((d) => d.id));
-
-  let batch = db.batch();
-  let opsInBatch = 0;
-  let created = 0;
-  let updated = 0;
-  let skipped = 0;
-  let duplicates = 0;
-  const seenSkus = new Set();
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row.SKU) { skipped++; continue; }
-    const sku = String(row.SKU).trim().toUpperCase();
-    if (seenSkus.has(sku)) {
-      duplicates++;
-      console.warn(`[importFeriaPrices] SKU duplicado en el excel, se pisa el valor anterior: ${sku} (fila ${i + 2})`);
-    }
-    seenSkus.add(sku);
-    const payload = { ...normalizeRow(row), updatedAt: new Date() };
-    if (!existingSkus.has(sku)) {
-      // Docs nuevos arrancan sin rebaja activa. Docs existentes NO tocan
-      // estos dos campos acá (merge:true solo escribe lo que mandamos) —
-      // así un re-import con precios actualizados no resetea una rebaja
-      // que el admin ya activó a mano durante el evento.
-      payload.rebajaFallaActiva = 0;
-      payload.rebajaDiscontinuoActiva = 0;
-      created++;
-    } else {
-      updated++;
-    }
-    batch.set(collection.doc(sku), payload, { merge: true });
-    opsInBatch++;
-    if (opsInBatch === 400) {
-      await batch.commit();
-      batch = db.batch();
-      opsInBatch = 0;
-    }
-  }
-  if (opsInBatch > 0) await batch.commit();
-
-  console.log(`[importFeriaPrices] Listo. Creados: ${created}, actualizados: ${updated}, filas sin SKU: ${skipped}, duplicados: ${duplicates}, total filas: ${rows.length}`);
+  const { products, incomplete, duplicates } = parsePriceWorkbook(fs.readFileSync(filePath));
+  const snap = await getDb().collection('feria_products').get();
+  const current = new Map(snap.docs.map((d) => [d.id, d.data()]));
+  const plan = planPriceWrites(products, current);
+  await writePricePlan(plan);
+  for (const d of duplicates) console.warn(`[importFeriaPrices] SKU duplicado en el excel, gana la última fila: ${d}`);
+  if (incomplete.length) console.warn(`[importFeriaPrices] Filas sin precio salteadas (${incomplete.length}): ${incomplete.join(', ')}`);
+  console.log(`[importFeriaPrices] Listo. Nuevos: ${plan.created.length}, actualizados: ${plan.updated.length}, sin cambios: ${products.size - plan.created.length - plan.updated.length}`);
 }
 
-main().catch((err) => {
+main().then(() => process.exit(0)).catch((err) => {
   console.error('[importFeriaPrices] Error:', err.message);
   process.exit(1);
 });
