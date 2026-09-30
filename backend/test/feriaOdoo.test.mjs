@@ -162,3 +162,16 @@ test('partnerIdentityUpdate: completa tipo DNI y Consumidor Final al cliente exi
   assert.deepEqual(partnerIdentityUpdate({ l10n_latam_identification_type_id: [2, 'Pasaporte'], l10n_ar_afip_responsibility_type_id: [5, 'CF'] }, '40127242', ids), {});
   assert.deepEqual(partnerIdentityUpdate({}, 'ABC', ids), {});
 });
+
+test('Buenos Aires: cliente nuevo con provincia y país; el existente sin provincia la recibe', async () => {
+  const { partnerIdentityUpdate } = await import('../feriaOdoo.mjs');
+  const ids = { dni: 5, cuit: 4, consumidorFinal: 9, state: 554, country: 10 };
+  const vals = buildNewPartnerVals({ name: 'Ana', docNumber: '40127242' }, ids);
+  assert.equal(vals.state_id, 554);
+  assert.equal(vals.country_id, 10);
+  assert.deepEqual(partnerIdentityUpdate({ l10n_latam_identification_type_id: [5, 'DNI'], l10n_ar_afip_responsibility_type_id: [9, 'CF'] }, '40127242', ids),
+    { state_id: 554, country_id: 10 });
+  // Con provincia cargada (aunque sea otra) no se toca; país solo si falta.
+  assert.deepEqual(partnerIdentityUpdate({ state_id: [553, 'CABA'], l10n_latam_identification_type_id: [5, 'DNI'], l10n_ar_afip_responsibility_type_id: [9, 'CF'] }, '40127242', ids), {});
+  assert.deepEqual(partnerIdentityUpdate({ country_id: [10, 'AR'] }, 'ABC', ids), { state_id: 554 });
+});

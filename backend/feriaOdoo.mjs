@@ -82,6 +82,9 @@ export function buildNewPartnerVals({ name, docNumber, phone, email }, idTypes =
   const type = docIdentityType(docNumber);
   if (type && idTypes[type]) vals.l10n_latam_identification_type_id = idTypes[type];
   if (type === 'dni' && idTypes.consumidorFinal) vals.l10n_ar_afip_responsibility_type_id = idTypes.consumidorFinal;
+  // Todos los clientes de la feria con provincia Buenos Aires.
+  if (idTypes.state) vals.state_id = idTypes.state;
+  if (idTypes.country) vals.country_id = idTypes.country;
   if (phone) vals.phone = phone;
   if (email) vals.email = email;
   return vals;
@@ -105,9 +108,14 @@ export function existingPartnerUpdate(existing, { phone, email }) {
 // falta la responsabilidad AFIP, se completan; sin responsabilidad Odoo no
 // puede elegir Factura B y la venta queda sin facturar. Puro.
 export function partnerIdentityUpdate(existing, docNumber, idTypes = {}) {
-  const type = docIdentityType(docNumber);
-  if (!type) return {};
   const update = {};
+  // Sin provincia: Buenos Aires (y Argentina si tampoco tiene país).
+  if (idTypes.state && !existing.state_id) {
+    update.state_id = idTypes.state;
+    if (idTypes.country && !existing.country_id) update.country_id = idTypes.country;
+  }
+  const type = docIdentityType(docNumber);
+  if (!type) return update;
   const currentType = existing.l10n_latam_identification_type_id;
   if (idTypes[type] && (!currentType || currentType[1] === 'VAT')) update.l10n_latam_identification_type_id = idTypes[type];
   if (type === 'dni' && idTypes.consumidorFinal && !existing.l10n_ar_afip_responsibility_type_id) {
@@ -120,7 +128,7 @@ export async function findOrCreatePartner({ name, docNumber, phone, email }) {
   if (docNumber) {
     const existing = await callKwReadWithRetry('res.partner', 'search_read', [
       [['vat', '=', docNumber]],
-    ], { fields: ['id', 'phone', 'email', 'l10n_latam_identification_type_id', 'l10n_ar_afip_responsibility_type_id'], limit: 1 });
+    ], { fields: ['id', 'phone', 'email', 'l10n_latam_identification_type_id', 'l10n_ar_afip_responsibility_type_id', 'state_id', 'country_id'], limit: 1 });
     if (existing[0]) {
       const merged = {
         ...existingPartnerUpdate(existing[0], { phone, email }),
@@ -153,10 +161,16 @@ export async function findIdentificationTypeIds() {
     const [cf] = await callKwReadWithRetry('l10n_ar.afip.responsibility.type', 'search_read', [
       [['name', '=', 'Consumidor Final']],
     ], { fields: ['id'], limit: 1 });
+    // Provincia Buenos Aires (código B; la C es Ciudad Autónoma).
+    const [state] = await callKwReadWithRetry('res.country.state', 'search_read', [
+      [['country_id.code', '=', 'AR'], ['code', '=', 'B']],
+    ], { fields: ['id', 'country_id'], limit: 1 });
     idTypesCache = {
       dni: types.find((t) => t.name === 'DNI')?.id ?? null,
       cuit: types.find((t) => t.name === 'CUIT')?.id ?? null,
       consumidorFinal: cf?.id ?? null,
+      state: state?.id ?? null,
+      country: state?.country_id?.[0] ?? null,
     };
     return idTypesCache;
   } catch (err) {
