@@ -1,6 +1,6 @@
 import {
   findOrCreatePartner, findSalesTeamId, findPricelistId, findProductIdBySku, findPaymentMethodId,
-  findShippingProductId, createShippingPartner, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
+  findShippingProductId, shippingProductSku, createShippingPartner, buildSaleOrderPayload, createSaleOrder, confirmSaleOrder,
   readOrderLineIds, readOrderName,
 } from './feriaOdoo.mjs';
 import { PAYMENT_METHODS, odooLinePricing, netOfIva, SHIPPING_COST } from './feriaPricing.mjs';
@@ -63,7 +63,7 @@ export async function confirmOrder(order, user) {
     let partnerShippingId = null;
     if (needsShipping(activeLines)) {
       shippingProductId = await findShippingProductId();
-      if (!shippingProductId) throw new Error('Producto de envío no encontrado en Odoo (ODOO_FERIA_SHIPPING_PRODUCT_NAME)');
+      if (!shippingProductId) throw new Error(`Producto de envío no encontrado en Odoo: SKU ${shippingProductSku()}`);
       partnerShippingId = await createShippingPartner(partnerId, order.customer.name, order.shipping);
     }
 

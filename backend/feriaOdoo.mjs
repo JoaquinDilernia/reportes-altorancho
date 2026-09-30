@@ -150,12 +150,12 @@ export async function createShippingPartner(parentId, customerName, shipping) {
   return id;
 }
 
-export async function findShippingProductId() {
-  const name = process.env.ODOO_FERIA_SHIPPING_PRODUCT_NAME || 'Otros envíos terciarizados';
-  const results = await callKwReadWithRetry('product.product', 'search_read', [
-    [['name', '=', name]],
-  ], { fields: ['id'], limit: 1 });
-  return results[0]?.id ?? null;
+// Producto de envío de la feria (ENV002EX): precio fijo, sin descuento por
+// medio de pago (ver buildOdooLines).
+export const shippingProductSku = () => process.env.ODOO_FERIA_SHIPPING_PRODUCT_SKU || 'ENV002EX';
+
+export function findShippingProductId() {
+  return findProductIdBySku(shippingProductSku());
 }
 
 // Número del pedido en Odoo (S0xxxx): se muestra al lado del interno.
