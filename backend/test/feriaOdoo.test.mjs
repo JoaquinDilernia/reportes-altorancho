@@ -131,3 +131,23 @@ test('existingPartnerUpdate: el email se pisa si cambió (la factura sale a ese 
   // Pedidos viejos (sin email) no borran el email de Odoo.
   assert.equal(existingPartnerUpdate({ phone: '1144444444', email: 'juan@mail.com' }, { phone: '1155555555' }), null);
 });
+
+test('docIdentityType: 7-8 dígitos DNI, CUIT válido CUIT, el resto sin tipo', async () => {
+  const { docIdentityType, isValidCuit } = await import('../feriaOdoo.mjs');
+  assert.equal(docIdentityType('40127242'), 'dni');
+  assert.equal(docIdentityType('4.012.724'), 'dni');
+  assert.equal(isValidCuit('20304050609'), true);
+  assert.equal(docIdentityType('20-30405060-9'), 'cuit');
+  assert.equal(docIdentityType('20304050607'), null);
+  assert.equal(docIdentityType('123'), null);
+});
+
+test('buildNewPartnerVals: DNI con su tipo y Consumidor Final; CUIT con su tipo', () => {
+  const ids = { dni: 5, cuit: 4, consumidorFinal: 9 };
+  assert.deepEqual(buildNewPartnerVals({ name: 'Ana', docNumber: '40127242' }, ids), {
+    name: 'Ana', vat: '40127242', l10n_latam_identification_type_id: 5, l10n_ar_afip_responsibility_type_id: 9,
+  });
+  assert.deepEqual(buildNewPartnerVals({ name: 'SA', docNumber: '20304050609' }, ids), {
+    name: 'SA', vat: '20304050609', l10n_latam_identification_type_id: 4,
+  });
+});

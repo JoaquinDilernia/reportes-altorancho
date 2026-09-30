@@ -54,9 +54,34 @@ export async function findSalesTeamId(teamName) {
 // No se cargan campos de responsabilidad fiscal AR (l10n_ar_*) porque
 // dependen de qué localización tenga instalada este Odoo — confirmar
 // contra la instancia real antes de necesitar Factura A (ver spec).
-export function buildNewPartnerVals({ name, docNumber, phone, email }) {
+// CUIT/CUIL válido: 11 dígitos con dígito verificador correcto (Odoo AR
+// rechaza uno mal escrito y la venta no se crearía).
+export function isValidCuit(digits) {
+  if (!/^\d{11}$/.test(digits)) return false;
+  const weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  const sum = weights.reduce((s, w, i) => s + w * Number(digits[i]), 0);
+  const mod = 11 - (sum % 11);
+  const check = mod === 11 ? 0 : mod === 10 ? 9 : mod;
+  return check === Number(digits[10]);
+}
+
+// Tipo de documento para Odoo: 7-8 dígitos → DNI; 11 con CUIT válido →
+// CUIT. Otro formato: null (Odoo lo deja como VAT, como antes).
+export function docIdentityType(docNumber) {
+  const digits = String(docNumber ?? '').replace(/\D/g, '');
+  if (/^\d{7,8}$/.test(digits)) return 'dni';
+  if (isValidCuit(digits)) return 'cuit';
+  return null;
+}
+
+// `idTypes`: ids de Odoo { dni, cuit, consumidorFinal } (ver
+// findIdentificationTypeIds). Con DNI el cliente es Consumidor Final.
+export function buildNewPartnerVals({ name, docNumber, phone, email }, idTypes = {}) {
   const vals = { name };
   if (docNumber) vals.vat = docNumber;
+  const type = docIdentityType(docNumber);
+  if (type && idTypes[type]) vals.l10n_latam_identification_type_id = idTypes[type];
+  if (type === 'dni' && idTypes.consumidorFinal) vals.l10n_ar_afip_responsibility_type_id = idTypes.consumidorFinal;
   if (phone) vals.phone = phone;
   if (email) vals.email = email;
   return vals;
@@ -90,9 +115,35 @@ export async function findOrCreatePartner({ name, docNumber, phone, email }) {
       return existing[0].id;
     }
   }
+  const idTypes = await findIdentificationTypeIds();
   await ensureAuth();
-  const [id] = await callKw('res.partner', 'create', [[buildNewPartnerVals({ name, docNumber, phone, email })]]);
+  const [id] = await callKw('res.partner', 'create', [[buildNewPartnerVals({ name, docNumber, phone, email }, idTypes)]]);
   return id;
+}
+
+// Ids de los tipos de documento DNI/CUIT (Argentina) y de la
+// responsabilidad "Consumidor Final". Se buscan una vez por proceso; si no
+// se encuentran, el cliente se crea como antes (sin tipo).
+let idTypesCache = null;
+export async function findIdentificationTypeIds() {
+  if (idTypesCache) return idTypesCache;
+  try {
+    const types = await callKwReadWithRetry('l10n_latam.identification.type', 'search_read', [
+      [['name', 'in', ['DNI', 'CUIT']], ['country_id.code', '=', 'AR']],
+    ], { fields: ['id', 'name'] });
+    const [cf] = await callKwReadWithRetry('l10n_ar.afip.responsibility.type', 'search_read', [
+      [['name', '=', 'Consumidor Final']],
+    ], { fields: ['id'], limit: 1 });
+    idTypesCache = {
+      dni: types.find((t) => t.name === 'DNI')?.id ?? null,
+      cuit: types.find((t) => t.name === 'CUIT')?.id ?? null,
+      consumidorFinal: cf?.id ?? null,
+    };
+    return idTypesCache;
+  } catch (err) {
+    console.error('[feriaOdoo] tipos de documento no disponibles:', err.message);
+    return {};
+  }
 }
 
 export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, warehouseId, partnerShippingId, clientOrderRef, lines }) {
