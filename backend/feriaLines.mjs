@@ -67,6 +67,31 @@ export function parseReservationKey(key) {
   return { sku, location };
 }
 
+// Artículo varios: SKU genérico de Odoo (consumible) para vender algo que no
+// está en la lista. Lo carga caja con descripción y precio de lista a mano;
+// sale siempre "Me llevo ahora" desde exhibición y no reserva stock.
+export const VARIOS_SKU = 'ARTVARIOS';
+export const VARIOS_CONDITION = 'varios';
+export const isVarios = (line) => String(line?.sku ?? '').toUpperCase() === VARIOS_SKU;
+
+export function buildVariosLine({ description, listPrice, qty }, paymentMethod, lines) {
+  const method = PAYMENT_METHODS[paymentMethod];
+  if (!method) throw new Error(`Medio de pago inválido: ${paymentMethod}`);
+  const text = typeof description === 'string' ? description.trim() : '';
+  if (!text) throw new Error('Artículo varios: escribí qué se vende');
+  if (text.length > 120) throw new Error('Artículo varios: la descripción es muy larga (máximo 120 caracteres)');
+  if (typeof listPrice !== 'number' || !Number.isFinite(listPrice) || listPrice <= 0) {
+    throw new Error('Artículo varios: el precio tiene que ser mayor a 0');
+  }
+  if (!Number.isInteger(qty) || qty < 1) throw new Error('Artículo varios: cantidad inválida');
+  const price = Math.round(listPrice);
+  return {
+    lineId: nextLineId(lines), sku: VARIOS_SKU, modelo: text, description: text, condition: VARIOS_CONDITION, qty,
+    listPrice: price, unitPrice: Math.round(price * (1 - method.discountPct / 100)), unitCost: null,
+    location: 'exhibicion', delivery: 'ahora', status: 'pendiente',
+  };
+}
+
 function addDelta(deltas, line, sign) {
   const key = reservationKey(line.sku, line.location);
   deltas.set(key, (deltas.get(key) ?? 0) + sign * line.qty);
@@ -78,8 +103,9 @@ function addDelta(deltas, line, sign) {
 // ubicación.
 export function reservationDeltas(beforeLines, afterLines) {
   const deltas = new Map();
-  for (const line of beforeLines) if (isReserving(line) && controlsStock(line.location)) addDelta(deltas, line, -1);
-  for (const line of afterLines) if (isReserving(line) && controlsStock(line.location)) addDelta(deltas, line, +1);
+  const reserves = (line) => isReserving(line) && controlsStock(line.location) && !isVarios(line);
+  for (const line of beforeLines) if (reserves(line)) addDelta(deltas, line, -1);
+  for (const line of afterLines) if (reserves(line)) addDelta(deltas, line, +1);
   for (const [key, value] of deltas) if (value === 0) deltas.delete(key);
   return deltas;
 }
@@ -108,6 +134,9 @@ export function applyLineAction(line, action, { user, now, changes = {} }) {
       return { ...line, status: 'enviado_feria', sentToFeriaAt: now, sentToFeriaBy: user };
     case 'edit': {
       assertReserving(line, 'editar');
+      if (isVarios(line) && ((changes.location ?? line.location) !== line.location || (changes.delivery ?? line.delivery) !== line.delivery)) {
+        throw new Error('Artículo varios sale siempre "Me llevo ahora" desde Exhibición');
+      }
       const next = { ...line };
       if (changes.location !== undefined) next.location = changes.location;
       if (changes.delivery !== undefined) next.delivery = changes.delivery;

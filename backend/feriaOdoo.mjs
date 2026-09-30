@@ -104,6 +104,7 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentM
       product_uom_qty: l.qty,
       price_unit: l.unitPrice,
       discount: l.discountPct,
+      ...(l.name ? { name: l.name } : {}),
     }]),
   };
   if (teamId) payload.team_id = teamId;

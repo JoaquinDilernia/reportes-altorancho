@@ -16,6 +16,8 @@ import {
 export function buildOdooLines(activeLines, paymentMethod, productIds, shippingProductId) {
   const lines = activeLines.map((line, i) => ({
     productId: productIds[i], qty: line.qty, ...odooLinePricing(line, paymentMethod),
+    // Artículo varios: en Odoo la línea dice qué se vendió.
+    ...(line.description ? { name: `[${line.sku}] ${line.description}` } : {}),
   }));
   if (shippingProductId) {
     lines.push({ productId: shippingProductId, qty: 1, unitPrice: netOfIva(SHIPPING_COST), discountPct: 0 });

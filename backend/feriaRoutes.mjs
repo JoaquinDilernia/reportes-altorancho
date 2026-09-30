@@ -24,6 +24,7 @@ import {
   createCart, listSellerCarts, addCartLine, updateCartLine, removeCartLine, discardCart, submitCart,
 } from './feriaCarts.mjs';
 import { findPartnerByDoc, cancelSaleOrder, hasDeliveredMoves, findOrderInvoices } from './feriaOdoo.mjs';
+import { priceSyncStatus } from './feriaPriceSync.mjs';
 import { searchFeriaProducts, setRebajaActiva, getFeriaProduct, filterCachedByRebaja, allFeriaProducts } from './feriaProducts.mjs';
 import { productImages } from './feriaImages.mjs';
 import { getAvailability, getDb, deliveryLocationId, listStockAlerts, setInTransit } from './feriaStock.mjs';
@@ -153,6 +154,11 @@ router.get('/products/search', requireFeriaAuth, async (req, res) => {
 
 // Qué está rebajado: contadores por nivel y, con ?level=1|2|3, esos productos
 // (sin stock: es para revisar precios, no para vender).
+// Estado de la lista de precios en vivo desde Dropbox (feriaPriceSync.mjs).
+router.get('/prices/sync-status', requireFeriaAuth, requireSuperadmin, (req, res) => {
+  res.json({ enabled: !!process.env.FERIA_PRICES_URL, ...priceSyncStatus });
+});
+
 // Rebajas y estadísticas: solo super admin (Caja normal no las ve).
 router.get('/products/rebajas', requireFeriaAuth, requireSuperadmin, async (req, res) => {
   try {
@@ -426,8 +432,9 @@ router.patch('/orders/:id/payment', requireFeriaAuth, requireFeriaRole('caja'), 
 // Caja agrega un producto a un pedido sin confirmar.
 router.post('/orders/:id/lines', requireFeriaAuth, requireFeriaRole('caja'), async (req, res) => {
   try {
-    const { sku, condition, qty, location, delivery } = req.body ?? {};
-    res.json({ order: await addOrderLine(req.params.id, { sku, condition, qty, location, delivery }) });
+    // description y listPrice: solo para Artículo varios (ARTVARIOS).
+    const { sku, condition, qty, location, delivery, description, listPrice } = req.body ?? {};
+    res.json({ order: await addOrderLine(req.params.id, { sku, condition, qty, location, delivery, description, listPrice }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

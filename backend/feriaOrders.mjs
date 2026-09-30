@@ -3,7 +3,7 @@ import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST, unitCostOf, prin
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
-  formatOrderNumber, assertShippingEditable, buildAddedLine,
+  formatOrderNumber, assertShippingEditable, buildAddedLine, buildVariosLine, isVarios,
   isConfirming, assertClosable, CONFIRMING_MESSAGE, assertPaymentEditable, repriceLines,
   validatePayments, assertPaymentsMatchTotal, hasCancelledItems, applyRestock, shouldAutoRetry,
 } from './feriaLines.mjs';
@@ -365,9 +365,11 @@ export async function updateOrderPayments(orderId, payments, user) {
 // calculado acá (rebaja activa + medio de pago del pedido) y stock reservado
 // en la misma transacción que la línea, igual que al crear el pedido.
 export async function addOrderLine(orderId, input) {
-  const product = getFeriaProduct(input.sku);
-  if (!product) throw new Error(`${input.sku} no está en la lista de precios de la feria`);
-  const odooStock = await fetchOdooStock([product.sku]);
+  const varios = isVarios(input);
+  const product = varios ? null : getFeriaProduct(input.sku);
+  if (!varios && !product) throw new Error(`${input.sku} no está en la lista de precios de la feria`);
+  // Artículo varios no controla stock: no hace falta consultar Odoo.
+  const odooStock = varios ? new Map() : await fetchOdooStock([product.sku]);
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
   return db.runTransaction(async (tx) => {
@@ -378,7 +380,9 @@ export async function addOrderLine(orderId, input) {
       throw new Error('Solo se agregan productos a pedidos que todavía no se confirmaron');
     }
     if (isConfirming(order)) throw new Error(CONFIRMING_MESSAGE);
-    const line = buildAddedLine(product, input, order.paymentMethod, order.lines);
+    const line = varios
+      ? buildVariosLine(input, order.paymentMethod, order.lines)
+      : buildAddedLine(product, input, order.paymentMethod, order.lines);
     if (line.delivery === 'envio' && !order.shipping) {
       throw new Error('Este pedido no tiene datos de envío: cargá primero la dirección de envío');
     }
