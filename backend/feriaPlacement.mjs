@@ -15,15 +15,6 @@ import { FALLADOS } from './feriaLines.mjs';
 export const FALLADOS_TOPUP = 100;
 const INVENTORY = { context: { inventory_mode: true } };
 
-// Productos sin stock (≤ 0) en Fallados, sumando todos sus quants. Puro.
-export function falladosToTopUp(productIds, quants) {
-  const total = new Map(productIds.map((id) => [id, 0]));
-  for (const q of quants) {
-    const id = q.product_id[0];
-    if (total.has(id)) total.set(id, total.get(id) + q.quantity);
-  }
-  return [...total].filter(([, qty]) => qty <= 0).map(([id]) => id);
-}
 
 // Movimientos abiertos cuyo origen no es la ubicación de su línea. Puro.
 export function planMoveLocations(moves, lines, locationIdFor) {
@@ -59,31 +50,53 @@ async function setQuantTo(productId, locationId, lotId, qty) {
   await applyInventory(quantId);
 }
 
-// Falla sin stock en Fallados → FALLADOS_TOPUP unidades.
-export async function ensureFalladosStock(skus) {
+// Cuánto tiene que quedar en Fallados para que Odoo deje confirmar: este
+// Odoo no confirma una venta si el almacén no tiene stock libre suficiente.
+// Sin stock en Fallados → FALLADOS_TOPUP; si aun así el libre del almacén no
+// alcanza para lo pedido, se suma lo que falta más FALLADOS_TOPUP de margen.
+// Devuelve la cantidad a sumar en Fallados (0 = no hace falta). Puro.
+export function falladosTopUpDelta({ falladosQty, freeQty, required }) {
+  let delta = falladosQty <= 0 ? FALLADOS_TOPUP - falladosQty : 0;
+  if (freeQty + delta < required) delta = required - freeQty + FALLADOS_TOPUP;
+  return Math.max(0, delta);
+}
+
+// `items`: [{ sku, qty }] de las líneas de falla de la venta. Se llama ANTES
+// de confirmar en Odoo.
+export async function ensureFalladosStock(items) {
   const falladosId = Number(process.env.ODOO_FERIA_LOCATION_FALLADOS_ID);
-  if (!falladosId || !skus.length) return [];
-  const productIds = [];
-  for (const sku of new Set(skus)) {
+  const warehouseId = Number(process.env.ODOO_FERIA_WAREHOUSE_ID) || undefined;
+  if (!falladosId || !items.length) return [];
+  const required = new Map();
+  for (const { sku, qty } of items) {
     const id = await findProductIdBySku(sku);
-    if (id) productIds.push(id);
+    if (id) required.set(id, (required.get(id) ?? 0) + qty);
   }
+  const productIds = [...required.keys()];
   if (!productIds.length) return [];
   const quants = await callKwReadWithRetry('stock.quant', 'search_read', [
     [['product_id', 'in', productIds], ['location_id', '=', falladosId]],
-  ], { fields: ['product_id', 'quantity'] });
-  const toTopUp = falladosToTopUp(productIds, quants);
-  if (!toTopUp.length) return [];
+  ], { fields: ['id', 'product_id', 'quantity', 'lot_id'] });
+  const products = await callKwReadWithRetry('product.product', 'read', [productIds], {
+    fields: ['tracking', 'company_id', 'free_qty'], context: { warehouse: warehouseId },
+  });
 
-  const products = await callKwReadWithRetry('product.product', 'read', [toTopUp], { fields: ['tracking', 'company_id'] });
+  const changed = [];
   const tracked = products.filter((p) => p.tracking !== 'none');
   await ensureAuth();
   const lots = tracked.length ? await ensureFalladoLots(tracked.map((p) => p.id), tracked[0].company_id?.[0]) : new Map();
   for (const p of products) {
-    await setQuantTo(p.id, falladosId, p.tracking !== 'none' ? lots.get(p.id) : null, FALLADOS_TOPUP);
+    const own = quants.filter((q) => q.product_id[0] === p.id);
+    const falladosQty = own.reduce((n, q) => n + q.quantity, 0);
+    const delta = falladosTopUpDelta({ falladosQty, freeQty: p.free_qty ?? 0, required: required.get(p.id) });
+    if (!delta) continue;
+    const lotId = p.tracking !== 'none' ? lots.get(p.id) : null;
+    const current = own.find((q) => (q.lot_id?.[0] ?? null) === (lotId ?? null))?.quantity ?? 0;
+    await setQuantTo(p.id, falladosId, lotId, current + delta);
+    changed.push({ productId: p.id, delta });
   }
-  console.log(`[feriaPlacement] Fallados: ${toTopUp.length} producto(s) sin stock cargados con ${FALLADOS_TOPUP}`);
-  return toTopUp;
+  if (changed.length) console.log(`[feriaPlacement] Fallados: stock sumado a ${changed.length} producto(s) para poder confirmar`);
+  return changed;
 }
 
 // Apunta cada movimiento del remito a la ubicación de su línea y reserva de
@@ -106,9 +119,14 @@ export async function alignOrderMoves(odooOrderId, lines) {
   return plan;
 }
 
-// Los dos pasos juntos, para una venta ya confirmada en Odoo.
-export async function placeOrderStock(odooOrderId, lines) {
-  const active = lines.filter((l) => l.status !== 'eliminado');
-  await ensureFalladosStock(active.filter((l) => l.location === FALLADOS).map((l) => l.sku));
-  return alignOrderMoves(odooOrderId, active);
+// Antes de confirmar: Fallados con stock suficiente para las líneas de falla.
+export function prepareFalladosStock(lines) {
+  return ensureFalladosStock(lines
+    .filter((l) => l.status !== 'eliminado' && l.location === FALLADOS)
+    .map((l) => ({ sku: l.sku, qty: l.qty })));
+}
+
+// Después de confirmar: el remito desde la ubicación real de cada línea.
+export function placeOrderStock(odooOrderId, lines) {
+  return alignOrderMoves(odooOrderId, lines.filter((l) => l.status !== 'eliminado'));
 }

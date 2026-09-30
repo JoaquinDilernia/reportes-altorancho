@@ -8,7 +8,7 @@ import { needsShipping, RESERVING_STATUSES } from './feriaLines.mjs';
 import { deliveryLocationId } from './feriaStock.mjs';
 import { deliverLines } from './feriaDelivery.mjs';
 import { invoiceOrder } from './feriaInvoice.mjs';
-import { placeOrderStock } from './feriaPlacement.mjs';
+import { placeOrderStock, prepareFalladosStock } from './feriaPlacement.mjs';
 import {
   getOrderById, saveOdooOrderId, saveOdooLineIds, markOrderConfirmed, applyOrderLineActions, setOrderErrorDetail,
   claimOrderForConfirm, markOrderError,
@@ -87,6 +87,14 @@ export async function confirmOrder(order, user) {
   // pedido pero se cortó antes de guardar los ids de línea.
   if (activeLines.some((l) => l.lineId && !l.odooLineId)) {
     await saveOdooLineIds(order.id, pairOdooLineIds(activeLines, await readOrderLineIds(odooOrderId)));
+  }
+
+  // Este Odoo no confirma una venta sin stock libre en el almacén: la falla
+  // sale de Fallados (stock ficticio), así que antes se le carga lo que falte.
+  try {
+    await prepareFalladosStock(activeLines);
+  } catch (err) {
+    console.error(`[feriaConfirm] ${order.number ?? order.id}: no se pudo cargar stock en Fallados:`, err.message);
   }
 
   // Re-confirmar uno ya confirmado es un no-op seguro en Odoo.

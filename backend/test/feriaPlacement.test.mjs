@@ -1,16 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { falladosToTopUp, planMoveLocations } from '../feriaPlacement.mjs';
+import { falladosTopUpDelta, planMoveLocations } from '../feriaPlacement.mjs';
 
-test('falladosToTopUp: productos sin stock o en negativo en Fallados (suma de todos sus quants)', () => {
-  const quants = [
-    { product_id: [1, 'a'], quantity: 100 },
-    { product_id: [2, 'b'], quantity: 0 },
-    { product_id: [3, 'c'], quantity: -2 },
-    { product_id: [3, 'c'], quantity: 1 },
-  ];
-  // 4 no tiene ningún quant en Fallados: también se carga.
-  assert.deepEqual(falladosToTopUp([1, 2, 3, 4], quants), [2, 3, 4]);
+test('falladosTopUpDelta: Fallados sin stock queda en 100', () => {
+  assert.equal(falladosTopUpDelta({ falladosQty: 0, freeQty: 0, required: 1 }), 100);
+  assert.equal(falladosTopUpDelta({ falladosQty: -2, freeQty: -2, required: 2 }), 102);
+});
+
+test('falladosTopUpDelta: si el libre del almacén no alcanza, suma lo que falta + 100', () => {
+  assert.equal(falladosTopUpDelta({ falladosQty: 100, freeQty: 5, required: 6 }), 101);
+});
+
+test('falladosTopUpDelta: con stock suficiente no toca nada', () => {
+  assert.equal(falladosTopUpDelta({ falladosQty: 100, freeQty: 100, required: 6 }), 0);
 });
 
 const LOC = { fallados: 429, exhibicion: 427, rolon: 419 };
