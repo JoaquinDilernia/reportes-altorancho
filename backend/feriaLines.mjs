@@ -74,8 +74,10 @@ export const VARIOS_SKU = 'ARTVARIOS';
 export const VARIOS_CONDITION = 'varios';
 export const isVarios = (line) => String(line?.sku ?? '').toUpperCase() === VARIOS_SKU;
 
+// Sin medio de pago (carrito de "Nuevo pedido") el precio final es el de
+// lista hasta que se pasa a cobrar, igual que buildCartLine.
 export function buildVariosLine({ description, listPrice, qty }, paymentMethod, lines) {
-  const method = PAYMENT_METHODS[paymentMethod];
+  const method = paymentMethod === undefined ? { discountPct: 0 } : PAYMENT_METHODS[paymentMethod];
   if (!method) throw new Error(`Medio de pago inválido: ${paymentMethod}`);
   const text = typeof description === 'string' ? description.trim() : '';
   if (!text) throw new Error('Artículo varios: escribí qué se vende');
@@ -234,6 +236,8 @@ export function priceCartForSubmit(lines, paymentMethod, getProduct) {
   const method = PAYMENT_METHODS[paymentMethod];
   if (!method) throw new Error(`Medio de pago inválido: ${paymentMethod}`);
   return lines.map((line) => {
+    // Artículo varios no está en la lista: vale el precio escrito a mano.
+    if (isVarios(line)) return { ...line, unitPrice: Math.round(line.listPrice * (1 - method.discountPct / 100)) };
     const product = getProduct(line.sku);
     if (!product) throw new Error(`${line.sku} ya no está en la lista de precios de la feria`);
     const listPrice = tablePrice(product, line.condition, product[activeRebajaField(line.condition)] ?? 0);

@@ -52,3 +52,26 @@ test('buildOdooLines: la línea de Artículo varios lleva la descripción como n
   assert.equal(odooLine.name, '[ARTVARIOS] Lámpara sin etiqueta');
   assert.equal(odooLine.productId, 56863);
 });
+
+test('buildVariosLine sin medio de pago (carrito de caja): precio final = precio de lista', () => {
+  const line = buildVariosLine(input, undefined, []);
+  assert.equal(line.unitPrice, 20000);
+});
+
+test('priceCartForSubmit: Artículo varios toma su precio a mano, sin buscarlo en la lista', async () => {
+  const { priceCartForSubmit } = await import('../feriaLines.mjs');
+  const line = buildVariosLine(input, undefined, []);
+  const [priced] = priceCartForSubmit([line], 'efectivo', () => { throw new Error('no debería buscar en la lista'); });
+  assert.equal(priced.listPrice, 20000);
+  assert.equal(priced.unitPrice, buildVariosLine(input, 'efectivo', []).unitPrice);
+});
+
+test('validateOrderInput acepta Artículo varios', async () => {
+  const { validateOrderInput } = await import('../feriaOrders.mjs');
+  const line = buildVariosLine(input, 'efectivo', []);
+  const { errors } = validateOrderInput({
+    sellerId: 'c1', paymentMethod: 'efectivo', lines: [line],
+    customer: { name: 'Ana', docNumber: '123', phone: '1144445555', email: 'a@b.com' },
+  });
+  assert.deepEqual(errors, []);
+});

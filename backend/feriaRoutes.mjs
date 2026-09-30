@@ -232,7 +232,9 @@ router.post('/orders', requireFeriaAuth, requireFeriaRole('vendedor'), async (re
 // Caja usa los mismos carritos para cargar pedidos sin vendedor (FC-0001).
 const sellerOf = (req) => ({ id: req.feriaUser.id, name: req.feriaUser.name, role: req.feriaUser.role });
 const cartAuth = [requireFeriaAuth, requireFeriaRole('vendedor', 'caja')];
-const lineInput = ({ sku, condition, qty, location, delivery } = {}) => ({ sku, condition, qty, location, delivery });
+// description y listPrice: solo para Artículo varios (ARTVARIOS, solo caja).
+const lineInput = ({ sku, condition, qty, location, delivery, description, listPrice } = {}) => (
+  { sku, condition, qty, location, delivery, description, listPrice });
 
 function cartRoute(handler) {
   return async (req, res) => {
@@ -252,7 +254,7 @@ router.post('/carts', ...cartAuth, cartRoute(async (req) => (
   { cart: await createCart(sellerOf(req), lineInput(req.body)) })));
 
 router.post('/carts/:id/lines', ...cartAuth, cartRoute(async (req) => (
-  { cart: await addCartLine(req.params.id, req.feriaUser.id, lineInput(req.body)) })));
+  { cart: await addCartLine(req.params.id, sellerOf(req), lineInput(req.body)) })));
 
 router.patch('/carts/:id/lines/:lineId', ...cartAuth, cartRoute(async (req) => {
   const { qty, location, delivery } = req.body ?? {};

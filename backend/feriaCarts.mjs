@@ -9,7 +9,7 @@ import { SHIPPING_COST } from './feriaPricing.mjs';
 import { fetchOdooStock, readReservations, checkAvailability, writeReservations } from './feriaStock.mjs';
 import {
   buildCartLine, assertCartEditable, applyLineAction, reservationDeltas, controlsStock,
-  priceCartForSubmit, needsShipping, formatOrderNumber,
+  priceCartForSubmit, needsShipping, formatOrderNumber, buildVariosLine, isVarios,
 } from './feriaLines.mjs';
 import {
   COLLECTION, validateOrderInput, sellerCounterRef, nextCounterValue, cleanCustomer, newOrderFields,
@@ -21,10 +21,21 @@ function productOrThrow(sku) {
   return product;
 }
 
+// Línea nueva del carrito. Artículo varios (descripción y precio a mano)
+// solo lo arma caja: el vendedor vende lo que está en la lista.
+function cartLineFor(seller, lineInput, lines) {
+  if (isVarios(lineInput)) {
+    if (seller.role !== 'caja') throw new Error('Artículo varios solo se carga desde caja');
+    return buildVariosLine(lineInput, undefined, lines);
+  }
+  return buildCartLine(productOrThrow(lineInput.sku), lineInput, lines);
+}
+
 // Stock de Odoo solo para lo que se controla (falla sale de Fallados, sin
-// control). Es HTTP lento: se lee afuera de la transacción.
+// control; artículo varios tampoco). Es HTTP lento: se lee afuera de la
+// transacción.
 function stockFor(lines) {
-  return fetchOdooStock(lines.filter((l) => controlsStock(l.location)).map((l) => l.sku));
+  return fetchOdooStock(lines.filter((l) => controlsStock(l.location) && !isVarios(l)).map((l) => l.sku));
 }
 
 async function reserve(tx, db, odooStock, beforeLines, afterLines) {
@@ -45,8 +56,7 @@ export function sellerCodeFor(seller) {
 }
 
 export async function createCart(seller, lineInput) {
-  const product = productOrThrow(lineInput.sku);
-  const line = buildCartLine(product, lineInput, []);
+  const line = cartLineFor(seller, lineInput, []);
   const sellerCode = await sellerCodeFor(seller);
   const odooStock = await stockFor([line]);
   const db = getDb();
@@ -104,11 +114,10 @@ async function readCart(cartId, sellerId) {
   return cart;
 }
 
-export async function addCartLine(cartId, sellerId, lineInput) {
-  const product = productOrThrow(lineInput.sku);
-  const probe = buildCartLine(product, lineInput, []);
+export async function addCartLine(cartId, seller, lineInput) {
+  const probe = cartLineFor(seller, lineInput, []);
   const odooStock = await stockFor([probe]);
-  return changeCartLines(cartId, sellerId, (lines) => [...lines, buildCartLine(product, lineInput, lines)], odooStock);
+  return changeCartLines(cartId, seller.id, (lines) => [...lines, cartLineFor(seller, lineInput, lines)], odooStock);
 }
 
 export async function updateCartLine(cartId, sellerId, lineId, { qty, location, delivery }) {

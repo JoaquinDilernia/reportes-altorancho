@@ -3,7 +3,7 @@ import { PAYMENT_METHODS as PAYMENT_METHOD_INFO, SHIPPING_COST, unitCostOf, prin
 import {
   validateLineDelivery, validateShipping, needsShipping, assignLineIds, reservationDeltas,
   applyLineAction, assertLineActionAllowed, hasPendingDeliveries, assertCancellable, shippingCostFor,
-  formatOrderNumber, assertShippingEditable, buildAddedLine, buildVariosLine, isVarios,
+  formatOrderNumber, assertShippingEditable, buildAddedLine, buildVariosLine, isVarios, VARIOS_CONDITION,
   isConfirming, assertClosable, CONFIRMING_MESSAGE, assertPaymentEditable, repriceLines,
   validatePayments, assertPaymentsMatchTotal, hasCancelledItems, applyRestock, shouldAutoRetry,
 } from './feriaLines.mjs';
@@ -36,7 +36,7 @@ export function validateOrderInput(input) {
   if (!input.lines?.length) errors.push('El pedido necesita al menos una línea de producto');
   for (const line of input.lines ?? []) {
     if (!line.sku) errors.push('Falta el SKU de un producto');
-    if (!CONDITIONS.has(line.condition)) errors.push(`Condición inválida para ${line.sku ?? 'un producto'} (debe ser falla o discontinuo)`);
+    if (!CONDITIONS.has(line.condition) && !(isVarios(line) && line.condition === VARIOS_CONDITION)) errors.push(`Condición inválida para ${line.sku ?? 'un producto'} (debe ser falla o discontinuo)`);
     // Los chequeos piden un número finito de verdad, no solo `> 0` / `>= 0`:
     // en JS `null >= 0` es true y `'5000' >= 0` también, así que un
     // unitPrice null (lo que devuelve el módulo de precios cuando esa
