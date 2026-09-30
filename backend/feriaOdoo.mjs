@@ -101,13 +101,32 @@ export function existingPartnerUpdate(existing, { phone, email }) {
   return Object.keys(update).length ? update : null;
 }
 
+// Cliente que ya existe: si no tiene tipo de documento (o quedó "VAT") o le
+// falta la responsabilidad AFIP, se completan; sin responsabilidad Odoo no
+// puede elegir Factura B y la venta queda sin facturar. Puro.
+export function partnerIdentityUpdate(existing, docNumber, idTypes = {}) {
+  const type = docIdentityType(docNumber);
+  if (!type) return {};
+  const update = {};
+  const currentType = existing.l10n_latam_identification_type_id;
+  if (idTypes[type] && (!currentType || currentType[1] === 'VAT')) update.l10n_latam_identification_type_id = idTypes[type];
+  if (type === 'dni' && idTypes.consumidorFinal && !existing.l10n_ar_afip_responsibility_type_id) {
+    update.l10n_ar_afip_responsibility_type_id = idTypes.consumidorFinal;
+  }
+  return update;
+}
+
 export async function findOrCreatePartner({ name, docNumber, phone, email }) {
   if (docNumber) {
     const existing = await callKwReadWithRetry('res.partner', 'search_read', [
       [['vat', '=', docNumber]],
-    ], { fields: ['id', 'phone', 'email'], limit: 1 });
+    ], { fields: ['id', 'phone', 'email', 'l10n_latam_identification_type_id', 'l10n_ar_afip_responsibility_type_id'], limit: 1 });
     if (existing[0]) {
-      const update = existingPartnerUpdate(existing[0], { phone, email });
+      const merged = {
+        ...existingPartnerUpdate(existing[0], { phone, email }),
+        ...partnerIdentityUpdate(existing[0], docNumber, await findIdentificationTypeIds()),
+      };
+      const update = Object.keys(merged).length ? merged : null;
       if (update) {
         await ensureAuth();
         await callKw('res.partner', 'write', [[existing[0].id], update]);
@@ -280,6 +299,15 @@ export async function postInvoice(invoiceId, journalId) {
   const [move] = await callKw('account.move', 'read', [[invoiceId]], { fields: ['journal_id', 'state'] });
   if (move.state === 'draft' && move.journal_id?.[0] !== journalId) {
     await callKw('account.move', 'write', [[invoiceId], { journal_id: journalId }]);
+  }
+  // Un borrador creado cuando el cliente no tenía responsabilidad AFIP quedó
+  // sin tipo de documento ("El diario requiere un tipo de documento"): se
+  // toma el primero que Odoo ofrece ahora (Factura B para consumidor final).
+  const [doc] = await callKw('account.move', 'read', [[invoiceId]], {
+    fields: ['state', 'l10n_latam_document_type_id', 'l10n_latam_available_document_type_ids'],
+  });
+  if (doc.state === 'draft' && !doc.l10n_latam_document_type_id && doc.l10n_latam_available_document_type_ids?.length) {
+    await callKw('account.move', 'write', [[invoiceId], { l10n_latam_document_type_id: doc.l10n_latam_available_document_type_ids[0] }]);
   }
   await callKw('account.move', 'action_post', [[invoiceId]]);
   const [posted] = await callKw('account.move', 'read', [[invoiceId]], { fields: INVOICE_FIELDS });

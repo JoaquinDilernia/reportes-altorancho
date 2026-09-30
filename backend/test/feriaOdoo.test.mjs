@@ -151,3 +151,14 @@ test('buildNewPartnerVals: DNI con su tipo y Consumidor Final; CUIT con su tipo'
     name: 'SA', vat: '20304050609', l10n_latam_identification_type_id: 4,
   });
 });
+
+test('partnerIdentityUpdate: completa tipo DNI y Consumidor Final al cliente existente que no los tiene', async () => {
+  const { partnerIdentityUpdate } = await import('../feriaOdoo.mjs');
+  const ids = { dni: 5, cuit: 4, consumidorFinal: 9 };
+  assert.deepEqual(partnerIdentityUpdate({ l10n_latam_identification_type_id: [1, 'VAT'] }, '40127242', ids),
+    { l10n_latam_identification_type_id: 5, l10n_ar_afip_responsibility_type_id: 9 });
+  assert.deepEqual(partnerIdentityUpdate({ l10n_latam_identification_type_id: [5, 'DNI'], l10n_ar_afip_responsibility_type_id: [1, 'RI'] }, '40127242', ids), {});
+  // No pisa un tipo ya cargado a mano (p. ej. Pasaporte).
+  assert.deepEqual(partnerIdentityUpdate({ l10n_latam_identification_type_id: [2, 'Pasaporte'], l10n_ar_afip_responsibility_type_id: [5, 'CF'] }, '40127242', ids), {});
+  assert.deepEqual(partnerIdentityUpdate({}, 'ABC', ids), {});
+});
