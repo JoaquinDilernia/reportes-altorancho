@@ -398,10 +398,12 @@ export async function addOrderLine(orderId, input) {
   });
 }
 
-// Todos los pedidos, del más nuevo al más viejo. orderBy sobre un solo campo
+// Todos los pedidos, del más nuevo al más viejo (el tope es alto a propósito:
+// con 300 los pedidos viejos desaparecían del historial y del buscador de Caja,
+// que filtra en el navegador). orderBy sobre un solo campo
 // (sin where) usa el índice automático de Firestore: no hace falta índice
 // compuesto.
-export async function listOrderHistory(limit = 300) {
+export async function listOrderHistory(limit = 5000) {
   const db = getDb();
   const snap = await db.collection(COLLECTION).orderBy('createdAt', 'desc').limit(limit).get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
