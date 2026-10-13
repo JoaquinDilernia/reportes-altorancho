@@ -15,6 +15,7 @@ import { readReservationsFor, appReservedFor } from './posStock.mjs';
 import * as orders from './posOrders.mjs';
 import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor } from './posConfirm.mjs';
 import { findPartnerForLookup, listOdooOptions } from './posOdoo.mjs';
+import { lookupArca } from './posArca.mjs';
 import * as cash from './posCash.mjs';
 import { computePosStats, monthsBetween } from './posStats.mjs';
 import { fetchProductImage } from './odoo.mjs';
@@ -169,7 +170,18 @@ router.get('/products/:templateId/image', async (req, res) => {
 router.get('/customers/lookup', ...sellers, handle(async (req) => {
   const doc = String(req.query.doc ?? '').replace(/\D/g, '');
   if (doc.length < 7) throw new Error('Escribí el DNI o CUIT completo');
-  return { odoo: await findPartnerForLookup(doc), arca: null }; // ARCA: Task 14
+  const odoo = await findPartnerForLookup(doc);
+  // ARCA no frena la venta: si falla, se carga a mano.
+  let arca = null;
+  let arcaError = null;
+  if (doc.length === 11 || !odoo) {
+    try {
+      arca = await lookupArca(doc);
+    } catch (err) {
+      arcaError = `No se pudo consultar ARCA: ${err.message}`;
+    }
+  }
+  return { odoo, arca, arcaError };
 }));
 
 // ---- Carritos ----
