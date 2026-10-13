@@ -65,3 +65,13 @@ test('assertOrderAccess: caja de LL no ve pedidos de AL; admin ve todo; vendedor
   assert.throws(() => assertOrderAccess(al, { role: 'vendedor', id: 'v1', localId: 'AL' }), (err) => err.status === 403);
   assert.doesNotThrow(() => assertOrderAccess({ ...al, sellerId: 'v1', status: 'carrito' }, { role: 'vendedor', id: 'v1', localId: 'AL' }));
 });
+
+const { assertLineEditAccess } = await import('../posAuth.mjs');
+
+test('assertLineEditAccess: vendedor solo edita carritos; caja de su local sí; otro local no', () => {
+  const v = { role: 'vendedor', id: 'v1', localId: 'AL' };
+  assert.doesNotThrow(() => assertLineEditAccess({ localId: 'AL', sellerId: 'v1', status: 'carrito' }, v));
+  assert.throws(() => assertLineEditAccess({ localId: 'AL', sellerId: 'v1', status: 'pendiente' }, v), (e) => e.status === 403);
+  assert.doesNotThrow(() => assertLineEditAccess({ localId: 'AL', sellerId: 'v1', status: 'pendiente' }, { role: 'caja', localId: 'AL' }));
+  assert.throws(() => assertLineEditAccess({ localId: 'AL', sellerId: 'v1', status: 'pendiente' }, { role: 'caja', localId: 'LL' }), (e) => e.status === 403);
+});

@@ -85,6 +85,12 @@ export function assertOrderAccess(order, user) {
   if (order.localId !== user.localId) throw forbidden('No tenés acceso a ese local');
 }
 
+// Editar líneas: el vendedor solo mientras el pedido es su carrito.
+export function assertLineEditAccess(order, user) {
+  assertOrderAccess(order, user);
+  if (user.role === 'vendedor' && order.status !== 'carrito') throw forbidden('El pedido ya está en caja');
+}
+
 export function sessionUser(id, data) {
   return { id, name: data.name, role: data.role, localId: data.localId ?? null };
 }

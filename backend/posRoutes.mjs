@@ -3,7 +3,7 @@
 import { Router } from 'express';
 import {
   requirePosAuth, requirePosRole, generateToken, loginWithPin, loginWithPassword, scopeLocalId,
-  assertOrderAccess, isAdminRole,
+  assertOrderAccess, assertLineEditAccess, isAdminRole,
 } from './posAuth.mjs';
 import { listUsers, createUser, updateUser, deleteUser } from './posUsers.mjs';
 import {
@@ -28,10 +28,13 @@ const admins = [requirePosAuth, requirePosRole('admin')];
 
 const httpError = (message, status) => Object.assign(new Error(message), { status });
 
-function statusOf(err) {
+export function statusOf(err) {
   if (err.status) return err.status;
   if (err.stage === 'claim') return 409;
   if (err.stage === 'odoo' || err.stage === 'post') return 502;
+  if (/ no encontrad[oa]$/.test(err.message ?? '')) return 404;
+  if (String(err.message ?? '').startsWith('Odoo RPC error')) return 502;
+  if (['TypeError', 'AbortError', 'TimeoutError'].includes(err.name)) return 502;
   return 400;
 }
 
@@ -46,8 +49,12 @@ const handle = (fn) => async (req, res) => {
 };
 
 // Límite de intentos fallidos de login por IP (en memoria).
-export function createLoginLimiter({ max = 10, windowMs = 10 * 60 * 1000, now = Date.now } = {}) {
+export function createLoginLimiter({ max = 10, windowMs = 10 * 60 * 1000, now = Date.now, sweepAt = 500 } = {}) {
   const entries = new Map();
+  const sweep = () => {
+    if (entries.size < sweepAt) return;
+    for (const [ip, entry] of entries) if (now() - entry.since >= windowMs) entries.delete(ip);
+  };
   const live = (ip) => {
     const entry = entries.get(ip);
     if (entry && now() - entry.since >= windowMs) {
@@ -59,27 +66,30 @@ export function createLoginLimiter({ max = 10, windowMs = 10 * 60 * 1000, now = 
   return {
     check: (ip) => (live(ip)?.count ?? 0) < max,
     fail(ip) {
+      sweep();
       const entry = live(ip);
       if (entry) entry.count += 1;
       else entries.set(ip, { count: 1, since: now() });
     },
     reset: (ip) => { entries.delete(ip); },
+    size: () => entries.size,
   };
 }
 
 const loginLimiter = createLoginLimiter();
 
-async function throttledLogin(req, attempt) {
-  const ip = req.ip ?? 'unknown';
-  if (!loginLimiter.check(ip)) throw httpError('Demasiados intentos: esperá unos minutos', 429);
+// Cuenta el intento ANTES de esperar la base (si no, ráfagas en paralelo
+// pasarían todas el chequeo); el éxito lo borra.
+export async function throttledAttempt(limiter, ip, attempt) {
+  if (!limiter.check(ip)) throw httpError('Demasiados intentos: esperá unos minutos', 429);
+  limiter.fail(ip);
   const user = await attempt();
-  if (!user) {
-    loginLimiter.fail(ip);
-    return null;
-  }
-  loginLimiter.reset(ip);
+  if (!user) return null;
+  limiter.reset(ip);
   return { token: generateToken(user), user };
 }
+
+const throttledLogin = (req, attempt) => throttledAttempt(loginLimiter, req.ip ?? 'unknown', attempt);
 
 // Admin opera sobre el local del pedido (o el que pide); el resto, el suyo.
 function actingUser(req, localId) {
@@ -143,7 +153,7 @@ router.get('/products/:templateId/image', async (req, res) => {
     let image = images.get(id);
     if (!image) {
       image = await fetchProductImage(id, 'image_256');
-      if (!image) return res.status(404).end();
+      if (!image || !String(image.contentType).startsWith('image/')) return res.status(404).end();
       images.set(id, image);
       if (images.size > 800) images.delete(images.keys().next().value);
     }
@@ -164,7 +174,14 @@ router.get('/customers/lookup', ...sellers, handle(async (req) => {
 
 // ---- Carritos ----
 router.get('/carts', ...sellers, handle((req) => orders.listMyCarts(req.posUser)));
-router.post('/carts', ...sellers, handle((req) => orders.createCart(actingUser(req, req.body?.localId ?? req.posUser.localId), req.body?.line ?? {})));
+router.post('/carts', ...sellers, handle(async (req) => {
+  let localId = req.posUser.localId;
+  if (isAdminRole(req.posUser.role)) {
+    localId = req.body?.localId;
+    if (!(await getLocales()).some((l) => l.id === localId)) throw new Error('Elegí un local válido');
+  }
+  return orders.createCart(actingUser(req, localId), req.body?.line ?? {});
+}));
 router.post('/carts/:id/lines', ...sellers, handle(async (req) => {
   await orderFor(req);
   return orders.addCartLine(req.params.id, req.posUser, req.body?.line ?? {});
@@ -185,10 +202,12 @@ router.post('/orders/:id/lines', ...cajas, handle(async (req) => {
 }));
 router.patch('/orders/:id/lines/:lineId', ...sellers, handle(async (req) => {
   const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
   return orders.updateLine(req.params.id, actingUser(req, order.localId), req.params.lineId, req.body ?? {});
 }));
 router.delete('/orders/:id/lines/:lineId', ...sellers, handle(async (req) => {
   const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
   return orders.removeLine(req.params.id, actingUser(req, order.localId), req.params.lineId);
 }));
 
@@ -283,7 +302,7 @@ router.get('/admin/payment-methods', ...admins, handle(() => getPaymentMethods()
 router.put('/admin/payment-methods/:id', ...admins, validId(CONFIG_ID, 'Id de medio de pago'), handle(async (req) => { await savePaymentMethod(req.params.id, req.body ?? {}); return getPaymentMethods(); }));
 router.get('/admin/promotions', ...admins, handle(() => listPromotions()));
 router.post('/admin/promotions', ...admins, handle(async (req) => ({ id: await savePromotion(null, req.body ?? {}) })));
-router.put('/admin/promotions/:id', ...admins, handle(async (req) => ({ id: await savePromotion(req.params.id, req.body ?? {}) })));
+router.put('/admin/promotions/:id', ...admins, validId(CONFIG_ID, 'Id de promoción'), handle(async (req) => ({ id: await savePromotion(req.params.id, req.body ?? {}) })));
 router.get('/admin/users', ...admins, handle(() => listUsers()));
 router.post('/admin/users', ...admins, handle(async (req) => createUser(req.body ?? {}, req.posUser, localeIdsOf(await getLocales()))));
 router.patch('/admin/users/:id', ...admins, handle(async (req) => updateUser(req.params.id, req.body ?? {}, req.posUser, localeIdsOf(await getLocales()))));

@@ -28,6 +28,8 @@ import { syncInflation } from './sync/inflation.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
 
 export const app = express();
+// Railway pone un proxy delante: confiar solo en 1 salto (no true) para que X-Forwarded-For no se falsee.
+app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
 app.use(express.json());

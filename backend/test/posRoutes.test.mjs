@@ -66,3 +66,47 @@ test('createLoginLimiter: bloquea tras 10 fallos, expira la ventana y el éxito 
   for (let i = 0; i < 9; i += 1) limiter.fail('1.1.1.1');
   assert.equal(limiter.check('1.1.1.1'), true, 'el éxito reinició el contador');
 });
+
+const { statusOf, throttledAttempt } = await import('../posRoutes.mjs');
+
+test('statusOf: 404 por no encontrado, 502 por Odoo/red, 400 por defecto', () => {
+  assert.equal(statusOf(new Error('Pedido no encontrado')), 404);
+  assert.equal(statusOf(new Error('Usuario no encontrado')), 404);
+  assert.equal(statusOf(new Error('Promoción no encontrada')), 404);
+  assert.equal(statusOf(new Error('Odoo RPC error: boom')), 502);
+  assert.equal(statusOf(Object.assign(new TypeError('fetch failed'))), 502);
+  assert.equal(statusOf(Object.assign(new Error('t'), { name: 'TimeoutError' })), 502);
+  assert.equal(statusOf(Object.assign(new Error('x'), { status: 403 })), 403);
+  assert.equal(statusOf(Object.assign(new Error('x'), { stage: 'claim' })), 409);
+  assert.equal(statusOf(new Error('Datos inválidos')), 400);
+});
+
+test('throttledAttempt: 11 intentos fallidos en paralelo → el 11vo se bloquea', async () => {
+  const limiter = createLoginLimiter({ max: 10, windowMs: 600000, now: () => 0 });
+  const results = await Promise.allSettled(Array.from({ length: 11 }, () => throttledAttempt(limiter, '9.9.9.9', async () => { await new Promise((r) => setImmediate(r)); return null; })));
+  const blocked = results.filter((r) => r.status === 'rejected' && r.reason.status === 429);
+  assert.equal(blocked.length, 1);
+  const ok = createLoginLimiter({ max: 2, windowMs: 1000, now: () => 0 });
+  await throttledAttempt(ok, 'a', async () => null);
+  assert.deepEqual((await throttledAttempt(ok, 'a', async () => ({ id: 1 }))).user, { id: 1 });
+  assert.equal(ok.check('a'), true);
+  await throttledAttempt(ok, 'a', async () => null);
+  assert.equal(ok.check('a'), true, 'el éxito reseteó el contador');
+});
+
+test('login limiter: poda entradas vencidas', () => {
+  let t = 0;
+  const l = createLoginLimiter({ max: 3, windowMs: 100, now: () => t, sweepAt: 2 });
+  l.fail('a'); l.fail('b'); l.fail('c');
+  t = 500;
+  l.fail('d');
+  assert.equal(l.size(), 1);
+});
+
+test('POST /carts de admin sin localId válido → 400; PUT promoción con id raro → 400', async () => {
+  await withServer(async (base) => {
+    const token = generateToken({ id: 'a1', role: 'admin', name: 'Admin' });
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    assert.equal((await fetch(`${base}/admin/promotions/a.b`, { method: 'PUT', headers, body: '{}' })).status, 400);
+  });
+});
