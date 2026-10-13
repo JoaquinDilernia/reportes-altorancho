@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTra, parseLoginResponse, parsePersona, cuitCandidatesFromDni } from '../posArca.mjs';
+import { buildTra, parseLoginResponse, parsePersona, cuitCandidatesFromDni, parsePersonaResponse, soapFault, arcaEnv } from '../posArca.mjs';
 
 test('buildTra: pide el servicio con ventana de ±10 minutos', () => {
   const xml = buildTra('ws_sr_constancia_inscripcion', new Date('2026-10-13T15:00:00Z'));
@@ -41,4 +41,40 @@ test('cuitCandidatesFromDni: prefijos 20, 27, 23, 24 con dígito verificador', (
   assert.equal(c.length, 4);
   assert.ok(c.every((x) => /^\d{11}$/.test(x)));
   assert.ok(c[0].startsWith('2030123456'));
+});
+
+test('parsePersonaResponse: fault de persona inexistente → null; otros faults y HTTP de error → throw', () => {
+  const fault = (s) => `<soapenv:Fault><faultcode>x</faultcode><faultstring>${s}</faultstring></soapenv:Fault>`;
+  assert.equal(parsePersonaResponse(fault('No existe persona con ese Id')), null);
+  assert.throws(() => parsePersonaResponse(fault('Token invalido')), /ARCA: Token invalido/);
+  assert.throws(() => parsePersonaResponse('<html>502</html>', false), /ARCA/);
+  assert.equal(soapFault('<a>ok</a>'), null);
+});
+
+test('arcaEnv: prod por defecto, homo, y valores raros fallan', () => {
+  assert.equal(arcaEnv(undefined), 'prod');
+  assert.equal(arcaEnv('prod'), 'prod');
+  assert.equal(arcaEnv('homo'), 'homo');
+  assert.throws(() => arcaEnv('test'), /POS_ARCA_ENV inválido/);
+});
+
+test('parseLoginResponse: vencimiento inválido → throw', () => {
+  const inner = '<x><expirationTime>basura</expirationTime><token>T</token><sign>S</sign></x>';
+  const xml = `<loginCmsReturn>${inner.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</loginCmsReturn>`;
+  assert.throws(() => parseLoginResponse(xml), /vencimiento/);
+});
+
+test('parsePersona: decodifica entidades e ignora impuestos no activos', () => {
+  const xml = `<personaReturn><datosGenerales><idPersona>30712345671</idPersona><razonSocial>PEREZ &amp; HIJOS SRL</razonSocial>
+    <domicilioFiscal><direccion>CALLE 1</direccion></domicilioFiscal></datosGenerales>
+    <datosRegimenGeneral><impuesto><idImpuesto>30</idImpuesto><estadoImpuesto>BA</estadoImpuesto></impuesto><impuesto><idImpuesto>32</idImpuesto><estadoImpuesto>AC</estadoImpuesto></impuesto></datosRegimenGeneral></personaReturn>`;
+  const p = parsePersona(xml);
+  assert.equal(p.name, 'PEREZ & HIJOS SRL');
+  assert.equal(p.afipResponsibility, 'exento');
+});
+
+test('cuitCandidatesFromDni: omite 20/27/24 cuando el resto da 10', () => {
+  const c = cuitCandidatesFromDni('30000002'); // con 20 el resto es 10
+  assert.ok(!c.some((x) => x.startsWith('20')));
+  assert.ok(c.some((x) => x.startsWith('23')));
 });
