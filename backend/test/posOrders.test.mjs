@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   orderKeys, validateCustomer, validatePayments, assertPaymentsMatchTotal, priceOrder, assertCartEditable, assertDraftEditable,
-  orderGroups, joinOdooNames,
+  orderGroups, joinOdooNames, claimPricing, assertCustomerShape,
 } from '../posOrders.mjs';
 
 const methodsById = new Map([
@@ -77,4 +77,26 @@ test('joinOdooNames: une nombres con " + " y saltea nulos', () => {
   assert.equal(joinOdooNames([{ group: 'local', odooOrderName: 'S10850' }, { group: 'rolon', odooOrderName: 'S10851' }]), 'S10850 + S10851');
   assert.equal(joinOdooNames([{ group: 'local', odooOrderName: null }, { group: 'rolon', odooOrderName: 'S2' }]), 'S2');
   assert.equal(joinOdooNames([]), '');
+});
+
+test('claimPricing: con pedido ya en Odoo reusa precios guardados; sin Odoo recalcula', () => {
+  const stored = { payments: [{ methodId: 'efectivo', detailId: null, amount: null }], extraDiscount: null, totals: { total: 123 } };
+  const frozen = claimPricing(
+    { ...stored, odooOrderId: 7, lines: [{ qty: 1, basePrice: 100000, status: 'activo' }], customer: { tagIds: [] } },
+    { methodsById, promotions: [], now: Date.now() },
+  );
+  assert.equal(frozen.totals.total, 123);
+  assert.deepEqual(frozen.payments, stored.payments);
+  const fresh = claimPricing(
+    { payments: [{ methodId: 'efectivo' }], odooOrderId: null, lines: [{ qty: 1, basePrice: 100000, status: 'activo' }], customer: { tagIds: [] }, totals: { total: 123 } },
+    { methodsById, promotions: [], now: Date.now() },
+  );
+  assert.equal(fresh.totals.total, 85000);
+});
+
+test('assertCustomerShape: exige objeto con campos de texto', () => {
+  assert.doesNotThrow(() => assertCustomerShape({ docNumber: '1', name: 'a', phone: '1', email: 'e' }));
+  assert.throws(() => assertCustomerShape(null), /Datos del cliente inválidos/);
+  assert.throws(() => assertCustomerShape({ docNumber: 5, name: 'a', phone: '1', email: 'e' }), /Datos del cliente inválidos/);
+  assert.throws(() => assertCustomerShape({ name: 'a', phone: '1', email: 'e' }), /Datos del cliente inválidos/);
 });

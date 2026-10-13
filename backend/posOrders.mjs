@@ -13,7 +13,7 @@ import { resolveExtraDiscount, listActivePromotions } from './posPromotions.mjs'
 import { getCatalogProducts, fetchFreeStock, stockLocationIds } from './posCatalog.mjs';
 import {
   buildLine, editLine, reservationDeltas, needsShipping, validateShipping, formatOrderNumber, isConfirming,
-  CONFIRMING_MESSAGE, activeLines, RESERVING_ORDER_STATUSES,
+  CONFIRMING_MESSAGE, activeLines,
 } from './posLines.mjs';
 import { readReservations, checkAvailability, writeReservations } from './posStock.mjs';
 import { isValidCuit } from './feriaOdoo.mjs';
@@ -102,6 +102,24 @@ export function priceOrder(order, { methodsById, promotions, now }) {
   return { extraDiscount, totals };
 }
 
+// Pedido que ya existe en Odoo: los precios quedaron fijos, no se recalculan.
+export function claimPricing(order, { methodsById, promotions, now }) {
+  if (order.odooOrderId && order.totals) {
+    return { payments: order.payments, extraDiscount: order.extraDiscount ?? null, totals: order.totals };
+  }
+  const payments = validatePayments(order.payments, methodsById);
+  const { extraDiscount, totals } = priceOrder({ ...order, payments }, { methodsById, promotions, now });
+  assertPaymentsMatchTotal(payments, totals.total);
+  return { payments, extraDiscount, totals };
+}
+
+export function assertCustomerShape(c) {
+  const ok = c && typeof c === 'object' && !Array.isArray(c)
+    && ['docNumber', 'name', 'phone', 'email'].every((k) => typeof c[k] === 'string')
+    && ['street', 'city', 'zip'].every((k) => c[k] == null || typeof c[k] === 'string');
+  if (!ok) throw new Error('Datos del cliente inválidos');
+}
+
 export function assertCartEditable(order, user) {
   if (order.sellerId !== user.id) throw new Error('Este carrito es de otro vendedor');
   if (order.status === 'descartado') throw new Error('Este carrito se vació');
@@ -183,7 +201,9 @@ export async function createCart(user, lineInput) {
 async function changeLines(orderId, user, change, touched = []) {
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
-  const first = withId(await ref.get());
+  const firstSnap = await ref.get();
+  if (!firstSnap.exists) throw new Error('Pedido no encontrado');
+  const first = withId(firstSnap);
   const ctx = await lineCtx(first.localId);
   const freeStock = touched.length ? await stockFor(touched, ctx) : new Map();
   return db.runTransaction(async (tx) => {
@@ -250,8 +270,8 @@ export async function discardCart(orderId, user) {
 }
 
 export async function listMyCarts(user) {
-  const snap = await getDb().collection(COLLECTION).where('sellerId', '==', user.id).get();
-  return snap.docs.map(withId).filter((o) => o.status === 'carrito')
+  const snap = await getDb().collection(COLLECTION).where('queueKey', '==', `${user.localId}_carrito`).get();
+  return snap.docs.map(withId).filter((o) => o.status === 'carrito' && o.sellerId === user.id)
     .sort((a, b) => toDate(a.createdAt) - toDate(b.createdAt));
 }
 
@@ -312,7 +332,10 @@ export async function updateDraft(orderId, user, patch) {
     }
     assertDraftEditable(order);
     const update = { updatedAt: new Date() };
-    if (patch.customer !== undefined) update.customer = cleanCustomer(patch.customer);
+    if (patch.customer !== undefined) {
+      assertCustomerShape(patch.customer);
+      update.customer = cleanCustomer(patch.customer);
+    }
     if (patch.shipping !== undefined) update.shipping = patch.shipping;
     if (patch.payments !== undefined) update.payments = validatePayments(patch.payments, methodsById);
     if (patch.discountChoice !== undefined) update.discountChoice = patch.discountChoice;
@@ -344,9 +367,7 @@ export async function claimOrderForConfirm(orderId, user) {
     if (needsShipping(order.lines)) errors.push(...validateShipping(order.shipping));
     if (!activeLines(order.lines).length) errors.push('El pedido no tiene productos');
     if (errors.length) throw new Error(errors.join('; '));
-    const payments = validatePayments(order.payments, methodsById);
-    const { extraDiscount, totals } = priceOrder({ ...order, payments }, { methodsById, promotions, now: Date.now() });
-    assertPaymentsMatchTotal(payments, totals.total);
+    const { payments, extraDiscount, totals } = claimPricing(order, { methodsById, promotions, now: Date.now() });
     const update = { confirmingSince: new Date(), cashSessionId, payments, extraDiscount, totals, updatedAt: new Date() };
     tx.update(ref, update);
     return { order: { ...order, ...update }, alreadyConfirmed: false };
@@ -364,9 +385,18 @@ export const setOrderWarning = (id, warning) => patchOrder(id, { warning });
 export const markOrderInvoiced = (id, { invoiceId, invoiceName }) => patchOrder(id, { invoiceId, invoiceName, invoiceError: null });
 export const setInvoiceError = (id, invoiceError) => patchOrder(id, { invoiceError });
 
+// Solo marca error si el pedido sigue en caja; si ya se confirmó no hace nada.
 export async function markOrderError(id, errorDetail) {
-  const order = await getOrder(id);
-  await patchOrder(id, { status: 'error', errorDetail, confirmingSince: null, ...orderKeys({ ...order, status: 'error' }) });
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = withId(snap);
+    if (!['pendiente', 'error'].includes(order.status)) return false;
+    tx.update(ref, { status: 'error', errorDetail, confirmingSince: null, ...orderKeys({ ...order, status: 'error' }), updatedAt: new Date() });
+    return true;
+  });
 }
 
 // Confirmado en Odoo: la reserva pasa a Odoo y la de la app se libera.
@@ -375,11 +405,13 @@ export async function markOrderConfirmed(id, { odooOrders, user }) {
   const ref = db.collection(COLLECTION).doc(id);
   const ctx = await lineCtx((await getOrder(id)).localId);
   return db.runTransaction(async (tx) => {
-    const order = withId(await tx.get(ref));
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = withId(snap);
+    if (order.status === 'confirmado') return order;
+    if (!['pendiente', 'error'].includes(order.status)) throw new Error('Este pedido no se puede confirmar');
     const after = { ...order, status: 'confirmado' };
-    const commit = RESERVING_ORDER_STATUSES.has(order.status)
-      ? await reserveInTx(tx, db, ctx, new Map(), order, after)
-      : () => {};
+    const commit = await reserveInTx(tx, db, ctx, new Map(), order, after);
     commit();
     const update = {
       status: 'confirmado', odooOrders, odooOrderId: odooOrders[0]?.odooOrderId ?? null, odooOrderName: joinOdooNames(odooOrders),
@@ -403,7 +435,10 @@ export async function markOrderAnnulled(id, user, reason) {
   const ref = db.collection(COLLECTION).doc(id);
   const ctx = await lineCtx((await getOrder(id)).localId);
   return db.runTransaction(async (tx) => {
-    const order = withId(await tx.get(ref));
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = withId(snap);
+    if (!['pendiente', 'error', 'confirmado'].includes(order.status)) throw new Error('Este pedido no se puede anular');
     const after = { ...order, status: 'anulado' };
     const commit = await reserveInTx(tx, db, ctx, new Map(), order, after);
     commit();
