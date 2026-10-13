@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder } from '../posConfirm.mjs';
+import {
+  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps,
+} from '../posConfirm.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS } from '../posConfig.mjs';
 
 const ctx = {
@@ -38,7 +40,9 @@ function fakeDeps(overrides = {}) {
     readOrderLineIds: rec('readOrderLineIds', (id) => lineIdsByOrder[id]),
     saveOdooLineIds: rec('saveOdooLineIds'),
     confirmSaleOrder: rec('confirmSaleOrder'),
-    readOrderName: rec('readOrderName', (id) => `S${id}`),
+    findSaleOrdersByRef: rec('findByRef', []),
+    readOrderStates: rec('orderStates', (ids) => ids.map((id) => ({ id, name: `S${id}`, state: 'draft' }))),
+    clearPostConfirmPending: rec('clearPending'),
     markOrderConfirmed: rec('markOrderConfirmed'),
     getOrder: rec('getOrder', () => ({ id: 'o1', status: 'confirmado' })),
     alignFirstLegMoves: rec('alignFirstLegMoves', []),
@@ -142,7 +146,7 @@ test('confirmPosOrder: línea de Exhibición → alignFirstLegMoves con la ubica
   const order = baseOrder();
   order.lines[0] = { ...order.lines[0], origin: 'exhibicion', delivery: 'retira_local' };
   await confirmPosOrder(order, 'Caja', ctx, deps);
-  assert.deepEqual(named(calls, 'alignFirstLegMoves')[0].slice(1), [9000, [{ odooLineId: 71, locationId: 324 }]]);
+  assert.deepEqual(named(calls, 'alignFirstLegMoves')[0].slice(1), [[{ odooLineId: 71, locationId: 324 }]]);
   assert.equal(named(calls, 'validateTwoStep').length, 0);
 });
 
@@ -245,6 +249,8 @@ function annulDeps(order, overrides = {}) {
     getOrder: async () => order,
     hasDeliveredMoves: async (id) => { calls.push(['delivered?', id]); return false; },
     hasDoneTransfers: async (id) => { calls.push(['done?', id]); return false; },
+    findOrderInvoices: async () => [],
+    readOrderStates: async (ids) => ids.map((id) => ({ id, name: id === 9000 ? 'S1' : 'S2', state: 'sale' })),
     cancelSaleOrder: async (id) => { calls.push(['cancel', id]); },
     markOrderAnnulled: async (id, user, reason) => { calls.push(['annulled', id, user, reason]); return { ...order, status: 'anulado' }; },
     ...overrides,
@@ -274,4 +280,117 @@ test('annulPosOrder: si algo de cualquier pedido ya se movió, no cancela nada',
 test('annulPosOrder: con factura o de otro local no se anula', async () => {
   await assert.rejects(annulPosOrder('o1', cajero, '', annulDeps({ ...confirmedOrder(), invoiceName: 'FA-B 1' }).deps), /factura FA-B 1/);
   await assert.rejects(annulPosOrder('o1', { ...cajero, localId: 'BL' }, '', annulDeps(confirmedOrder()).deps), /acceso/);
+});
+
+test('annulPosOrder: con una factura validada en Odoo en cualquiera de los pedidos no se anula', async () => {
+  const { deps, calls } = annulDeps(confirmedOrder(), {
+    findOrderInvoices: async (id) => (id === 9001 ? [{ id: 300, state: 'posted', name: 'FA-B 00032-1' }] : []),
+  });
+  await assert.rejects(annulPosOrder('o1', cajero, '', deps), /factura FA-B 00032-1 en Odoo/);
+  assert.equal(calls.some((c) => c[0] === 'cancel'), false);
+});
+
+test('annulPosOrder: si falla a mitad, avisa qué pedidos ya se cancelaron; el reintento salta los cancelados', async () => {
+  const { deps } = annulDeps(confirmedOrder(), {
+    cancelSaleOrder: async (id) => { if (id === 9001) throw new Error('timeout'); },
+  });
+  await assert.rejects(annulPosOrder('o1', cajero, '', deps), /ya se cancelaron en Odoo: S1.*timeout.*[Rr]eintentá/);
+  const retry = annulDeps(confirmedOrder(), {
+    readOrderStates: async (ids) => ids.map((id) => ({ id, name: id === 9000 ? 'S1' : 'S2', state: id === 9000 ? 'cancel' : 'sale' })),
+  });
+  await annulPosOrder('o1', cajero, '', retry.deps);
+  assert.deepEqual(retry.calls.filter((c) => c[0] === 'cancel').map((c) => c[1]), [9001]);
+});
+
+// ---- Fix round 1: pedidos perdidos, estados, pasos posteriores ----
+
+test('confirmPosOrder: si Odoo ya tiene el pedido del grupo (respuesta perdida), lo adopta en vez de crear otro', async () => {
+  const { deps, calls } = fakeDeps({
+    findSaleOrdersByRef: async (q) => { calls.push(['findByRef', q]); return q.warehouseId === 28 ? [{ id: 9005, name: 'S9005', state: 'draft' }] : []; },
+    readOrderLineIds: async (id) => ({ 9000: [71], 9005: [72] })[id],
+  });
+  await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
+  assert.deepEqual(named(calls, 'createSaleOrder').map((c) => c[1].warehouse_id), [1]);
+  assert.deepEqual(named(calls, 'findByRef').map((c) => c[1]), [
+    { clientOrderRef: 'LL-0001', warehouseId: 1, teamId: 6 }, { clientOrderRef: 'LL-0001', warehouseId: 28, teamId: 6 },
+  ]);
+  assert.deepEqual(named(calls, 'saveOdooOrders').at(-1)[2].map((o) => [o.group, o.odooOrderId]), [['local', 9000], ['rolon', 9005]]);
+  // El contacto de entrega solo se crea si de verdad se va a crear el pedido.
+  assert.equal(named(calls, 'childPartner').length, 0);
+});
+
+test('confirmPosOrder: más de un pedido en Odoo para el mismo grupo → error, no crea nada', async () => {
+  const { deps, calls } = fakeDeps({
+    findSaleOrdersByRef: async () => [{ id: 9005, name: 'S9005' }, { id: 9006, name: 'S9006' }],
+  });
+  await assert.rejects(confirmPosOrder(baseOrder(), 'Caja', ctx, deps), /S9005, S9006/);
+  assert.equal(named(calls, 'createSaleOrder').length, 0);
+});
+
+test('confirmPosOrder: solo confirma los pedidos en borrador; uno cancelado en Odoo frena con error', async () => {
+  const { deps, calls } = fakeDeps({
+    readOrderStates: async (ids) => ids.map((id) => ({ id, name: `S${id}`, state: id === 9000 ? 'sale' : 'draft' })),
+  });
+  await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
+  assert.deepEqual(named(calls, 'confirmSaleOrder').map((c) => c[1]), [9001]);
+  const cancelled = fakeDeps({
+    readOrderStates: async (ids) => ids.map((id) => ({ id, name: `S${id}`, state: id === 9001 ? 'cancel' : 'draft' })),
+  });
+  await assert.rejects(confirmPosOrder(baseOrder(), 'Caja', ctx, cancelled.deps), /El pedido S9001 está cancelado en Odoo/);
+  assert.equal(named(cancelled.calls, 'confirmSaleOrder').length, 0);
+  assert.equal(named(cancelled.calls, 'markOrderConfirmed').length, 0);
+});
+
+test('confirmPosOrder: los pasos posteriores terminan bajando postConfirmPending (aun con avisos)', async () => {
+  const { deps, calls } = fakeDeps({ validateTwoStep: async () => { throw new Error('sin stock'); } });
+  await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
+  assert.deepEqual(named(calls, 'clearPending').map((c) => c[1]), ['o1']);
+  assert.ok(indexOf(calls, 'setOrderWarning') < indexOf(calls, 'clearPending'));
+  assert.ok(indexOf(calls, 'markOrderConfirmed') < indexOf(calls, 'clearPending'));
+});
+
+test('runPostConfirmSteps: Exhibición sin re-apuntar → no se valida en el acto esa línea, con aviso', async () => {
+  const { deps, calls } = fakeDeps({ alignFirstLegMoves: async () => { throw new Error('picking bloqueado'); } });
+  const order = {
+    ...baseOrder(), status: 'confirmado',
+    odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: 'S9000' }],
+    lines: [
+      { lineId: 'L1', productId: 10, sku: 'A', qty: 1, basePrice: 1210, origin: 'exhibicion', delivery: 'ahora', status: 'activo', odooLineId: 71 },
+      { lineId: 'L3', productId: 12, sku: 'C', qty: 2, basePrice: 1210, origin: 'stock', delivery: 'ahora', status: 'activo', odooLineId: 73 },
+    ],
+  };
+  await runPostConfirmSteps(order, 'Caja', ctx, deps);
+  assert.deepEqual(named(calls, 'validateTwoStep')[0].slice(1), [9000, [{ odooLineId: 73, qty: 2, locationId: 8 }]]);
+  assert.deepEqual(named(calls, 'markLinesDelivered')[0][2], ['L3']);
+  const warning = named(calls, 'setOrderWarning')[0][2];
+  assert.match(warning, /picking bloqueado/);
+  assert.match(warning, /A no se validó en el acto/);
+});
+
+const confirmedForClaim = (extra) => ({
+  ...baseOrder(), status: 'confirmado', odooOrderId: 9000,
+  odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: 'S9000' }, { group: 'rolon', odooOrderId: 9001, odooOrderName: 'S9001' }],
+  lines: baseOrder().lines.map((l, i) => ({ ...l, odooLineId: 71 + i })), ...extra,
+});
+
+test('claimAndConfirmPos: ya confirmado con pasos pendientes → los vuelve a correr', async () => {
+  const { deps, calls } = fakeDeps({
+    claimOrderForConfirm: async () => ({ order: confirmedForClaim({ postConfirmPending: true }), alreadyConfirmed: true }),
+    loadCtx: async () => ctx,
+  });
+  await claimAndConfirmPos('o1', { name: 'Caja', localId: 'LL' }, deps);
+  assert.deepEqual(named(calls, 'validateTwoStep')[0].slice(1), [9000, [{ odooLineId: 71, qty: 1, locationId: 8 }]]);
+  assert.equal(named(calls, 'clearPending').length, 1);
+  assert.equal(named(calls, 'createSaleOrder').length, 0);
+  assert.equal(named(calls, 'markOrderConfirmed').length, 0);
+});
+
+test('claimAndConfirmPos: ya confirmado sin pendientes → no hace nada más', async () => {
+  const order = confirmedForClaim({ postConfirmPending: false });
+  const { deps, calls } = fakeDeps({
+    claimOrderForConfirm: async () => ({ order, alreadyConfirmed: true }),
+    loadCtx: async () => ctx,
+  });
+  assert.equal(await claimAndConfirmPos('o1', { name: 'Caja', localId: 'LL' }, deps), order);
+  assert.equal(calls.length, 0);
 });

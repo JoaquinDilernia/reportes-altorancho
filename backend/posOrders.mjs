@@ -384,6 +384,8 @@ export const saveOdooLineIds = (id, lines) => patchOrder(id, { lines });
 export const setOrderWarning = (id, warning) => patchOrder(id, { warning });
 export const markOrderInvoiced = (id, { invoiceId, invoiceName }) => patchOrder(id, { invoiceId, invoiceName, invoiceError: null });
 export const setInvoiceError = (id, invoiceError) => patchOrder(id, { invoiceError });
+// Pasos después de confirmar (Exhibición, entrega en el acto, factura) terminados.
+export const clearPostConfirmPending = (id) => patchOrder(id, { postConfirmPending: false });
 
 // Solo marca error si el pedido sigue en caja; si ya se confirmó no hace nada.
 export async function markOrderError(id, errorDetail) {
@@ -415,7 +417,8 @@ export async function markOrderConfirmed(id, { odooOrders, user }) {
     commit();
     const update = {
       status: 'confirmado', odooOrders, odooOrderId: odooOrders[0]?.odooOrderId ?? null, odooOrderName: joinOdooNames(odooOrders),
-      confirmingSince: null, errorDetail: null, confirmedAt: new Date(), confirmedBy: user, ...orderKeys(after), updatedAt: new Date(),
+      confirmingSince: null, errorDetail: null, confirmedAt: new Date(), confirmedBy: user, postConfirmPending: true,
+      ...orderKeys(after), updatedAt: new Date(),
     };
     tx.update(ref, update);
     return { ...order, ...update };

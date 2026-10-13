@@ -89,11 +89,14 @@ function defaultDeps() {
     findProductIdBySku: odoo.findProductIdBySku, createChildPartner: odoo.createChildPartner,
     createSaleOrder: odoo.createSaleOrder, saveOdooOrders: orders.saveOdooOrders,
     readOrderLineIds: odoo.readOrderLineIds, saveOdooLineIds: orders.saveOdooLineIds,
-    confirmSaleOrder: odoo.confirmSaleOrder, readOrderName: odoo.readOrderName,
+    findSaleOrdersByRef: odoo.findSaleOrdersByRef, readOrderStates: odoo.readOrderStates,
+    confirmSaleOrder: odoo.confirmSaleOrder,
     markOrderConfirmed: orders.markOrderConfirmed, getOrder: orders.getOrder,
     alignFirstLegMoves: odoo.alignFirstLegMoves, validateTwoStep,
     markLinesDelivered: orders.markLinesDelivered, setOrderWarning: orders.setOrderWarning,
+    clearPostConfirmPending: orders.clearPostConfirmPending,
     invoice: (order, locale) => invoicePosOrder(order, locale),
+    claimOrderForConfirm: orders.claimOrderForConfirm, markOrderError: orders.markOrderError, loadCtx,
   };
 }
 
@@ -145,15 +148,25 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   const plan = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId });
 
   // 1. Un pedido por grupo, en orden; cada uno se guarda ANTES de seguir.
+  // Antes de crear se busca en Odoo (solo lectura) por referencia + depósito
+  // + equipo: si un intento anterior lo creó pero la respuesta se perdió (o
+  // falló el guardado en la app), se adopta ese en vez de crear otro.
   for (const group of plan) {
     if (existingFor(group.group)) continue;
-    const partnerShippingId = await shippingPartnerFor(group.lines, order, partnerId, ctx, deps);
-    const vals = odoo.buildSaleOrderPayload({
-      partnerId, pricelistId: ctx.settings.fullPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
-      warehouseId: group.warehouseId, partnerShippingId, clientOrderRef: order.number, lines: group.odooLines,
-    });
-    if (!vals.pricelist_id) delete vals.pricelist_id;
-    const odooOrderId = await deps.createSaleOrder(vals);
+    const found = await deps.findSaleOrdersByRef({ clientOrderRef: order.number, warehouseId: group.warehouseId, teamId: ctx.locale.teamId });
+    if (found.length > 1) {
+      throw new Error(`Hay ${found.length} pedidos en Odoo para ${order.number} en el mismo depósito (${found.map((o) => o.name).join(', ')}): cancelá los que sobran en Odoo y reintentá`);
+    }
+    let odooOrderId = found[0]?.id;
+    if (!odooOrderId) {
+      const partnerShippingId = await shippingPartnerFor(group.lines, order, partnerId, ctx, deps);
+      const vals = odoo.buildSaleOrderPayload({
+        partnerId, pricelistId: ctx.settings.fullPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
+        warehouseId: group.warehouseId, partnerShippingId, clientOrderRef: order.number, lines: group.odooLines,
+      });
+      if (!vals.pricelist_id) delete vals.pricelist_id;
+      odooOrderId = await deps.createSaleOrder(vals);
+    }
     odooOrders.push({ group: group.group, odooOrderId, odooOrderName: null });
     await deps.saveOdooOrders(order.id, odooOrders.map((o) => ({ ...o })));
   }
@@ -171,31 +184,59 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   }
   if (paired) await deps.saveOdooLineIds(order.id, lines);
 
-  // 3. Confirmar todos (reconfirmar uno ya confirmado no crea nada nuevo).
+  // 3. Confirmar los que siguen en presupuesto. action_confirm falla sobre un
+  // pedido bloqueado/cancelado y re-confirmar pisa la fecha: se mira el estado.
+  const states = new Map((await deps.readOrderStates(odooOrders.map((o) => o.odooOrderId))).map((s) => [s.id, s]));
   for (const o of odooOrders) {
-    await deps.confirmSaleOrder(o.odooOrderId);
-    o.odooOrderName = await deps.readOrderName(o.odooOrderId);
+    const state = states.get(o.odooOrderId);
+    if (!state) throw new Error(`El pedido ${o.odooOrderId} no existe en Odoo: resolvelo en Odoo`);
+    if (state.state === 'cancel') throw new Error(`El pedido ${state.name} está cancelado en Odoo: resolvelo en Odoo`);
   }
+  for (const o of odooOrders) {
+    const state = states.get(o.odooOrderId);
+    if (['draft', 'sent'].includes(state.state)) await deps.confirmSaleOrder(o.odooOrderId);
+    o.odooOrderName = state.name;
+  }
+  // markOrderConfirmed deja postConfirmPending: true hasta que terminen los
+  // pasos de después (si el proceso se corta, el próximo reclamo los corre).
   await deps.markOrderConfirmed(order.id, { odooOrders: odooOrders.map((o) => ({ ...o })), user });
+  await runPostConfirmSteps({ ...order, lines, odooOrders, odooOrderId: odooOrders[0].odooOrderId }, user, ctx, deps);
+  return deps.getOrder(order.id);
+}
 
+// Pasos después de confirmar (Exhibición, entrega en el acto, factura). Son
+// reintentables: el re-apuntado se vuelve a planificar, lo ya entregado no se
+// repite y la factura no se duplica. Los errores quedan como aviso.
+export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()) {
+  const { lines, odooOrders } = order;
   const localOrderId = odooOrders.find((o) => o.group === 'local')?.odooOrderId ?? null;
   const { local } = odoo.splitByOrigin(lines);
   const warnings = [];
 
   // 4. Exhibición: el PICK tiene que salir de la exhibición, no del Stock.
   const exhibicion = local.filter((l) => l.origin === 'exhibicion');
+  let exhibicionAligned = true;
   if (localOrderId && exhibicion.length) {
     try {
-      await deps.alignFirstLegMoves(localOrderId, exhibicion.map((l) => ({
+      await deps.alignFirstLegMoves(exhibicion.map((l) => ({
         odooLineId: l.odooLineId, locationId: originLocationId(ctx.locale, ctx.settings, l.origin),
       })));
     } catch (err) {
+      exhibicionAligned = false;
       warnings.push(`No se pudo apuntar el PICK a Exhibición (${err.message}): corregilo en Odoo`);
     }
   }
 
-  // 5. "Se lo lleva ahora": PICK y OUT validados en el acto.
-  const ahora = local.filter((l) => l.delivery === 'ahora' && l.status === 'activo');
+  // 5. "Se lo lleva ahora": PICK y OUT validados en el acto. Si Exhibición no
+  // quedó apuntada, esas líneas no se validan (saldrían del Stock).
+  let ahora = local.filter((l) => l.delivery === 'ahora' && l.status === 'activo');
+  if (!exhibicionAligned) {
+    const skipped = ahora.filter((l) => l.origin === 'exhibicion');
+    if (skipped.length) {
+      warnings.push(`${skipped.map((l) => l.sku).join(', ')} no se validó en el acto porque el PICK no quedó en Exhibición: validá PICK y OUT en Odoo`);
+      ahora = ahora.filter((l) => l.origin !== 'exhibicion');
+    }
+  }
   if (localOrderId && ahora.length) {
     try {
       await deps.validateTwoStep(localOrderId, ahora.map((l) => ({
@@ -209,10 +250,10 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   if (warnings.length) await deps.setOrderWarning(order.id, warnings.join(' · '));
 
   // 6. Factura (nunca tira).
-  if (order.wantsInvoice && invoicingEnabledFor(ctx.locale)) {
-    await deps.invoice({ ...order, lines, odooOrders, odooOrderId: odooOrders[0].odooOrderId }, ctx.locale);
+  if (order.wantsInvoice && !order.invoiceName && invoicingEnabledFor(ctx.locale)) {
+    await deps.invoice(order, ctx.locale);
   }
-  return deps.getOrder(order.id);
+  await deps.clearPostConfirmPending(order.id);
 }
 
 async function loadCtx(localId) {
@@ -222,21 +263,32 @@ async function loadCtx(localId) {
   return { locale, locales, settings, methodsById };
 }
 
-export async function claimAndConfirmPos(orderId, user) {
-  let order;
+export async function claimAndConfirmPos(orderId, user, deps = defaultDeps()) {
+  let claim;
   try {
-    const claim = await orders.claimOrderForConfirm(orderId, user);
-    if (claim.alreadyConfirmed) return claim.order;
-    order = claim.order;
+    claim = await deps.claimOrderForConfirm(orderId, user);
   } catch (err) {
     err.stage = 'claim';
     throw err;
   }
+  const { order } = claim;
+  if (claim.alreadyConfirmed) {
+    // Confirmada, pero el proceso se cortó antes de terminar los pasos de
+    // después (Exhibición / entrega en el acto / factura): se completan.
+    if (!order.postConfirmPending) return order;
+    try {
+      await runPostConfirmSteps(order, user.name, await deps.loadCtx(order.localId), deps);
+      return await deps.getOrder(order.id);
+    } catch (err) {
+      err.stage = 'post';
+      throw err;
+    }
+  }
   try {
-    return await confirmPosOrder(order, user.name, await loadCtx(order.localId));
+    return await confirmPosOrder(order, user.name, await deps.loadCtx(order.localId), deps);
   } catch (err) {
     try {
-      await orders.markOrderError(order.id, err.message);
+      await deps.markOrderError(order.id, err.message);
     } catch (markErr) {
       console.error('[pos] no se pudo marcar el pedido como error:', markErr.message);
     }
@@ -275,6 +327,7 @@ export function startPosAutoRetry() {
 
 const annulDeps = () => ({
   getOrder: orders.getOrder, hasDeliveredMoves: odoo.hasDeliveredMoves, hasDoneTransfers: odoo.hasDoneTransfers,
+  findOrderInvoices: odoo.findOrderInvoices, readOrderStates: odoo.readOrderStates,
   cancelSaleOrder: odoo.cancelSaleOrder, markOrderAnnulled: orders.markOrderAnnulled,
 });
 
@@ -288,6 +341,9 @@ export async function annulPosOrder(orderId, user, reason, deps = annulDeps()) {
   if (order.status !== 'confirmado' || !odooIds.length) throw new Error('Solo se anulan ventas confirmadas');
   if (order.invoiceName) throw new Error(`La venta tiene la factura ${order.invoiceName}: la anulación con nota de crédito la hace facturación`);
   return withOrderLock(odooIds[0], async () => {
+    // La factura puede estar validada en Odoo aunque la app no la haya guardado.
+    const posted = (await invoicesOf(odooIds, deps)).find((i) => i.state === 'posted');
+    if (posted) throw new Error(`La venta tiene la factura ${posted.name} en Odoo: la anulación con nota de crédito la hace facturación`);
     let moved = order.lines.some((l) => l.status === 'entregado');
     for (const id of odooIds) {
       if (moved) break;
@@ -295,7 +351,19 @@ export async function annulPosOrder(orderId, user, reason, deps = annulDeps()) {
       moved = (await deps.hasDeliveredMoves(id)) || (await deps.hasDoneTransfers(id));
     }
     if (moved) throw new Error('Parte del pedido ya se entregó o se preparó: la devolución se hace en Odoo');
-    for (const id of odooIds) await deps.cancelSaleOrder(id);
+    // Los ya cancelados (un intento anterior que falló a mitad) se saltean.
+    const states = await deps.readOrderStates(odooIds);
+    const cancelled = [];
+    for (const { id, name, state } of states) {
+      if (state === 'cancel') continue;
+      try {
+        await deps.cancelSaleOrder(id);
+        cancelled.push(name);
+      } catch (err) {
+        if (!cancelled.length) throw err;
+        throw new Error(`Anulación incompleta: ya se cancelaron en Odoo: ${cancelled.join(', ')}; falló ${name} (${err.message}). Reintentá la anulación`);
+      }
+    }
     return deps.markOrderAnnulled(orderId, user.name, reason);
   });
 }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor,
-  planOdooOrders, shippingPartnerKindFor, firstLegMoves, alignFirstLegMoves,
+  planOdooOrders, shippingPartnerKindFor, firstLegMoves, alignFirstLegMoves, findSaleOrdersByRef, readOrderStates,
 } from '../posOdoo.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
 
@@ -176,7 +176,7 @@ test('alignFirstLegMoves: re-apunta solo el move del PICK de la línea de Exhibi
     if (model === 'stock.move' && method === 'read') return [pickMove(21), pickMove(22, { location_id: [324, 'LL/Exhibicion'] })];
     return [];
   });
-  const plan = await alignFirstLegMoves(5000, [{ odooLineId: 71, locationId: 324 }, { odooLineId: 72, locationId: 324 }], odoo);
+  const plan = await alignFirstLegMoves([{ odooLineId: 71, locationId: 324 }, { odooLineId: 72, locationId: 324 }], odoo);
   assert.deepEqual(plan, [{ moveId: 21, pickingId: 800, locationId: 324 }]);
   const writes = calls.filter((c) => c[0] === 'write').map((c) => [c[1], c[2], c[3]]);
   assert.deepEqual(writes, [
@@ -188,6 +188,21 @@ test('alignFirstLegMoves: re-apunta solo el move del PICK de la línea de Exhibi
 
 test('alignFirstLegMoves: sin ítems no llama a Odoo', async () => {
   const { odoo, calls } = fakeOdoo(() => []);
-  assert.deepEqual(await alignFirstLegMoves(5000, [], odoo), []);
+  assert.deepEqual(await alignFirstLegMoves([], odoo), []);
   assert.equal(calls.length, 0);
+});
+
+test('findSaleOrdersByRef: busca por referencia, depósito y equipo, sin los cancelados', async () => {
+  const { odoo, calls } = fakeOdoo(() => [{ id: 9000, name: 'S1', state: 'draft' }]);
+  const found = await findSaleOrdersByRef({ clientOrderRef: 'LL-0001', warehouseId: 28, teamId: 6 }, odoo);
+  assert.deepEqual(found, [{ id: 9000, name: 'S1', state: 'draft' }]);
+  assert.deepEqual(calls[0].slice(1, 4), ['sale.order', 'search_read', [[
+    ['client_order_ref', '=', 'LL-0001'], ['warehouse_id', '=', 28], ['team_id', '=', 6], ['state', '!=', 'cancel'],
+  ]]]);
+});
+
+test('readOrderStates: lee nombre y estado de los pedidos', async () => {
+  const { odoo, calls } = fakeOdoo(() => [{ id: 9000, name: 'S1', state: 'sale' }]);
+  assert.deepEqual(await readOrderStates([9000], odoo), [{ id: 9000, name: 'S1', state: 'sale' }]);
+  assert.deepEqual(calls[0].slice(1, 4), ['sale.order', 'read', [[9000]]]);
 });

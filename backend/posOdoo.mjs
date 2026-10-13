@@ -202,7 +202,7 @@ export async function readLegMoves(odooLineIds, odoo = defaultOdoo) {
 // move del PICK a la ubicación real y se vuelve a reservar (spike S1b: el
 // do_unreserve libera todo el PICK y action_assign re-reserva todas sus
 // líneas). `items`: [{ odooLineId, locationId }].
-export async function alignFirstLegMoves(odooOrderId, items, odoo = defaultOdoo) {
+export async function alignFirstLegMoves(items, odoo = defaultOdoo) {
   if (!items.length) return [];
   const { firstLeg } = await readLegMoves(items.map((i) => i.odooLineId), odoo);
   const plan = planMoveLocations(firstLeg, items.map((i) => ({ odooLineId: i.odooLineId, location: i.locationId })), (loc) => loc);
@@ -212,6 +212,19 @@ export async function alignFirstLegMoves(odooOrderId, items, odoo = defaultOdoo)
   for (const { moveId, locationId } of plan) await odoo.write('stock.move', 'write', [[moveId], { location_id: locationId }]);
   if (pickingIds.length) await odoo.write('stock.picking', 'action_assign', [pickingIds]);
   return plan;
+}
+
+// Pedidos de una venta que ya existen en Odoo para ese depósito (solo
+// lectura). Si la respuesta de un create se perdió después de que Odoo lo
+// guardó, el reintento lo encuentra acá en vez de crear otro.
+export function findSaleOrdersByRef({ clientOrderRef, warehouseId, teamId }, odoo = defaultOdoo) {
+  return odoo.read('sale.order', 'search_read', [[
+    ['client_order_ref', '=', clientOrderRef], ['warehouse_id', '=', warehouseId], ['team_id', '=', teamId], ['state', '!=', 'cancel'],
+  ]], { fields: ['id', 'name', 'state'] });
+}
+
+export function readOrderStates(odooOrderIds, odoo = defaultOdoo) {
+  return odoo.read('sale.order', 'read', [odooOrderIds], { fields: ['id', 'name', 'state'] });
 }
 
 // Una sola factura para todos los pedidos de la venta (spike S1b): el
