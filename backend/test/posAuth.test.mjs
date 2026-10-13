@@ -54,3 +54,14 @@ test('scopeLocalId: usuario sin local asignado → 403, nunca "todos"', () => {
   assert.throws(() => scopeLocalId({ role: 'caja', localId: null }, undefined), (err) => err.status === 403);
   assert.throws(() => scopeLocalId({ role: 'vendedor' }, undefined), (err) => err.status === 403);
 });
+
+const { assertOrderAccess } = await import('../posAuth.mjs');
+
+test('assertOrderAccess: caja de LL no ve pedidos de AL; admin ve todo; vendedor solo sus carritos', () => {
+  const al = { localId: 'AL', sellerId: 'v9', status: 'pendiente' };
+  assert.throws(() => assertOrderAccess(al, { role: 'caja', localId: 'LL' }), (err) => err.status === 403);
+  assert.doesNotThrow(() => assertOrderAccess(al, { role: 'caja', localId: 'AL' }));
+  assert.doesNotThrow(() => assertOrderAccess(al, { role: 'admin' }));
+  assert.throws(() => assertOrderAccess(al, { role: 'vendedor', id: 'v1', localId: 'AL' }), (err) => err.status === 403);
+  assert.doesNotThrow(() => assertOrderAccess({ ...al, sellerId: 'v1', status: 'carrito' }, { role: 'vendedor', id: 'v1', localId: 'AL' }));
+});

@@ -74,6 +74,17 @@ export function scopeLocalId(user, requestedLocalId) {
   return user.localId;
 }
 
+// Quién puede ver/tocar un pedido: admin todo; vendedor solo sus carritos;
+// caja los pedidos de su local.
+export function assertOrderAccess(order, user) {
+  if (isAdminRole(user.role)) return;
+  if (user.role === 'vendedor') {
+    if (order.sellerId !== user.id) throw forbidden('Ese pedido es de otro vendedor');
+    return;
+  }
+  if (order.localId !== user.localId) throw forbidden('No tenés acceso a ese local');
+}
+
 export function sessionUser(id, data) {
   return { id, name: data.name, role: data.role, localId: data.localId ?? null };
 }

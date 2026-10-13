@@ -252,3 +252,18 @@ export {
   confirmSaleOrder, readOrderName, readOrderLineIds, cancelSaleOrder, hasDeliveredMoves,
   findOrderInvoices, createInvoiceFromOrder, postInvoice, planInvoiceStep, invoiceWizardContext,
 } from './feriaOdoo.mjs';
+
+// Opciones para los desplegables del Admin (solo lectura).
+export async function listOdooOptions() {
+  const read = (model, domain, fields) => callKwReadWithRetry(model, 'search_read', [domain], { fields });
+  const [warehouses, locations, teams, journals, pricelists, pickingTypes, tags] = await Promise.all([
+    read('stock.warehouse', [], ['id', 'name', 'code']),
+    read('stock.location', [['usage', '=', 'internal']], ['id', 'complete_name']),
+    read('crm.team', [], ['id', 'name']),
+    read('account.journal', [['type', '=', 'sale']], ['id', 'name']),
+    read('product.pricelist', [], ['id', 'name']),
+    read('stock.picking.type', [['code', '=', 'outgoing']], ['id', 'name', 'warehouse_id']),
+    read('res.partner.category', [], ['id', 'name']),
+  ]);
+  return { warehouses, locations, teams, journals, pricelists, pickingTypes, tags };
+}

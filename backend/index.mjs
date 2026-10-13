@@ -14,6 +14,10 @@ import { startFeriaProductsCache } from './feriaProducts.mjs';
 import { startCancellationSync } from './feriaSync.mjs';
 import { startAutoRetry } from './feriaRetry.mjs';
 import { startPriceSync } from './feriaPriceSync.mjs';
+import posRoutes from './posRoutes.mjs';
+import { seedSuperadminIfNeeded } from './posAuth.mjs';
+import { seedPosConfigIfNeeded } from './posConfig.mjs';
+import { startPosAutoRetry } from './posConfirm.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
@@ -28,6 +32,7 @@ export const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
 app.use(express.json());
 app.use('/api/feria', feriaRoutes);
+app.use('/api/pos', posRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
@@ -175,5 +180,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startAutoRetry();
   startPriceSync();
   seedCajaAdminIfNeeded().catch(err => console.error('[feria] Error seedeando admin:', err.message));
+  startPosAutoRetry();
+  seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
+  seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
 }
