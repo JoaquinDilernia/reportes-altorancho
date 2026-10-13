@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { priceFromItems, buildCatalogProduct, freeByLocation, groupStock } from '../posCatalog.mjs';
+import { priceFromItems, searchCatalog, buildCatalogProduct, freeByLocation, groupStock } from '../posCatalog.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
 
 const product = { id: 10, product_tmpl_id: [100, 'X'], lst_price: 1000 };
@@ -70,4 +70,16 @@ test('groupStock: stock web absurdo se muestra como "sin límite"', () => {
     locales: DEFAULT_LOCALES, settings: DEFAULT_SETTINGS, localId: 'LL',
   });
   assert.deepEqual(view.web, { qty: null, unlimited: true });
+});
+
+test('priceFromItems: varios ítems vigentes → el de date_start más reciente; sin fecha al final', () => {
+  const mk = (price, date_start) => ({ applied_on: '0_product_variant', product_id: [10, 'X'], compute_price: 'fixed', fixed_price: price, date_start });
+  const items = [mk(100, false), mk(200, '2026-09-01 00:00:00'), mk(300, '2026-10-01 00:00:00')];
+  assert.equal(priceFromItems(product, items), 300);
+  assert.equal(priceFromItems(product, [mk(100, false), mk(200, '2026-09-01 00:00:00')]), 200);
+});
+
+test('searchCatalog: consulta de menos de 4 caracteres → [] sin llamar a Odoo', async () => {
+  assert.deepEqual(await searchCatalog('abc', DEFAULT_SETTINGS), []);
+  assert.deepEqual(await searchCatalog('  ab ', DEFAULT_SETTINGS), []);
 });

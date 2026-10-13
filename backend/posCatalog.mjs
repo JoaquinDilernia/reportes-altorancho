@@ -9,13 +9,16 @@ const WEB_UNLIMITED_FROM = 100000;
 const CACHE_MS = 60 * 1000;
 const PRODUCT_FIELDS = ['id', 'name', 'default_code', 'product_tmpl_id'];
 
+// Ítems más recientes primero (date_start descendente, sin fecha al final).
+const latestFirst = (items) => [...items].sort((a, b) => (b.date_start || '').localeCompare(a.date_start || ''));
+
 // Precio (con IVA, tal cual está en la lista) según los ítems de una lista: el
 // de la variante gana sobre el de la plantilla. Solo precio fijo; un % no tiene
 // base confiable → null.
 export function priceFromItems(product, items) {
   const tmplId = product.product_tmpl_id?.[0];
-  const forVariant = items.find((i) => i.applied_on === '0_product_variant' && i.product_id?.[0] === product.id);
-  const forTemplate = items.find((i) => i.applied_on === '1_product' && i.product_tmpl_id?.[0] === tmplId);
+  const forVariant = latestFirst(items.filter((i) => i.applied_on === '0_product_variant' && i.product_id?.[0] === product.id))[0];
+  const forTemplate = latestFirst(items.filter((i) => i.applied_on === '1_product' && i.product_tmpl_id?.[0] === tmplId))[0];
   const item = forVariant ?? forTemplate;
   if (!item) return null;
   if (item.compute_price === 'fixed') return item.fixed_price;
@@ -72,7 +75,7 @@ export function stockLocationIds(locales, settings) {
 async function pricelistItems(pricelistId, products) {
   if (!pricelistId || !products.length) return [];
   return callKwReadWithRetry('product.pricelist.item', 'search_read', [[
-    ['pricelist_id', '=', pricelistId],
+    ['pricelist_id', '=', pricelistId], ['min_quantity', '<=', 1],
     '|', ['product_id', 'in', products.map((p) => p.id)], ['product_tmpl_id', 'in', products.map((p) => p.product_tmpl_id[0])],
   ]], { fields: ['applied_on', 'product_id', 'product_tmpl_id', 'compute_price', 'fixed_price', 'percent_price', 'date_start', 'date_end'] });
 }
@@ -95,14 +98,34 @@ async function toCatalogProducts(rawProducts, settings) {
 
 const searchCache = new Map();
 
+const MIN_QUERY_LENGTH = 4;
+
+// Ids de plantillas/variantes con ítem en la lista full cuyo nombre o código
+// coincide: el límite de 30 se aplica después, sobre productos con precio.
+async function pricedMatches(q, fullPricelistId) {
+  const items = await callKwReadWithRetry('product.pricelist.item', 'search_read', [[
+    ['pricelist_id', '=', fullPricelistId], ['min_quantity', '<=', 1],
+    '|', '|', '|',
+    ['product_tmpl_id.name', 'ilike', q], ['product_tmpl_id.default_code', 'ilike', q],
+    ['product_id.name', 'ilike', q], ['product_id.default_code', 'ilike', q],
+  ]], { fields: ['product_id', 'product_tmpl_id'], limit: 5000 });
+  const ids = (field) => [...new Set(items.filter((i) => i[field]).map((i) => i[field][0]))];
+  return { tmplIds: ids('product_tmpl_id'), variantIds: ids('product_id') };
+}
+
 export async function searchCatalog(query, settings) {
   const q = String(query ?? '').trim();
+  if (q.length < MIN_QUERY_LENGTH) return [];
+  if (!settings.fullPricelistId) throw new Error('Configurá la lista de precios full en Admin → Ajustes');
   const key = `${settings.fullPricelistId}|${settings.promoPricelistId}|${q.toUpperCase()}`;
   const hit = searchCache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.products;
+  const { tmplIds, variantIds } = await pricedMatches(q, settings.fullPricelistId);
+  if (!tmplIds.length && !variantIds.length) return [];
   const raw = await callKwReadWithRetry('product.product', 'search_read', [[
     ['sale_ok', '=', true], ['default_code', '!=', false],
     '|', ['default_code', 'ilike', q], ['name', 'ilike', q],
+    '|', ['product_tmpl_id', 'in', tmplIds], ['id', 'in', variantIds],
   ]], { fields: PRODUCT_FIELDS, limit: 30, order: 'default_code' });
   const products = await toCatalogProducts(raw, settings);
   searchCache.set(key, { at: Date.now(), products });
