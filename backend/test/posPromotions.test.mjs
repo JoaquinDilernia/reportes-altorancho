@@ -58,3 +58,25 @@ test('validatePromotion: % entre 1 y 100, monto > 0, cupón con código único',
   assert.deepEqual(validatePromotion({ ...cupon, code: '' }, []), ['El cupón necesita un código']);
   assert.deepEqual(validatePromotion({ ...cupon, id: 'otro' }, [cupon]), ['Ya hay un cupón activo con ese código']);
 });
+
+test('validatePromotion: un cupón vencido con el mismo código no bloquea uno nuevo activo', () => {
+  const expired = { ...cupon, id: 'old', code: 'REUSO', to: '2026-10-01' };
+  const fresh = { ...cupon, id: 'new', code: 'REUSO' };
+  assert.deepEqual(validatePromotion(fresh, [expired], NOW), []);
+});
+
+test('validatePromotion: guardar un cupón inactivo con código ya usado por uno activo está permitido', () => {
+  const inactive = { ...cupon, id: 'draft', code: 'HOLA10', active: false };
+  assert.deepEqual(validatePromotion(inactive, [cupon], NOW), []);
+});
+
+test('validatePromotion: fecha con formato inválido se rechaza', () => {
+  const msg = 'Fecha inválida (usá AAAA-MM-DD)';
+  assert.deepEqual(validatePromotion({ ...motivo, to: '20/10/2026' }, [], NOW), [msg]);
+  assert.deepEqual(validatePromotion({ ...motivo, from: '2026-10-1' }, [], NOW), [msg]);
+  assert.deepEqual(validatePromotion({ ...motivo, from: '2026-10-01', to: '2026-10-31' }, [], NOW), []);
+});
+
+test('validatePromotion: monto Infinity se rechaza', () => {
+  assert.deepEqual(validatePromotion({ ...motivo, value: Infinity }, [], NOW), ['El monto tiene que ser mayor a 0']);
+});

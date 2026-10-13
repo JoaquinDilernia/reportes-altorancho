@@ -50,25 +50,32 @@ export function resolveExtraDiscount(promotions, { code, promotionId } = {}, ctx
   return auto ? asDiscount(auto) : null;
 }
 
-export function validatePromotion(input, others) {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function validatePromotion(input, others, now = Date.now()) {
   const errors = [];
   if (!String(input.name ?? '').trim()) errors.push('Falta el nombre');
   if (!KINDS.includes(input.kind)) errors.push('Tipo de promoción inválido');
   if (input.type === 'pct') {
     if (!(input.value >= 1 && input.value <= 100)) errors.push('El porcentaje tiene que estar entre 1 y 100');
   } else if (input.type === 'amount') {
-    if (!(typeof input.value === 'number' && input.value > 0)) errors.push('El monto tiene que ser mayor a 0');
+    if (!(Number.isFinite(input.value) && input.value > 0)) errors.push('El monto tiene que ser mayor a 0');
   } else {
     errors.push('Elegí porcentaje o monto');
   }
   if (input.kind === 'cupon') {
     const code = String(input.code ?? '').trim().toUpperCase();
     if (!code) errors.push('El cupón necesita un código');
-    else if (others.some((p) => p.id !== input.id && p.kind === 'cupon' && p.active !== false && String(p.code).toUpperCase() === code)) {
+    else if (input.active !== false && others.some((p) => p.id !== input.id && p.kind === 'cupon' && isPromotionActive(p, now) && String(p.code).toUpperCase() === code)) {
       errors.push('Ya hay un cupón activo con ese código');
     }
   }
-  if (input.from && input.to && input.from > input.to) errors.push('La fecha "desde" es posterior a "hasta"');
+  for (const d of [input.from, input.to]) {
+    if (d && !DATE_RE.test(d)) errors.push('Fecha inválida (usá AAAA-MM-DD)');
+  }
+  if (input.from && input.to && DATE_RE.test(input.from) && DATE_RE.test(input.to) && input.from > input.to) {
+    errors.push('La fecha "desde" es posterior a "hasta"');
+  }
   return errors;
 }
 
@@ -94,7 +101,10 @@ export async function savePromotion(id, input) {
   if (errors.length) throw new Error(errors.join('; '));
   const col = getDb().collection(COLLECTION);
   if (id) {
-    await col.doc(id).set({ ...clean, updatedAt: new Date() });
+    const ref = col.doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) throw new Error('Promoción no encontrada');
+    await ref.update({ ...clean, updatedAt: new Date() });
     return id;
   }
   const ref = await col.add({ ...clean, createdAt: new Date(), updatedAt: new Date() });
