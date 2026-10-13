@@ -21,6 +21,7 @@ import { startPosAutoRetry } from './posConfirm.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
+import { syncPosLocales } from './sync/posLocales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 import { syncFeria } from './sync/feria.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
@@ -161,6 +162,7 @@ async function runFullSync() {
     const { categoryBySku } = await syncProducts();
     await syncEcommerce(categoryBySku);
     await syncLocales(categoryBySku);
+    await syncPosLocales(categoryBySku);
     await syncMayorista(categoryBySku);
     await syncFeria(categoryBySku);
     await syncMetaAds();
