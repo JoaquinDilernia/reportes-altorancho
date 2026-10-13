@@ -105,8 +105,9 @@ const MIN_QUERY_LENGTH = 4;
 async function pricedMatches(q, fullPricelistId) {
   const items = await callKwReadWithRetry('product.pricelist.item', 'search_read', [[
     ['pricelist_id', '=', fullPricelistId], ['min_quantity', '<=', 1],
-    '|', '|', '|',
+    '|', '|', '|', '|',
     ['product_tmpl_id.name', 'ilike', q], ['product_tmpl_id.default_code', 'ilike', q],
+    ['product_tmpl_id.product_variant_ids.default_code', 'ilike', q],
     ['product_id.name', 'ilike', q], ['product_id.default_code', 'ilike', q],
   ]], { fields: ['product_id', 'product_tmpl_id'], limit: 5000 });
   const ids = (field) => [...new Set(items.filter((i) => i[field]).map((i) => i[field][0]))];
