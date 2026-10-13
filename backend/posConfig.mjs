@@ -16,8 +16,8 @@ export const DEFAULT_LOCALES = [
 export const DEFAULT_SETTINGS = {
   rolon: { warehouseId: 28, locationId: 174, outPickingTypeId: 191 },
   web: { locationId: 150 },
-  fullPricelistId: 314,
-  promoPricelistId: null,
+  fullPricelistId: 312,
+  promoPricelistId: 313,
   shippingProductSku: 'EnvioParticular',
   decoradorTagId: 1,
 };
