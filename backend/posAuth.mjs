@@ -69,6 +69,7 @@ function forbidden(message) {
 // admin, el que pida (o null = todos).
 export function scopeLocalId(user, requestedLocalId) {
   if (isAdminRole(user.role)) return requestedLocalId || null;
+  if (!user.localId) throw forbidden('Tu usuario no tiene local asignado');
   if (requestedLocalId && requestedLocalId !== user.localId) throw forbidden('No tenés acceso a ese local');
   return user.localId;
 }

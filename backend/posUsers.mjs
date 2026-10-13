@@ -37,6 +37,18 @@ export function assertCanManage(actor, targetRole) {
   }
 }
 
+// Tiene que quedar al menos un super admin activo. next = { role, active } del
+// usuario tras el cambio, o null si se borra.
+export function assertSuperadminRemains(users, targetId, next) {
+  const remaining = users.filter((u) => {
+    const isTarget = u.id === targetId;
+    const role = isTarget ? next?.role : u.role;
+    const active = isTarget ? next?.active : u.active;
+    return role === 'superadmin' && active !== false;
+  });
+  if (remaining.length === 0) throw new Error('Tiene que quedar al menos un super admin activo');
+}
+
 function publicUser(id, data) {
   return {
     id, name: data.name, role: data.role, localId: data.localId ?? null,
@@ -59,7 +71,8 @@ function toDoc(input, existing = {}) {
   const doc = {
     name: input.name.trim(), role: input.role,
     localId: input.role === 'vendedor' || input.role === 'caja' ? input.localId : null,
-    active: input.active !== false, updatedAt: new Date(),
+    active: input.active === undefined ? (existing.active ?? true) : input.active !== false,
+    updatedAt: new Date(),
   };
   if (input.role === 'vendedor') {
     if (input.pin) doc.pinHash = hashSecret(input.pin);
@@ -89,6 +102,8 @@ export async function updateUser(id, input, actor, localeIds) {
   assertCanManage(actor, input.role);
   const errors = validateUserInput(input, { isNew: false, users, localeIds, selfId: id });
   if (errors.length) throw new Error(errors.join('; '));
+  const nextActive = input.active === undefined ? current.active !== false : input.active !== false;
+  assertSuperadminRemains(users, id, { role: input.role, active: nextActive });
   const { id: _omit, ...existing } = current;
   await getDb().collection(USERS_COLLECTION).doc(id).set(toDoc(input, existing));
 }
@@ -99,8 +114,6 @@ export async function deleteUser(id, actor) {
   const current = users.find((u) => u.id === id);
   if (!current) throw new Error('Usuario no encontrado');
   assertCanManage(actor, current.role);
-  if (current.role === 'superadmin' && users.filter((u) => u.role === 'superadmin').length === 1) {
-    throw new Error('No se puede borrar el último super admin');
-  }
+  assertSuperadminRemains(users, id, null);
   await getDb().collection(USERS_COLLECTION).doc(id).delete();
 }

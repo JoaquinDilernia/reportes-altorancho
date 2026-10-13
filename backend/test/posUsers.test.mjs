@@ -41,3 +41,32 @@ test('assertCanManage: admin maneja vendedor y caja; solo superadmin maneja admi
   assert.doesNotThrow(() => assertCanManage({ role: 'superadmin' }, 'superadmin'));
   assert.throws(() => assertCanManage({ role: 'caja' }, 'vendedor'), /permiso/);
 });
+
+const { assertSuperadminRemains } = await import('../posUsers.mjs');
+
+test('assertSuperadminRemains: degradar o desactivar al único super admin activo → error', () => {
+  const users = [{ id: 's1', role: 'superadmin', active: true }];
+  assert.throws(() => assertSuperadminRemains(users, 's1', { role: 'admin', active: true }), /al menos un super admin activo/);
+  assert.throws(() => assertSuperadminRemains(users, 's1', { role: 'superadmin', active: false }), /al menos un super admin activo/);
+});
+
+test('assertSuperadminRemains: borrar al único super admin (next = null) → error', () => {
+  const users = [{ id: 's1', role: 'superadmin', active: true }];
+  assert.throws(() => assertSuperadminRemains(users, 's1', null), /al menos un super admin activo/);
+});
+
+test('assertSuperadminRemains: degradar a uno de dos super admins → ok', () => {
+  const users = [
+    { id: 's1', role: 'superadmin', active: true },
+    { id: 's2', role: 'superadmin', active: true },
+  ];
+  assert.doesNotThrow(() => assertSuperadminRemains(users, 's1', { role: 'admin', active: true }));
+});
+
+test('assertSuperadminRemains: un super admin inactivo no cuenta como restante', () => {
+  const users = [
+    { id: 's1', role: 'superadmin', active: true },
+    { id: 's2', role: 'superadmin', active: false },
+  ];
+  assert.throws(() => assertSuperadminRemains(users, 's1', { role: 'admin', active: true }), /al menos un super admin activo/);
+});

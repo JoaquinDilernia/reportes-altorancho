@@ -49,3 +49,8 @@ test('scopeLocalId: admin elige el local o ve todos (null)', () => {
   assert.equal(scopeLocalId({ role: 'admin' }, 'AL'), 'AL');
   assert.equal(scopeLocalId({ role: 'superadmin' }, undefined), null);
 });
+
+test('scopeLocalId: usuario sin local asignado → 403, nunca "todos"', () => {
+  assert.throws(() => scopeLocalId({ role: 'caja', localId: null }, undefined), (err) => err.status === 403);
+  assert.throws(() => scopeLocalId({ role: 'vendedor' }, undefined), (err) => err.status === 403);
+});
