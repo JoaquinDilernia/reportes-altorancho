@@ -72,7 +72,7 @@ test('confirmPosOrder: venta mixta → 2 pedidos (local 1, después Rolón 28), 
   assert.deepEqual(payloads.map((p) => p.team_id), [6, 6]);
   assert.deepEqual(payloads.map((p) => p.client_order_ref), ['LL-0001', 'LL-0001']);
   assert.deepEqual(payloads.map((p) => p.payment_method_ids), [5, 5]);
-  assert.deepEqual(payloads.map((p) => p.pricelist_id), [312, 312]);
+  assert.deepEqual(payloads.map((p) => p.pricelist_id), [314, 314]);
   assert.equal(payloads[0].order_line.length, 1);
   assert.equal(payloads[0].order_line[0][2].price_unit, 1000);
   assert.equal(payloads[0].order_line[0][2].discount, 15);

@@ -4,7 +4,7 @@ import express from 'express';
 
 process.env.POS_AUTH_SECRET = 'test-secret-pos';
 process.env.FERIA_AUTH_SECRET = 'test-secret-feria';
-const { default: posRoutes, createLoginLimiter } = await import('../posRoutes.mjs');
+const { default: posRoutes, createLoginLimiter, publicLocale } = await import('../posRoutes.mjs');
 const feria = await import('../feriaAuth.mjs');
 const { generateToken } = await import('../posAuth.mjs');
 
@@ -109,4 +109,19 @@ test('POST /carts de admin sin localId válido → 400; PUT promoción con id ra
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
     assert.equal((await fetch(`${base}/admin/promotions/a.b`, { method: 'PUT', headers, body: '{}' })).status, 400);
   });
+});
+
+test('publicLocale: invoices depende de POS_INVOICING_ENABLED y del diario', () => {
+  const prev = process.env.POS_INVOICING_ENABLED;
+  const loc = { id: 'LL', name: 'Las Lomas', address: 'x', invoiceJournalId: 32 };
+  try {
+    process.env.POS_INVOICING_ENABLED = 'true';
+    assert.equal(publicLocale(loc).invoices, true);
+    assert.equal(publicLocale({ ...loc, invoiceJournalId: null }).invoices, false);
+    process.env.POS_INVOICING_ENABLED = 'false';
+    assert.equal(publicLocale(loc).invoices, false);
+    assert.deepEqual(Object.keys(publicLocale(loc)), ['id', 'name', 'address', 'invoices']);
+  } finally {
+    if (prev === undefined) delete process.env.POS_INVOICING_ENABLED; else process.env.POS_INVOICING_ENABLED = prev;
+  }
 });

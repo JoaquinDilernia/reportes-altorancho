@@ -161,7 +161,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
     if (!odooOrderId) {
       const partnerShippingId = await shippingPartnerFor(group.lines, order, partnerId, ctx, deps);
       const vals = odoo.buildSaleOrderPayload({
-        partnerId, pricelistId: ctx.settings.fullPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
+        partnerId, pricelistId: ctx.settings.orderPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
         warehouseId: group.warehouseId, partnerShippingId, clientOrderRef: order.number, lines: group.odooLines,
       });
       if (!vals.pricelist_id) delete vals.pricelist_id;

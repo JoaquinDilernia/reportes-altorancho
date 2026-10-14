@@ -162,7 +162,11 @@ async function runFullSync() {
     const { categoryBySku } = await syncProducts();
     await syncEcommerce(categoryBySku);
     await syncLocales(categoryBySku);
-    await syncPosLocales(categoryBySku);
+    try {
+      await syncPosLocales(categoryBySku);
+    } catch (err) {
+      console.error('[cron] posLocales sync error:', err.message);
+    }
     await syncMayorista(categoryBySku);
     await syncFeria(categoryBySku);
     await syncMetaAds();

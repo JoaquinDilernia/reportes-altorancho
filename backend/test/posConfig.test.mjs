@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS, validateLocale, validatePaymentMethod,
-  resolveOdooPaymentName, originLocationId,
+  resolveOdooPaymentName, originLocationId, validateSettings,
 } from '../posConfig.mjs';
 
 const lomas = DEFAULT_LOCALES.find((l) => l.id === 'LL');
@@ -46,4 +46,11 @@ test('validateLocale: ids numéricos de Odoo obligatorios; diario opcional', () 
 test('validatePaymentMethod: descuento entre 0 y 100', () => {
   const m = { id: 'efectivo', label: 'Efectivo', discountPct: 120, odooName: 'Efectivo', details: [] };
   assert.deepEqual(validatePaymentMethod(m), ['El descuento tiene que estar entre 0 y 100']);
+});
+
+test('validateSettings: orderPricelistId opcional, entero positivo', () => {
+  const ok = { rolon: { warehouseId: 1, locationId: 2 }, web: { locationId: 3 }, shippingProductSku: 'X' };
+  assert.deepEqual(validateSettings({ ...ok, orderPricelistId: 314 }), []);
+  assert.deepEqual(validateSettings(ok), []);
+  assert.equal(validateSettings({ ...ok, orderPricelistId: -1 }).length, 1);
 });

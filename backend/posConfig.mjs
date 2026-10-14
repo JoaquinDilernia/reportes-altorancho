@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS = {
   rolon: { warehouseId: 28, locationId: 174, outPickingTypeId: 191 },
   web: { locationId: 150 },
   fullPricelistId: 312,
+  orderPricelistId: 314,
   promoPricelistId: 313,
   shippingProductSku: 'EnvioParticular',
   decoradorTagId: 1,
@@ -69,7 +70,7 @@ export function validateSettings(input) {
   if (!isId(input.rolon?.warehouseId) || !isId(input.rolon?.locationId)) errors.push('Rolón: depósito y ubicación obligatorios');
   if (input.rolon?.outPickingTypeId != null && !isId(input.rolon.outPickingTypeId)) errors.push('Rolón: tipo de operación inválido');
   if (!isId(input.web?.locationId)) errors.push('Web: ubicación obligatoria');
-  for (const key of ['fullPricelistId', 'promoPricelistId']) {
+  for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId']) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
   }
   if (!String(input.shippingProductSku ?? '').trim()) errors.push('Falta el SKU del producto de envío');

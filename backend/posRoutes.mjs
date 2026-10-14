@@ -118,12 +118,16 @@ router.post('/auth/login', handle(async (req) => {
 }));
 
 // ---- Configuración visible para todos ----
+export function publicLocale(locale) {
+  return { id: locale.id, name: locale.name, address: locale.address, invoices: invoicingEnabledFor(locale) };
+}
+
 router.get('/config', ...auth, handle(async () => {
   const [locales, paymentMethods, promotions, settings] = await Promise.all([
     getLocales(), getPaymentMethods(), listActivePromotions(), getSettings(),
   ]);
   return {
-    locales: locales.filter((l) => l.active !== false).map(({ id, name, address, invoiceJournalId }) => ({ id, name, address, invoices: Boolean(invoiceJournalId) })),
+    locales: locales.filter((l) => l.active !== false).map(publicLocale),
     paymentMethods: paymentMethods.filter((m) => m.active !== false),
     promotions: promotions.filter((p) => p.kind !== 'cupon').map(({ id, name, kind, type, value, requiresPaymentMethodId }) => ({ id, name, kind, type, value, requiresPaymentMethodId })),
     settings: { decoradorTagId: settings.decoradorTagId },
