@@ -8,12 +8,6 @@ import { getProductBySku } from './firestore.mjs';
 import { buildFullReport } from './report.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
-import feriaRoutes from './feriaRoutes.mjs';
-import { seedCajaAdminIfNeeded } from './feriaAuth.mjs';
-import { startFeriaProductsCache } from './feriaProducts.mjs';
-import { startCancellationSync } from './feriaSync.mjs';
-import { startAutoRetry } from './feriaRetry.mjs';
-import { startPriceSync } from './feriaPriceSync.mjs';
 import posRoutes from './posRoutes.mjs';
 import { seedSuperadminIfNeeded } from './posAuth.mjs';
 import { seedPosConfigIfNeeded } from './posConfig.mjs';
@@ -34,7 +28,7 @@ app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
 app.use(express.json());
-app.use('/api/feria', feriaRoutes);
+// La app de la feria (/api/feria) está apagada: el código sigue en feria*.mjs para la próxima feria.
 app.use('/api/pos', posRoutes);
 
 app.get('/health', (req, res) => {
@@ -183,11 +177,6 @@ cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
 console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  startFeriaProductsCache();
-  startCancellationSync();
-  startAutoRetry();
-  startPriceSync();
-  seedCajaAdminIfNeeded().catch(err => console.error('[feria] Error seedeando admin:', err.message));
   startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
