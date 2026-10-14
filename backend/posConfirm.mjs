@@ -8,7 +8,7 @@ import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName,
 } from './posConfig.mjs';
 import { principalPayment } from './posPricing.mjs';
-import { shouldAutoRetry } from './posLines.mjs';
+import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE } from './posLines.mjs';
 import * as orders from './posOrders.mjs';
 import * as odoo from './posOdoo.mjs';
 import { validateTwoStep } from './posDelivery.mjs';
@@ -349,10 +349,17 @@ export async function annulPosOrder(orderId, user, reason, deps = annulDeps()) {
   if (!['confirmado', 'error'].includes(order.status) || !odooIds.length) throw new Error('Solo se anulan ventas confirmadas');
   if (order.invoiceName) throw new Error(`La venta tiene la factura ${order.invoiceName}: la anulación con nota de crédito la hace facturación`);
   return withOrderLock(odooIds[0], async () => {
+    // Relectura dentro del lock: una confirmación o reintento en curso podría
+    // haber creado/confirmado pedidos después de la primera lectura.
+    const fresh = await deps.getOrder(orderId);
+    if (isConfirming(fresh)) throw new Error(CONFIRMING_MESSAGE);
+    if (!['confirmado', 'error'].includes(fresh.status)) throw new Error('Solo se anulan ventas confirmadas');
+    if (fresh.invoiceName) throw new Error(`La venta tiene la factura ${fresh.invoiceName}: la anulación con nota de crédito la hace facturación`);
+    const odooIds = odooIdsOf(fresh);
     // La factura puede estar validada en Odoo aunque la app no la haya guardado.
     const posted = (await invoicesOf(odooIds, deps)).find((i) => i.state === 'posted');
     if (posted) throw new Error(`La venta tiene la factura ${posted.name} en Odoo: la anulación con nota de crédito la hace facturación`);
-    let moved = order.lines.some((l) => l.status === 'entregado');
+    let moved = fresh.lines.some((l) => l.status === 'entregado');
     for (const id of odooIds) {
       if (moved) break;
       // hasDeliveredMoves ve el OUT; hasDoneTransfers además un PICK validado.

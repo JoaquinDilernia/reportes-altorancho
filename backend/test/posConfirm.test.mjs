@@ -441,3 +441,10 @@ test('claimAndConfirmPos: ya confirmado sin pendientes → no hace nada más', a
   assert.equal(await claimAndConfirmPos('o1', { name: 'Caja', localId: 'LL' }, deps), order);
   assert.equal(calls.length, 0);
 });
+
+test('annulPosOrder: error + en Odoo pero confirmándose en este momento → rechaza sin cancelar', async () => {
+  const order = { ...confirmedOrder(), status: 'error', confirmingSince: new Date() };
+  const { deps, calls } = annulDeps(order);
+  await assert.rejects(annulPosOrder('o1', cajero, '', deps), /confirmando/);
+  assert.equal(calls.some((c) => c[0] === 'cancel'), false);
+});
