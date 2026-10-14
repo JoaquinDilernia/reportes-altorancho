@@ -36,6 +36,22 @@ llamado a `/api/report` va a devolver un error 500 de Firestore que incluye un
 link directo a la consola para crear el índice. Basta con abrir ese link una
 vez, esperar ~1 minuto a que el índice termine de construirse, y reintentar.
 
+## Punto de venta de locales (/api/pos)
+
+Variables que usa el POS de locales (ver `backend/index.mjs`):
+
+- `POS_AUTH_SECRET`: secreto para firmar sesiones. **Nunca cambiarlo**: los hashes de PIN y contraseña dependen de él.
+- `POS_SUPERADMIN_USERNAME`: usuario del superadmin inicial.
+- `POS_SUPERADMIN_INITIAL_PASSWORD`: contraseña inicial del superadmin.
+- `POS_SUPERADMIN_NAME`: nombre a mostrar del superadmin.
+- `POS_INVOICING_ENABLED`: facturación automática; si no está definida, la facturación está apagada.
+- `POS_ARCA_CUIT`: CUIT para la facturación ante ARCA.
+- `POS_ARCA_CERT`: certificado de ARCA.
+- `POS_ARCA_KEY`: clave privada de ARCA.
+- `POS_ARCA_ENV`: `prod` o `homo`; el padrón de ARCA queda apagado hasta definirla.
+
+La app de la feria (`/api/feria`) está apagada en `index.mjs`; su código se conserva en `feria*.mjs` para la próxima feria.
+
 ## Backfill inicial
 
 Una sola vez, después del primer deploy, correr localmente (no como parte del
