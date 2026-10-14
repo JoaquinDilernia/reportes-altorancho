@@ -35,6 +35,7 @@ function fakeDeps(overrides = {}) {
     findPaymentMethodId: rec('paymentMethod', 5),
     findProductIdBySku: rec('productBySku', 45870),
     createChildPartner: rec('childPartner', 600),
+    findChildPartner: rec('findChild', null),
     createSaleOrder: rec('createSaleOrder', () => nextOrderId++),
     saveOdooOrders: rec('saveOdooOrders'),
     readOrderLineIds: rec('readOrderLineIds', (id) => lineIdsByOrder[id]),
@@ -78,8 +79,8 @@ test('confirmPosOrder: venta mixta → 2 pedidos (local 1, después Rolón 28), 
   assert.equal(payloads[0].order_line[0][2].discount, 15);
   assert.equal(payloads[0].order_line[0][2].product_id, 10);
   assert.equal(payloads[1].order_line[0][2].product_id, 11);
-  // Local todo "ahora": sin contacto de entrega. Rolón retira en el local.
-  assert.equal(payloads[0].partner_shipping_id, undefined);
+  // Local todo "ahora": entrega al propio cliente. Rolón retira en el local.
+  assert.equal(payloads[0].partner_shipping_id, 500);
   assert.equal(payloads[1].partner_shipping_id, 600);
   assert.equal(named(calls, 'childPartner')[0][1].name, 'Ana — Retira en Local Las Lomas');
   // Cada pedido se guarda ANTES de crear el siguiente.
@@ -241,6 +242,31 @@ test('invoicePosOrder: un error se guarda en el pedido y no tira', async () => {
   assert.match(calls.find((c) => c[0] === 'error')[2], /no se pudo facturar: AFIP caído/);
 });
 
+test('confirmPosOrder: grupo todo "ahora" manda partner_shipping_id = partnerId', async () => {
+  const { deps, calls } = fakeDeps();
+  const order = { ...baseOrder(), lines: [baseOrder().lines[0]] };
+  await confirmPosOrder(order, 'Caja', ctx, deps);
+  assert.equal(named(calls, 'createSaleOrder')[0][1].partner_shipping_id, 500);
+  assert.equal(named(calls, 'childPartner').length, 0);
+});
+
+test('confirmPosOrder: contacto de retiro existente se reusa, no se crea otro', async () => {
+  const looked = [];
+  const { deps, calls } = fakeDeps({ findChildPartner: async (vals) => { looked.push(vals); return 777; } });
+  await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
+  assert.equal(named(calls, 'childPartner').length, 0);
+  assert.equal(named(calls, 'createSaleOrder')[1][1].partner_shipping_id, 777);
+  assert.equal(looked[0].type, 'delivery');
+});
+
+test('confirmPosOrder: contacto de retiro inexistente se crea', async () => {
+  const { deps, calls } = fakeDeps();
+  await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
+  assert.equal(named(calls, 'findChild').length, 1);
+  assert.equal(named(calls, 'childPartner').length, 1);
+  assert.equal(named(calls, 'createSaleOrder')[1][1].partner_shipping_id, 600);
+});
+
 // ---- Anulación ----
 
 function annulDeps(order, overrides = {}) {
@@ -300,6 +326,27 @@ test('annulPosOrder: si falla a mitad, avisa qué pedidos ya se cancelaron; el r
   });
   await annulPosOrder('o1', cajero, '', retry.deps);
   assert.deepEqual(retry.calls.filter((c) => c[0] === 'cancel').map((c) => c[1]), [9001]);
+});
+
+test('annulPosOrder: pedido en error con presupuesto en Odoo → cancela (también draft) y anula', async () => {
+  const order = { ...confirmedOrder(), status: 'error', odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: null }] };
+  const { deps, calls } = annulDeps(order, {
+    readOrderStates: async (ids) => ids.map((id) => ({ id, name: 'S1', state: 'draft' })),
+  });
+  await annulPosOrder('o1', cajero, 'x', deps);
+  assert.deepEqual(calls.filter((c) => c[0] === 'cancel').map((c) => c[1]), [9000]);
+  assert.deepEqual(calls.at(-1), ['annulled', 'o1', 'Caja', 'x']);
+});
+
+test('annulPosOrder: pedido en error con remitos hechos → rechaza sin cancelar', async () => {
+  const order = { ...confirmedOrder(), status: 'error' };
+  const { deps, calls } = annulDeps(order, { hasDoneTransfers: async (id) => id === 9000 });
+  await assert.rejects(annulPosOrder('o1', cajero, '', deps), /ya se entregó/);
+  assert.equal(calls.some((c) => c[0] === 'cancel'), false);
+});
+
+test('annulPosOrder: otros estados (pendiente) siguen rechazados', async () => {
+  await assert.rejects(annulPosOrder('o1', cajero, '', annulDeps({ ...confirmedOrder(), status: 'pendiente' }).deps), /Solo se anulan/);
 });
 
 // ---- Fix round 1: pedidos perdidos, estados, pasos posteriores ----

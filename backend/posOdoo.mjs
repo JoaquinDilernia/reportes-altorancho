@@ -5,7 +5,7 @@
 import { callKw } from './odoo.mjs';
 import { ensureAuth, callKwReadWithRetry, docIdentityType, findIdentificationTypeIds } from './feriaOdoo.mjs';
 import { planMoveLocations } from './feriaPlacement.mjs';
-import { netOfIva } from './posPricing.mjs';
+import { netOfIva, round2 } from './posPricing.mjs';
 import { activeLines } from './posLines.mjs';
 
 // Acceso a Odoo inyectable (los tests pasan uno falso): lecturas con
@@ -108,6 +108,14 @@ export async function createChildPartner(vals) {
   return id;
 }
 
+// Contacto hijo ya existente del cliente con los mismos datos (solo lectura):
+// evita un contacto duplicado en cada venta. keys = campos que deben coincidir.
+export async function findChildPartner(vals, keys = ['name', 'street']) {
+  const domain = [['parent_id', '=', vals.parent_id], ['type', '=', vals.type], ...keys.map((k) => [k, '=', vals[k] || false])];
+  const [found] = await callKwReadWithRetry('res.partner', 'search_read', [domain], { fields: ['id'], limit: 1 });
+  return found?.id ?? null;
+}
+
 // Contacto de entrega para retiros: el remito muestra dónde lo busca.
 export function buildPickupPartnerVals(parentId, customerName, label, address) {
   return { parent_id: parentId, type: 'delivery', name: `${customerName} — ${label}`, street: address || false };
@@ -122,10 +130,10 @@ export function pickupLabelFor(line, locale, locales) {
 
 export function buildOdooOrderLines(lines, totals, shippingProductId) {
   const result = activeLines(lines).map((l) => ({
-    productId: l.productId, qty: l.qty, unitPrice: netOfIva(l.basePrice), discountPct: totals.lineDiscountPct,
+    productId: l.productId, qty: l.qty, unitPrice: round2(netOfIva(l.basePrice)), discountPct: round2(totals.lineDiscountPct),
   }));
   if (shippingProductId && totals.shipping > 0) {
-    result.push({ productId: shippingProductId, qty: 1, unitPrice: netOfIva(totals.shipping), discountPct: 0 });
+    result.push({ productId: shippingProductId, qty: 1, unitPrice: round2(netOfIva(totals.shipping)), discountPct: 0 });
   }
   return result;
 }

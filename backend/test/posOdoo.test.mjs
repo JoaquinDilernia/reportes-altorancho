@@ -39,6 +39,13 @@ test('partnerUpdate: ARCA pisa razón social, domicilio y condición; email camb
   assert.equal(partnerUpdate({ ...existing, name: 'Muebles SA', email: 'compras@muebles.com', street: 'Av. Siempreviva 742', city: 'CABA', zip: '1428', l10n_ar_afip_responsibility_type_id: [1, 'RI'] }, customer, ids), null);
 });
 
+test('buildOdooOrderLines: redondea descuento y precio a 2 decimales (ruido de coma flotante)', () => {
+  const lines = [{ productId: 1, qty: 1, basePrice: 1210, status: 'activo' }];
+  const [l] = buildOdooOrderLines(lines, { lineDiscountPct: 15.000000000000004, shipping: 0 }, null);
+  assert.equal(l.discountPct, 15);
+  assert.equal(l.unitPrice, 1000);
+});
+
 test('buildOdooOrderLines: precio sin IVA + % de la cascada; envío sin descuento', () => {
   const lines = [
     { productId: 10, qty: 2, basePrice: 12100, status: 'activo' },

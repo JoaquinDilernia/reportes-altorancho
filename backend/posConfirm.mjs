@@ -86,7 +86,7 @@ export function invoicePosOrder(order, locale, deps = invoiceDeps()) {
 function defaultDeps() {
   return {
     findOrCreatePosPartner: odoo.findOrCreatePosPartner, findPaymentMethodId: odoo.findPaymentMethodId,
-    findProductIdBySku: odoo.findProductIdBySku, createChildPartner: odoo.createChildPartner,
+    findProductIdBySku: odoo.findProductIdBySku, createChildPartner: odoo.createChildPartner, findChildPartner: odoo.findChildPartner,
     createSaleOrder: odoo.createSaleOrder, saveOdooOrders: orders.saveOdooOrders,
     readOrderLineIds: odoo.readOrderLineIds, saveOdooLineIds: orders.saveOdooLineIds,
     findSaleOrdersByRef: odoo.findSaleOrdersByRef, readOrderStates: odoo.readOrderStates,
@@ -101,11 +101,18 @@ function defaultDeps() {
 }
 
 // Contacto de entrega del pedido de un grupo: envío → dirección del cliente;
-// retiro → "Retira en Local X"; todo "ahora" → ninguno (el cliente).
+// retiro → "Retira en Local X"; todo "ahora" → ninguno (el propio cliente, se manda igual para que Odoo no
+// elija un contacto de entrega viejo).
+// Reusa el contacto hijo del cliente si ya existe con los mismos datos.
+async function childPartnerFor(vals, keys, deps) {
+  return (await deps.findChildPartner(vals, keys)) ?? deps.createChildPartner(vals);
+}
+
 async function shippingPartnerFor(groupLines, order, partnerId, ctx, deps) {
   const kind = odoo.shippingPartnerKindFor(groupLines);
   if (kind === 'envio') {
-    return deps.createChildPartner(odoo.buildShippingPartnerVals(partnerId, order.customer.name, order.shipping));
+    return childPartnerFor(odoo.buildShippingPartnerVals(partnerId, order.customer.name, order.shipping),
+      ['name', 'street', 'street2', 'city', 'zip'], deps);
   }
   if (kind !== 'pickup') return null;
   const pickup = groupLines.find((l) => odoo.pickupLabelFor(l, ctx.locale, ctx.locales));
@@ -113,7 +120,7 @@ async function shippingPartnerFor(groupLines, order, partnerId, ctx, deps) {
   const address = pickup.delivery === 'retira_otro_local'
     ? ctx.locales.find((l) => l.id === pickup.pickupLocalId)?.address
     : pickup.delivery === 'retira_local' ? ctx.locale.address : '';
-  return deps.createChildPartner(odoo.buildPickupPartnerVals(partnerId, order.customer.name, label, address));
+  return childPartnerFor(odoo.buildPickupPartnerVals(partnerId, order.customer.name, label, address), ['name', 'street'], deps);
 }
 
 async function paymentMethodIdFor(order, ctx, deps) {
@@ -162,7 +169,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
       const partnerShippingId = await shippingPartnerFor(group.lines, order, partnerId, ctx, deps);
       const vals = odoo.buildSaleOrderPayload({
         partnerId, pricelistId: ctx.settings.orderPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
-        warehouseId: group.warehouseId, partnerShippingId, clientOrderRef: order.number, lines: group.odooLines,
+        warehouseId: group.warehouseId, partnerShippingId: partnerShippingId ?? partnerId, clientOrderRef: order.number, lines: group.odooLines,
       });
       if (!vals.pricelist_id) delete vals.pricelist_id;
       odooOrderId = await deps.createSaleOrder(vals);
@@ -338,7 +345,8 @@ export async function annulPosOrder(orderId, user, reason, deps = annulDeps()) {
   const order = await deps.getOrder(orderId);
   if (order.localId !== user.localId) throw Object.assign(new Error('No tenés acceso a ese local'), { status: 403 });
   const odooIds = odooIdsOf(order);
-  if (order.status !== 'confirmado' || !odooIds.length) throw new Error('Solo se anulan ventas confirmadas');
+  // Un pedido en error que ya tiene pedidos en Odoo también se anula (cancelándolos).
+  if (!['confirmado', 'error'].includes(order.status) || !odooIds.length) throw new Error('Solo se anulan ventas confirmadas');
   if (order.invoiceName) throw new Error(`La venta tiene la factura ${order.invoiceName}: la anulación con nota de crédito la hace facturación`);
   return withOrderLock(odooIds[0], async () => {
     // La factura puede estar validada en Odoo aunque la app no la haya guardado.

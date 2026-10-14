@@ -271,8 +271,8 @@ router.post('/orders/:id/invoice', ...cajas, handle(async (req) => {
 router.post('/orders/:id/annul', ...cajas, handle(async (req) => {
   const order = await orderFor(req);
   const user = actingUser(req, order.localId);
-  if (order.status === 'confirmado') return annulPosOrder(order.id, user, req.body?.reason);
   const inOdoo = order.odooOrderId || order.odooOrders?.length;
+  if (order.status === 'confirmado' || (order.status === 'error' && inOdoo)) return annulPosOrder(order.id, user, req.body?.reason);
   if (!['pendiente', 'error'].includes(order.status) || inOdoo) {
     throw new Error('El pedido ya existe en Odoo: resolvelo en Odoo');
   }
