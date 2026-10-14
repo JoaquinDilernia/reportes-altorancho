@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS = {
   fullPricelistId: 312,
   orderPricelistId: 314,
   promoPricelistId: 313,
-  shippingProductSku: 'EnvioParticular',
+  shippingProductSku: 'ENV002EX',
   decoradorTagId: 1,
 };
 
