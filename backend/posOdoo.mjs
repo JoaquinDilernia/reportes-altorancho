@@ -147,16 +147,20 @@ export function splitByOrigin(lines) {
 // después el de Rolón; los grupos vacíos no van. El costo de envío va como
 // última línea del primer grupo que tiene una línea con envío (si ninguna lo
 // tiene, del primer grupo). Puro.
-export function planOdooOrders({ lines, totals, locale, settings, shippingProductId }) {
+export function planOdooOrders({ lines, totals, locale, settings, shippingProductId, homeServiceProductId = null }) {
   const { local, rolon } = splitByOrigin(lines);
   const groups = [
     { group: 'local', warehouseId: locale.warehouseId, lines: local },
     { group: 'rolon', warehouseId: settings.rolon.warehouseId, lines: rolon },
   ].filter((g) => g.lines.length)
     .map((g) => ({ ...g, odooLines: buildOdooOrderLines(g.lines, totals, null) }));
-  if (shippingProductId && totals.shipping > 0 && groups.length) {
-    const target = groups.find((g) => g.lines.some((l) => l.delivery === 'envio')) ?? groups[0];
+  const target = groups.find((g) => g.lines.some((l) => l.delivery === 'envio')) ?? groups[0];
+  if (shippingProductId && totals.shipping > 0 && target) {
     target.odooLines.push({ productId: shippingProductId, qty: 1, unitPrice: netOfIva(totals.shipping), discountPct: 0 });
+  }
+  // Subida al domicilio: línea extra justo después del envío, mismo pedido.
+  if (homeServiceProductId && totals.homeService > 0 && target) {
+    target.odooLines.push({ productId: homeServiceProductId, qty: 1, unitPrice: netOfIva(totals.homeService), discountPct: 0 });
   }
   return groups;
 }

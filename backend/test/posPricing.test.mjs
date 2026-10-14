@@ -118,3 +118,15 @@ test('computeTotals: 2370 con 15 % + 33 % — total redondea como Odoo (1349.72,
   assert.equal(t.total, 1349.72);
   assert.equal(round2(t.products - t.paymentDiscount - t.extraDiscount + t.shipping), t.total);
 });
+
+test('computeTotals: la subida al domicilio se suma al final, sin descuentos', () => {
+  const t = computeTotals({
+    lines: [{ qty: 1, basePrice: 10000 }], payments: [{ methodId: 'transferencia' }], methodsById,
+    extraDiscount: { type: 'pct', value: 10 }, shippingAmount: 5000, homeServiceAmount: 3000,
+  });
+  assert.equal(t.homeService, 3000);
+  assert.equal(t.lineDiscountPct, 28);
+  assert.equal(t.total, round2(10000 * 0.72 + 5000 + 3000));
+  assert.equal(computeTotals({ lines: [{ qty: 1, basePrice: 1000 }], payments: [{ methodId: 'efectivo' }], methodsById }).homeService, 0);
+  assert.throws(() => computeTotals({ lines: [], payments: [], methodsById, homeServiceAmount: -1 }), /Subida al domicilio inválida/);
+});

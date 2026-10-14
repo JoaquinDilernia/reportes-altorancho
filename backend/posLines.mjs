@@ -74,6 +74,8 @@ export function validateShipping(shipping) {
     .map(([, label]) => `Falta ${label} del envío`);
   const amount = shipping?.amount;
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0) errors.push('Costo de envío inválido');
+  const home = shipping?.homeServiceAmount;
+  if (home != null && (typeof home !== 'number' || !Number.isFinite(home) || home < 0)) errors.push('Subida al domicilio inválida');
   return errors;
 }
 

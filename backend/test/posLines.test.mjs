@@ -72,3 +72,12 @@ test('formatOrderNumber y envío', () => {
   assert.deepEqual(validateShipping({ street: 'Av. X', number: '1', city: 'CABA', zip: '1428', phone: '1155556666', amount: -1 }), ['Costo de envío inválido']);
   assert.deepEqual(validateShipping({ amount: 0 }).length, 5);
 });
+
+test('validateShipping: subida al domicilio opcional, número >= 0', () => {
+  const ok = { street: 'Av. X', number: '1', city: 'CABA', zip: '1428', phone: '1155556666', amount: 0 };
+  assert.deepEqual(validateShipping(ok), []);
+  assert.deepEqual(validateShipping({ ...ok, homeServiceAmount: null }), []);
+  assert.deepEqual(validateShipping({ ...ok, homeServiceAmount: 5000 }), []);
+  assert.deepEqual(validateShipping({ ...ok, homeServiceAmount: -1 }), ['Subida al domicilio inválida']);
+  assert.deepEqual(validateShipping({ ...ok, homeServiceAmount: '5000' }), ['Subida al domicilio inválida']);
+});

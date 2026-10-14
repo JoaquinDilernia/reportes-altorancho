@@ -54,3 +54,13 @@ test('validateSettings: orderPricelistId opcional, entero positivo', () => {
   assert.deepEqual(validateSettings(ok), []);
   assert.equal(validateSettings({ ...ok, orderPricelistId: -1 }).length, 1);
 });
+
+test('validateSettings: SKU y monto de subida al domicilio', () => {
+  const ok = { rolon: { warehouseId: 1, locationId: 2 }, web: { locationId: 3 }, shippingProductSku: 'X' };
+  assert.equal(DEFAULT_SETTINGS.homeServiceSku, 'SERVIDOM');
+  assert.equal(DEFAULT_SETTINGS.homeServiceDefaultAmount, 5000);
+  assert.deepEqual(validateSettings({ ...ok, homeServiceSku: 'SERVIDOM', homeServiceDefaultAmount: 0 }), []);
+  assert.equal(validateSettings({ ...ok, homeServiceSku: ' ' }).length, 1);
+  assert.equal(validateSettings({ ...ok, homeServiceDefaultAmount: -5 }).length, 1);
+  assert.equal(validateSettings({ ...ok, homeServiceDefaultAmount: 'x' }).length, 1);
+});

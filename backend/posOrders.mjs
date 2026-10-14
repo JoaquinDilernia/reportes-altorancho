@@ -98,6 +98,7 @@ export function priceOrder(order, { methodsById, promotions, now }) {
   const totals = computeTotals({
     lines: order.lines, payments: order.payments ?? [], methodsById, extraDiscount,
     shippingAmount: needsShipping(order.lines) ? (order.shipping?.amount ?? 0) : 0,
+    homeServiceAmount: needsShipping(order.lines) ? (order.shipping?.homeServiceAmount ?? 0) : 0,
   });
   return { extraDiscount, totals };
 }

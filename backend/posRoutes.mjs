@@ -130,7 +130,7 @@ router.get('/config', ...auth, handle(async () => {
     locales: locales.filter((l) => l.active !== false).map(publicLocale),
     paymentMethods: paymentMethods.filter((m) => m.active !== false),
     promotions: promotions.filter((p) => p.kind !== 'cupon').map(({ id, name, kind, type, value, requiresPaymentMethodId }) => ({ id, name, kind, type, value, requiresPaymentMethodId })),
-    settings: { decoradorTagId: settings.decoradorTagId },
+    settings: { decoradorTagId: settings.decoradorTagId, homeServiceDefaultAmount: settings.homeServiceDefaultAmount },
   };
 }));
 

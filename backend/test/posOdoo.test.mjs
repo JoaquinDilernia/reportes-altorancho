@@ -213,3 +213,21 @@ test('readOrderStates: lee nombre y estado de los pedidos', async () => {
   assert.deepEqual(await readOrderStates([9000], odoo), [{ id: 9000, name: 'S1', state: 'sale' }]);
   assert.deepEqual(calls[0].slice(1, 4), ['sale.order', 'read', [[9000]]]);
 });
+
+test('planOdooOrders: la subida al domicilio va justo después del envío, mismo grupo, sin IVA y sin descuento', () => {
+  const plan = planOdooOrders({
+    lines: [line('L1', 'stock', 'ahora'), line('L2', 'rolon', 'envio')],
+    totals: { ...totals(6050), homeService: 6050 }, locale: lomas, settings: DEFAULT_SETTINGS,
+    shippingProductId: 45870, homeServiceProductId: 57070,
+  });
+  assert.deepEqual(plan[1].odooLines.slice(-2), [
+    { productId: 45870, qty: 1, unitPrice: 5000, discountPct: 0 },
+    { productId: 57070, qty: 1, unitPrice: 5000, discountPct: 0 },
+  ]);
+  assert.equal(plan[0].odooLines.length, 1);
+  const none = planOdooOrders({
+    lines: [line('L2', 'rolon', 'envio')], totals: totals(6050), locale: lomas, settings: DEFAULT_SETTINGS,
+    shippingProductId: 45870, homeServiceProductId: 57070,
+  });
+  assert.equal(none[0].odooLines.some((l) => l.productId === 57070), false);
+});

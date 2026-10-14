@@ -1,7 +1,7 @@
 // Precios del POS. Todo con IVA (lo que ve el cliente); a Odoo viaja sin IVA
 // porque los productos tienen "IVA 21% Ventas" no incluido en el precio.
 // Cascada: productos → descuento por medio de pago → subtotal → descuento
-// extra sobre el subtotal → + envío (sin descuentos).
+// extra sobre el subtotal → + envío + subida al domicilio (sin descuentos).
 export const IVA_RATE = 0.21;
 export const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 export const withIva = (net) => round2(net * (1 + IVA_RATE));
@@ -50,7 +50,7 @@ export function extraDiscountAmount(extra, subtotal) {
   throw new Error(`Tipo de descuento inválido: ${extra.type}`);
 }
 
-export function computeTotals({ lines, payments, methodsById, extraDiscount = null, shippingAmount = 0 }) {
+export function computeTotals({ lines, payments, methodsById, extraDiscount = null, shippingAmount = 0, homeServiceAmount = 0 }) {
   const active = (lines ?? []).filter((l) => l.status !== 'eliminado');
   const products = round2(active.reduce((sum, l) => sum + l.qty * l.basePrice, 0));
   const paymentPct = paymentDiscountPct(payments, methodsById);
@@ -60,12 +60,15 @@ export function computeTotals({ lines, payments, methodsById, extraDiscount = nu
   const ship = shippingAmount ?? 0;
   if (!Number.isFinite(ship) || ship < 0) throw new Error('Costo de envío inválido');
   const shipping = round2(ship);
+  const home = homeServiceAmount ?? 0;
+  if (!Number.isFinite(home) || home < 0) throw new Error('Subida al domicilio inválida');
+  const homeService = round2(home);
   // Un solo % por línea en Odoo que reproduce la cascada. Odoo guarda el
   // descuento de línea con 2 decimales, así que el total de la app se calcula
   // con ese mismo % para que coincida con el de la factura.
   const extraPct = subtotal > 0 ? extraAmount / subtotal : 0;
   const lineDiscountPct = products > 0 ? round2(100 * (1 - (1 - paymentPct / 100) * (1 - extraPct))) : 0;
-  const total = round2(round2(products * (1 - lineDiscountPct / 100)) + shipping);
-  const extra = round2(subtotal - (total - shipping));
-  return { products, paymentPct, paymentDiscount, subtotal, extraDiscount: extra, shipping, total, lineDiscountPct };
+  const total = round2(round2(products * (1 - lineDiscountPct / 100)) + shipping + homeService);
+  const extra = round2(subtotal - (total - shipping - homeService));
+  return { products, paymentPct, paymentDiscount, subtotal, extraDiscount: extra, shipping, homeService, total, lineDiscountPct };
 }

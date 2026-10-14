@@ -448,3 +448,24 @@ test('annulPosOrder: error + en Odoo pero confirmándose en este momento → rec
   await assert.rejects(annulPosOrder('o1', cajero, '', deps), /confirmando/);
   assert.equal(calls.some((c) => c[0] === 'cancel'), false);
 });
+
+test('confirmPosOrder: la subida al domicilio viaja como línea SERVIDOM después del envío y no rompe el emparejado', async () => {
+  const { deps, calls } = fakeDeps({
+    findProductIdBySku: async (sku) => ({ ENV002EX: 45870, SERVIDOM: 57070 }[sku]),
+    readOrderLineIds: async (id) => ({ 9000: [71], 9001: [72, 73, 74] }[id]),
+  });
+  const order = baseOrder();
+  order.lines[1] = { ...order.lines[1], delivery: 'envio' };
+  order.totals = { ...order.totals, shipping: 6050, homeService: 6050 };
+  order.shipping = { street: 'Calle', number: '1', floor: '', city: 'CABA', zip: '1000', phone: '11', notes: '' };
+  await confirmPosOrder(order, 'Caja', ctx, deps);
+  const rolon = named(calls, 'createSaleOrder')[1][1];
+  assert.deepEqual(rolon.order_line.map((l) => [l[2].product_id, l[2].price_unit, l[2].discount]), [[11, 1000, 15], [45870, 5000, 0], [57070, 5000, 0]]);
+  assert.deepEqual(named(calls, 'saveOdooLineIds')[0][2].map((l) => l.odooLineId), [71, 72]);
+});
+
+test('confirmPosOrder: sin subida al domicilio no se busca el producto SERVIDOM', async () => {
+  const { deps, calls } = fakeDeps();
+  await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
+  assert.equal(named(calls, 'productBySku').length, 0);
+});

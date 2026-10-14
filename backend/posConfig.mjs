@@ -21,6 +21,8 @@ export const DEFAULT_SETTINGS = {
   promoPricelistId: 313,
   shippingProductSku: 'ENV002EX',
   decoradorTagId: 1,
+  homeServiceSku: 'SERVIDOM',
+  homeServiceDefaultAmount: 5000,
 };
 
 const cuotas = (n, name) => ({ id: String(n), label: n === 1 ? '1 cuota' : `${n} cuotas`, odooName: name });
@@ -74,6 +76,11 @@ export function validateSettings(input) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
   }
   if (!String(input.shippingProductSku ?? '').trim()) errors.push('Falta el SKU del producto de envío');
+  if (input.homeServiceSku !== undefined && !String(input.homeServiceSku ?? '').trim()) errors.push('Falta el SKU de la subida al domicilio');
+  const homeAmount = input.homeServiceDefaultAmount;
+  if (homeAmount !== undefined && (typeof homeAmount !== 'number' || !Number.isFinite(homeAmount) || homeAmount < 0)) {
+    errors.push('Monto de subida al domicilio inválido');
+  }
   return errors;
 }
 

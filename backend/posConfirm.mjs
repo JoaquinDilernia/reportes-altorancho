@@ -23,7 +23,7 @@ export function invoicingEnabledFor(locale) {
 }
 
 // Asigna los ids de sale.order.line por posición (Odoo los devuelve en el
-// orden de creación; la de envío, si la hay, es la última).
+// orden de creación; las de envío y subida al domicilio, si las hay, van al final).
 export function pairOdooLineIds(lines, odooLineIds) {
   const active = lines.filter((l) => l.status !== 'eliminado');
   if (odooLineIds.length < active.length) {
@@ -145,14 +145,19 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
     .filter((g) => !existingFor(g.group));
   let paymentMethodId = null;
   let shippingProductId = null;
+  let homeServiceProductId = null;
   if (pending.length) {
     paymentMethodId = await paymentMethodIdFor(order, ctx, deps);
     if (order.totals.shipping > 0) {
       shippingProductId = await deps.findProductIdBySku(ctx.settings.shippingProductSku);
       if (!shippingProductId) throw new Error(`Producto de envío no encontrado en Odoo: ${ctx.settings.shippingProductSku}`);
     }
+    if (order.totals.homeService > 0) {
+      homeServiceProductId = await deps.findProductIdBySku(ctx.settings.homeServiceSku);
+      if (!homeServiceProductId) throw new Error(`Producto de subida al domicilio no encontrado en Odoo: ${ctx.settings.homeServiceSku}`);
+    }
   }
-  const plan = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId });
+  const plan = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId, homeServiceProductId });
 
   // 1. Un pedido por grupo, en orden; cada uno se guarda ANTES de seguir.
   // Antes de crear se busca en Odoo (solo lectura) por referencia + depósito
