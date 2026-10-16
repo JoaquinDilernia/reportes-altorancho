@@ -20,6 +20,7 @@ export function defaultReturnDeps() {
     findPartnerId: (customer) => findOrCreatePosPartner(customer),
     findCreditNoteByRef: rOdoo.findCreditNoteByRef, createCreditNoteFromInvoice: rOdoo.createCreditNoteFromInvoice,
     createStandaloneCreditNote: rOdoo.createStandaloneCreditNote, trimCreditNote: rOdoo.trimCreditNote,
+    readCreditNoteState: rOdoo.readCreditNoteState, readMoveResiduals: rOdoo.readMoveResiduals,
     postCreditNote: (ncId, journalId) => postInvoice(ncId, journalId),
     // Por defecto no se factura; posConfirm lo pisa con invoicingEnabledFor.
     invoicingEnabled: () => false,
@@ -191,6 +192,16 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
       // Adoptada ya publicada: no se vuelve a publicar.
       if (step.state === 'posted') continue;
     }
+    // Guardada (o adoptada) en borrador: puede haberse publicado en Odoo y
+    // perdido la respuesta. Si ya está publicada no se recorta ni se publica.
+    if (!fresh && step.state === 'draft') {
+      const current = await deps.readCreditNoteState(step.id);
+      if (current?.state === 'posted') {
+        steps.creditNotes[g.key] = { id: step.id, name: current.name ?? step.name ?? null, state: 'posted' };
+        await save();
+        continue;
+      }
+    }
     // Una NC sobre factura en borrador que no se acaba de crear puede ser la
     // reversión completa (falla entre reverse_moves y el recorte): se recorta de nuevo.
     if (g.invoiceId && !fresh && step.state === 'draft') await deps.trimCreditNote(step.id, sumByProduct(g.lines));
@@ -200,14 +211,35 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
   return steps;
 }
 
-// Después de facturar lo nuevo: aplica las NC de esta operación y las de los
-// saldos usados. Nunca tira: devuelve avisos.
-export async function applyCreditNotesStep(order, invoiceId, creditNoteIds, deps = defaultReturnDeps()) {
+const pesos = (n) => `$ ${Number(n).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
+
+// Puro. ¿Se aplica sola la NC de un saldo? Odoo concilia lo menor entre lo
+// abierto de la NC y lo abierto de la factura: solo si eso no pasa del saldo
+// usado en este pedido (si no, se aplicaría saldo que el cliente no usó).
+export const saldoNcAutoApplies = ({ ncResidual, invoiceResidual, saldoLeft }) =>
+  Math.min(ncResidual, invoiceResidual) <= saldoLeft + 0.01;
+
+// Después de facturar lo nuevo: aplica las NC de esta operación (`own`) y las
+// de los saldos usados (`saldo`, con tope en lo usado). Nunca tira: devuelve avisos.
+export async function applyCreditNotesStep(order, invoiceId, { own = [], saldo = [] }, deps = defaultReturnDeps()) {
   const warnings = [];
   const applied = [...(order.appliedCreditNoteIds ?? [])];
-  for (const ncId of creditNoteIds) {
+  const ownIds = new Set(own);
+  let saldoLeft = orders.saldoAmount(order.payments, order.totals);
+  for (const ncId of [...own, ...saldo.filter((id) => !ownIds.has(id))]) {
     if (applied.includes(ncId)) continue;
     try {
+      if (!ownIds.has(ncId)) {
+        const residuals = await deps.readMoveResiduals([ncId, invoiceId]);
+        const nc = residuals.get(ncId);
+        const ncResidual = nc?.residual ?? 0;
+        const invoiceResidual = residuals.get(invoiceId)?.residual ?? 0;
+        if (!saldoNcAutoApplies({ ncResidual, invoiceResidual, saldoLeft })) {
+          warnings.push(`Aplicá en Odoo la nota de crédito ${nc?.name ?? ncId} por ${pesos(Math.max(saldoLeft, 0))} a la factura`);
+          continue;
+        }
+        saldoLeft -= Math.min(ncResidual, invoiceResidual);
+      }
       await deps.applyCreditNote(invoiceId, ncId);
       applied.push(ncId);
       await deps.saveAppliedCreditNotes(order.id, applied);

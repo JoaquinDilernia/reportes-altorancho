@@ -35,6 +35,7 @@ function fakeDeps(over = {}) {
     createCreditNoteFromInvoice: rec('createNc', () => nextNc++),
     createStandaloneCreditNote: rec('createNcManual', () => nextNc++),
     trimCreditNote: rec('trimNc'),
+    readCreditNoteState: rec('readNc', (ncId) => ({ id: ncId, name: '/', state: 'draft' })),
     postCreditNote: rec('postNc', (ncId) => ({ id: ncId, name: `NC-B ${ncId}`, state: 'posted' })),
     saveReturnSteps: rec('saveSteps'),
     invoicingEnabled: () => true,
@@ -205,4 +206,65 @@ test('runPostConfirmSteps: si falla la aplicación de NC queda aviso y se cierra
   );
   assert.match(named(calls, 'warning')[0][1], /No se pudieron aplicar las notas de crédito.*Firestore caído/);
   assert.equal(named(calls, 'clear').length, 1);
+});
+
+test('runReturnSteps: NC guardada en borrador que en Odoo ya está publicada → no se recorta ni publica, queda publicada', async () => {
+  const previous = {
+    pickings: { 'pick:tpv:48870:192311:exhibicion': { id: 777, name: 'x', state: 'done' } }, transfers: {},
+    creditNotes: { 'nc:368292': { id: 368705, name: '/', state: 'draft' } },
+  };
+  const { deps, calls } = fakeDeps({ readCreditNoteState: async (ncId) => { calls.push(['readNc', ncId]); return { id: ncId, name: 'NC-B 77', state: 'posted' }; } });
+  const steps = await runReturnSteps(order({ returnSteps: previous }), ctx, deps);
+  assert.deepEqual(named(calls, 'readNc').map((c) => c[1]), [368705]);
+  assert.equal(named(calls, 'trimNc').length, 0);
+  assert.equal(named(calls, 'postNc').length, 0);
+  assert.deepEqual(steps.creditNotes['nc:368292'], { id: 368705, name: 'NC-B 77', state: 'posted' });
+  assert.deepEqual(named(calls, 'saveSteps').at(-1)[2].creditNotes['nc:368292'], { id: 368705, name: 'NC-B 77', state: 'posted' });
+});
+
+import { applyCreditNotesStep, saldoNcAutoApplies } from '../posReturnsConfirm.mjs';
+
+function applyDeps(residuals) {
+  const calls = [];
+  const deps = {
+    readMoveResiduals: async (ids) => { calls.push(['residuals', ids]); return new Map(Object.entries(residuals).map(([k, v]) => [Number(k), v])); },
+    applyCreditNote: async (inv, nc) => { calls.push(['apply', inv, nc]); return true; },
+    saveAppliedCreditNotes: async (id, applied) => { calls.push(['saveApplied', applied]); },
+  };
+  return { deps, calls };
+}
+const saldoOrder = (saldo) => ({
+  id: 'o1', appliedCreditNoteIds: [],
+  payments: [{ methodId: 'efectivo', amount: 5000 }, { methodId: 'saldo', amount: saldo }], totals: { total: 5000 + saldo },
+});
+
+test('saldoNcAutoApplies: solo si lo que concilia Odoo no pasa del saldo usado (±0,01)', () => {
+  assert.equal(saldoNcAutoApplies({ ncResidual: 2000, invoiceResidual: 9000, saldoLeft: 2000 }), true);
+  assert.equal(saldoNcAutoApplies({ ncResidual: 2000.01, invoiceResidual: 9000, saldoLeft: 2000 }), true);
+  assert.equal(saldoNcAutoApplies({ ncResidual: 6000, invoiceResidual: 1500, saldoLeft: 2000 }), true);
+  assert.equal(saldoNcAutoApplies({ ncResidual: 6000, invoiceResidual: 9000, saldoLeft: 2000 }), false);
+});
+
+test('applyCreditNotesStep: NC de saldo con lo abierto dentro del saldo usado → se aplica sola', async () => {
+  const { deps, calls } = applyDeps({ 400: { id: 400, name: 'FA-B 2', residual: 7000 }, 501: { id: 501, name: 'NC-B 5', residual: 2000 } });
+  const warnings = await applyCreditNotesStep(saldoOrder(2000), 400, { own: [], saldo: [501] }, deps);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(calls.filter((c) => c[0] === 'apply'), [['apply', 400, 501]]);
+  assert.deepEqual(calls.find((c) => c[0] === 'residuals')[1], [501, 400]);
+});
+
+test('applyCreditNotesStep: NC de saldo con más abierto que el saldo usado → aviso y no se aplica', async () => {
+  const { deps, calls } = applyDeps({ 400: { id: 400, name: 'FA-B 2', residual: 7000 }, 501: { id: 501, name: 'NC-B 5', residual: 6000 } });
+  const warnings = await applyCreditNotesStep(saldoOrder(2000), 400, { own: [], saldo: [501] }, deps);
+  assert.equal(calls.filter((c) => c[0] === 'apply').length, 0);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /^Aplicá en Odoo la nota de crédito NC-B 5 por \$ 2\.000 a la factura$/);
+});
+
+test('applyCreditNotesStep: las NC propias de la operación se aplican sin leer lo abierto', async () => {
+  const { deps, calls } = applyDeps({});
+  const warnings = await applyCreditNotesStep({ id: 'o1', appliedCreditNoteIds: [], payments: [{ methodId: 'efectivo' }], totals: { total: 1 } }, 400, { own: [368705], saldo: [] }, deps);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(calls.filter((c) => c[0] === 'apply'), [['apply', 400, 368705]]);
+  assert.equal(calls.filter((c) => c[0] === 'residuals').length, 0);
 });

@@ -164,6 +164,26 @@ test('assertPaymentsEditable: con saldo ya descontado no se cambia el pago', () 
   assert.doesNotThrow(() => assertPaymentsEditable(withAlloc, { notes: 'x' }));
 });
 
+import { assertCreditAllocationMatches, creditsToRestore } from '../posOrders.mjs';
+
+test('assertCreditAllocationMatches: el saldo descontado tiene que coincidir con lo que se paga con saldo', () => {
+  const alloc = [{ creditId: 'c1', amount: 3000 }, { creditId: 'c2', amount: 2000.005 }];
+  assert.doesNotThrow(() => assertCreditAllocationMatches(null, 7000));
+  assert.doesNotThrow(() => assertCreditAllocationMatches([], 7000));
+  assert.doesNotThrow(() => assertCreditAllocationMatches(alloc, 5000));
+  assert.doesNotThrow(() => assertCreditAllocationMatches(alloc, 5000.01));
+  assert.throws(() => assertCreditAllocationMatches(alloc, 5200), /El total cambió después de descontar el saldo a favor/);
+  assert.throws(() => assertCreditAllocationMatches(alloc, 0), /anulá el pedido y armalo de nuevo/);
+});
+
+test('creditsToRestore: al anular devuelve el saldo descontado, también si ya estaba confirmado', () => {
+  const alloc = [{ creditId: 'c1', amount: 5000 }];
+  assert.deepEqual(creditsToRestore({ status: 'confirmado', creditAllocation: alloc }), alloc);
+  assert.deepEqual(creditsToRestore({ status: 'pendiente', creditAllocation: alloc }), alloc);
+  assert.equal(creditsToRestore({ status: 'confirmado', creditAllocation: null }), null);
+  assert.equal(creditsToRestore({ status: 'error', creditAllocation: [] }), null);
+});
+
 import { assertReturnLinesEditable, hasReturnDocsInOdoo } from '../posOrders.mjs';
 
 test('assertReturnLinesEditable: con el plan de devolución guardado no se cambia lo que vuelve', () => {

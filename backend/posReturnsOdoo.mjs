@@ -371,3 +371,15 @@ export async function applyCreditNote(invoiceId, creditNoteId, odoo = defaultOdo
   await odoo.write('account.move', 'js_assign_outstanding_line', [[invoiceId], line.id]);
   return true;
 }
+
+// Estado actual de una NC (un reintento no recorta ni publica una que ya se publicó).
+export async function readCreditNoteState(creditNoteId, odoo = defaultOdoo) {
+  const [move] = await odoo.read('account.move', 'read', [[creditNoteId]], { fields: ['id', 'name', 'state'] });
+  return move ?? null;
+}
+
+// Lo abierto (amount_residual) de cada comprobante: Map id → { id, name, residual }.
+export async function readMoveResiduals(moveIds, odoo = defaultOdoo) {
+  const rows = moveIds.length ? await odoo.read('account.move', 'read', [[...new Set(moveIds)]], { fields: ['id', 'name', 'amount_residual'] }) : [];
+  return new Map(rows.map((m) => [m.id, { id: m.id, name: m.name || null, residual: Number(m.amount_residual) || 0 }]));
+}

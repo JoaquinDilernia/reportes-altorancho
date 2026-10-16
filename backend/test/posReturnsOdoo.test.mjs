@@ -247,3 +247,25 @@ test('trimCreditNote: idempotente; una reversión completa queda solo con lo dev
   await trimCreditNote(368705, [{ productId: 68926, qty: 1 }], trimmed.odoo);
   assert.deepEqual(trimmed.calls.find((c) => c[1] === 'write')[2], [[368705], { invoice_line_ids: [[1, 1215806, { quantity: 1 }]] }]);
 });
+
+import { readCreditNoteState, readMoveResiduals } from '../posReturnsOdoo.mjs';
+
+test('readCreditNoteState: lee estado y nombre actuales de la NC', async () => {
+  const { odoo, calls } = fakeOdoo({ 'account.move.read': () => [{ id: 368705, name: 'NC-B 9', state: 'posted' }] });
+  assert.deepEqual(await readCreditNoteState(368705, odoo), { id: 368705, name: 'NC-B 9', state: 'posted' });
+  assert.deepEqual(calls[0].slice(0, 3), ['account.move', 'read', [[368705]]]);
+  assert.deepEqual(calls[0][3].fields, ['id', 'name', 'state']);
+  assert.equal(calls.filter((c) => c[1] !== 'read').length, 0);
+});
+
+test('readMoveResiduals: lo abierto de cada comprobante por id', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'account.move.read': () => [{ id: 400, name: 'FA-B 2', amount_residual: 9000 }, { id: 368705, name: 'NC-B 9', amount_residual: 1500.5 }],
+  });
+  const map = await readMoveResiduals([400, 368705, 400], odoo);
+  assert.deepEqual(map.get(400), { id: 400, name: 'FA-B 2', residual: 9000 });
+  assert.deepEqual(map.get(368705), { id: 368705, name: 'NC-B 9', residual: 1500.5 });
+  assert.deepEqual(calls[0][2], [[400, 368705]]);
+  assert.deepEqual(calls[0][3].fields, ['id', 'name', 'amount_residual']);
+  assert.equal((await readMoveResiduals([], odoo)).size, 0);
+});

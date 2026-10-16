@@ -168,6 +168,21 @@ export function saldoAmount(payments, totals) {
   return payments.length === 1 || saldo.amount == null ? collectOf(totals) : saldo.amount;
 }
 
+// Con saldo ya descontado (reclamo previo que falló) lo que se paga con saldo
+// tiene que seguir igual a lo descontado: si el total cambió (precios, promos),
+// la asignación guardada ya no corresponde.
+export function assertCreditAllocationMatches(creditAllocation, saldo) {
+  if (!creditAllocation?.length) return;
+  const allocated = round2(creditAllocation.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+  if (Math.abs(allocated - round2(saldo)) > 0.01 + 1e-9) {
+    throw new Error('El total cambió después de descontar el saldo a favor: anulá el pedido y armalo de nuevo');
+  }
+}
+
+// Saldo a devolver al anular: lo descontado, esté o no confirmado el pedido
+// (confirmado solo se anula una venta común; los cambios se rechazan antes).
+export const creditsToRestore = (order) => (order.creditAllocation?.length ? order.creditAllocation : null);
+
 export function assertCustomerShape(c) {
   const ok = c && typeof c === 'object' && !Array.isArray(c)
     && ['docNumber', 'name', 'phone', 'email'].every((k) => typeof c[k] === 'string')
@@ -536,7 +551,8 @@ export async function claimOrderForConfirm(orderId, user) {
       refund = validateRefund(order.refund, totals.net, methodsById);
     }
     const saldo = saldoAmount(payments, totals);
-    if (saldo > 0 && !creditAllocation) {
+    assertCreditAllocationMatches(creditAllocation, saldo);
+    if (saldo > 0 && !creditAllocation?.length) {
       const consumed = await consumeCreditsInTx(tx, db, {
         docNumber: order.customer.docNumber, amount: saldo, orderId: order.id, orderNumber: order.number, user: user.name, nowMs: Date.now(),
       });
@@ -631,8 +647,9 @@ export async function markOrderAnnulled(id, user, reason) {
     if (!['pendiente', 'error', 'confirmado'].includes(order.status)) throw new Error('Este pedido no se puede anular');
     if (hasReturnDocsInOdoo(order.returnSteps)) throw new Error('Parte de la devolución ya está en Odoo: resolvelo en Odoo');
     const after = { ...order, status: 'anulado' };
-    const restore = order.creditAllocation?.length && order.status !== 'confirmado'
-      ? await restoreCreditsInTx(tx, db, order.creditAllocation, { orderId: order.id, orderNumber: order.number, user })
+    const toRestore = creditsToRestore(order);
+    const restore = toRestore
+      ? await restoreCreditsInTx(tx, db, toRestore, { orderId: order.id, orderNumber: order.number, user })
       : null;
     const commit = await reserveInTx(tx, db, ctx, new Map(), order, after);
     commit();

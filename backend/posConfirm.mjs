@@ -294,7 +294,7 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
     let ncWarnings;
     try {
       const own = Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
-      ncWarnings = await applyCreditNotesStep(order, invoiceId, [...own, ...(await deps.creditNoteIdsOf(order))], deps);
+      ncWarnings = await applyCreditNotesStep(order, invoiceId, { own, saldo: await deps.creditNoteIdsOf(order) }, deps);
     } catch (err) {
       ncWarnings = [`No se pudieron aplicar las notas de crédito a la factura (${err.message}): aplicalas en Odoo`];
     }
