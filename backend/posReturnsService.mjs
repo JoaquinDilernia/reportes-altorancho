@@ -9,7 +9,7 @@ import { appUnitValue } from './posReturns.mjs';
 export function classifyQuery(q) {
   const text = String(q ?? '').trim();
   const digits = text.replace(/\D/g, '');
-  if (/^[\d.\-\s]+$/.test(text) && digits.length >= 7 && digits.length <= 11) return { doc: digits };
+  if (/^[\d.\-\s]+$/.test(text) && [7, 8, 11].includes(digits.length)) return { doc: digits };
   if (text.length >= 3) return { ref: text };
   throw new Error('Escribí el DNI/CUIT o el número de la compra');
 }
@@ -44,13 +44,16 @@ export async function searchPurchases(q, { sinceISO }, deps = defaultDeps()) {
   return { purchases, errors };
 }
 
-export async function getPurchase(source, id) {
+export async function getPurchase(source, id, deps = { readSale: rOdoo.readSaleOrderPurchase }) {
   if (source === 'tpv') return rOdoo.readTpvPurchase(id);
   if (source === 'web') {
-    return rOdoo.readSaleOrderPurchase({
+    if (!/^[0-9]+$/.test(String(id))) throw new Error('Pedido web inválido');
+    const web = await deps.readSale({
       source: 'web', purchaseId: String(id), label: null, saleOrderIds: [Number(id)],
       unitValueFor: (sl) => (sl.product_uom_qty > 0 ? Math.round((sl.price_total / sl.product_uom_qty) * 100) / 100 : 0),
-    }).then((p) => ({ ...p, label: p.label ?? `Pedido web ${id}`, lines: p.lines.map((l) => ({ ...l, purchaseLabel: l.purchaseLabel ?? p.label })) }));
+    });
+    if (!String(web.label ?? '').startsWith('TN')) throw new Error('Ese pedido no es de la tienda web');
+    return { ...web, lines: web.lines.map((l) => ({ ...l, purchaseLabel: l.purchaseLabel ?? web.label })) };
   }
   if (source === 'app') {
     const order = await getOrder(id);

@@ -7,9 +7,8 @@ import {
 } from './posAuth.mjs';
 import { listUsers, createUser, updateUser, deleteUser } from './posUsers.mjs';
 import {
-  getLocales, getSettings, getPaymentMethods, getPaymentMethodsById, saveLocale, saveSettings, savePaymentMethod, localeIdsOf,
+  getLocales, getSettings, getPaymentMethods, getPaymentMethodsById, saveLocale, saveSettings, savePaymentMethod, localeIdsOf, returnDestinationsOf,
 } from './posConfig.mjs';
-import { returnDestinationsOf } from './posConfig.mjs';
 import { searchPurchases, getPurchase, resolvePurchaseLine, manualLine } from './posReturnsService.mjs';
 import { customerBalance, listCreditsForAdmin, extendCredit, SALDO_METHOD } from './posCredits.mjs';
 import { listPromotions, listActivePromotions, savePromotion } from './posPromotions.mjs';

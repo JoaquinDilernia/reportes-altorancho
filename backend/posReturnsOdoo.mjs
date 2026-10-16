@@ -192,14 +192,14 @@ export async function readSaleOrderPurchase({ source, purchaseId, label, saleOrd
     if (sl.product_uom_qty > delivered) pending.push({ sku, name, qty: sl.product_uom_qty - delivered });
     if (!delivered) continue;
     lines.push({
-      source, purchaseId, purchaseLabel: label, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
+      source, purchaseId, purchaseLabel: label ?? orders[0].name, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
       qtyBought: delivered, qtyReturnedBefore: lineDone.reduce((s, m) => s + (returnedByMove.get(m.id) ?? 0), 0),
       unitValue: unitValueFor(sl), lots: mergeLots(lineDone.map((m) => lots.get(m.id) ?? [])), moveIds: lineDone.map((m) => m.id),
       invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, ...partner,
     });
   }
   return {
-    source, purchaseId, label, date: orders[0].date_order, ...partner,
+    source, purchaseId, label: label ?? orders[0].name, date: orders[0].date_order, ...partner,
     invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, lines, pending,
   };
 }

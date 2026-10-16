@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyQuery, searchPurchases, resolvePurchaseLine } from '../posReturnsService.mjs';
+import { classifyQuery, searchPurchases, resolvePurchaseLine, getPurchase } from '../posReturnsService.mjs';
 
 test('classifyQuery: documento o referencia', () => {
   assert.deepEqual(classifyQuery('30.123.456'), { doc: '30123456' });
@@ -8,6 +8,7 @@ test('classifyQuery: documento o referencia', () => {
   assert.deepEqual(classifyQuery('LL-0042'), { ref: 'LL-0042' });
   assert.deepEqual(classifyQuery('Alcorta/2301'), { ref: 'Alcorta/2301' });
   assert.deepEqual(classifyQuery('TN2095995525'), { ref: 'TN2095995525' });
+  assert.deepEqual(classifyQuery('2095995525'), { ref: '2095995525' });
   assert.throws(() => classifyQuery('ab'), /Escribí el DNI\/CUIT o el número/);
 });
 
@@ -29,4 +30,12 @@ test('resolvePurchaseLine: toma la línea de la compra leída en el servidor', a
   };
   assert.equal((await resolvePurchaseLine({ source: 'tpv', purchaseId: '48870', purchaseLineId: '92250' }, deps)).unitValue, 100);
   await assert.rejects(resolvePurchaseLine({ source: 'tpv', purchaseId: '48870', purchaseLineId: '1' }, deps), /Esa línea no está en la compra/);
+});
+
+test('getPurchase web: valida id entero y que sea un pedido TN', async () => {
+  const readSale = async ({ purchaseId }) => ({ label: purchaseId === '5' ? 'TN123' : 'S00042', lines: [{ purchaseLineId: '1' }] });
+  await assert.rejects(getPurchase('web', 'abc', { readSale }), /Pedido web inválido/);
+  await assert.rejects(getPurchase('web', '6', { readSale }), /Ese pedido no es de la tienda web/);
+  const p = await getPurchase('web', '5', { readSale });
+  assert.equal(p.lines[0].purchaseLabel, 'TN123');
 });
