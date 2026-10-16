@@ -111,7 +111,7 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
       const found = await deps.findPickingByOrigin(origin(group.key));
       const pickingId = found?.id ?? await deps.createReturnPicking({
         pickingId: group.pickingId, items: group.items, locationId: group.locationId,
-        pickingTypeId: ctx.locale.returnPickingTypeId, origin: origin(group.key),
+        origin: origin(group.key),
       });
       step = { id: pickingId, name: found?.name ?? null, state: found?.state ?? 'draft' };
       steps.pickings[group.key] = step;

@@ -144,7 +144,7 @@ test('createReturnPicking: arma las líneas a mano, fija ubicación, tipo y orig
     'stock.picking.write': () => true,
   });
   const id = await createReturnPicking({
-    pickingId: 192311, items: [{ moveId: 612602, productId: 70417, uomId: 1, qty: 1 }], locationId: 324, pickingTypeId: 6, origin: 'LL-0042 · tpv:1',
+    pickingId: 192311, items: [{ moveId: 612602, productId: 70417, uomId: 1, qty: 1 }], locationId: 324, origin: 'LL-0042 · tpv:1',
   }, odoo);
   assert.equal(id, 777);
   const [, , [[vals]]] = calls.find((c) => c[1] === 'create');
@@ -153,7 +153,19 @@ test('createReturnPicking: arma las líneas a mano, fija ubicación, tipo y orig
   assert.deepEqual(vals.product_return_moves, [[0, 0, { product_id: 70417, move_id: 612602, uom_id: 1, quantity: 1, to_refund: true }]]);
   assert.ok(!('create_rma' in vals));
   const write = calls.find((c) => c[0] === 'stock.picking' && c[1] === 'write');
-  assert.deepEqual(write[2], [[777], { picking_type_id: 6, origin: 'LL-0042 · tpv:1' }]);
+  assert.deepEqual(write[2], [[777], { origin: 'LL-0042 · tpv:1' }]);
+});
+
+test('createReturnPicking: si falla marcar el origen, el error incluye el id de la devolución creada', async () => {
+  const { odoo } = fakeOdoo({
+    'stock.return.picking.create': () => [55],
+    'stock.return.picking.create_returns': () => ({ res_id: 777 }),
+    'stock.picking.write': () => { throw new Error('prohibido'); },
+  });
+  await assert.rejects(
+    createReturnPicking({ pickingId: 1, items: [{ moveId: 2, productId: 3, uomId: 1, qty: 1 }], locationId: 324, origin: 'X' }, odoo),
+    /Se creó la devolución 777 en Odoo pero no se pudo marcar: prohibido/,
+  );
 });
 
 test('validatePicking: con lote escribe el lote en la línea; sin lote, cantidad hecha; asistente = error', async () => {

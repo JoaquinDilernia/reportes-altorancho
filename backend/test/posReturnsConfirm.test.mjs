@@ -61,7 +61,7 @@ test('runReturnSteps: devolución de remito → validada → NC parcial publicad
   assert.equal(steps.creditNotes['nc:368292'].state, 'posted');
   const create = named(calls, 'createReturn')[0][1];
   assert.equal(create.locationId, 324);
-  assert.equal(create.pickingTypeId, 6);
+  assert.ok(!('pickingTypeId' in create));
   assert.equal(create.origin, 'LL-0042 · pick:tpv:48870:192311:exhibicion');
   assert.deepEqual(named(calls, 'createNc')[0][1].items, [{ productId: 70417, qty: 1 }]);
   assert.equal(named(calls, 'createNc')[0][1].journalId, 32);

@@ -244,7 +244,7 @@ export function readMoves(moveIds, odoo = defaultOdoo) {
 
 // v16: las líneas y la ubicación del asistente salen de un onchange, por eso
 // se arman a mano (spike Fase 2). Nunca create_rma.
-export async function createReturnPicking({ pickingId, items, locationId, pickingTypeId, origin }, odoo = defaultOdoo) {
+export async function createReturnPicking({ pickingId, items, locationId, origin }, odoo = defaultOdoo) {
   const context = { active_model: 'stock.picking', active_id: pickingId, active_ids: [pickingId] };
   const [wizardId] = await odoo.write('stock.return.picking', 'create', [[{
     picking_id: pickingId, location_id: locationId,
@@ -253,7 +253,12 @@ export async function createReturnPicking({ pickingId, items, locationId, pickin
   const action = await odoo.write('stock.return.picking', 'create_returns', [[wizardId]], { context });
   const returnId = action?.res_id;
   if (!returnId) throw new Error('Odoo no creó la devolución');
-  await odoo.write('stock.picking', 'write', [[returnId], { ...(pickingTypeId ? { picking_type_id: pickingTypeId } : {}), origin }]);
+  // Odoo 16 prohíbe cambiar picking_type_id; la devolución ya sale con su tipo. Solo se marca el origen.
+  try {
+    await odoo.write('stock.picking', 'write', [[returnId], { origin }]);
+  } catch (err) {
+    throw new Error(`Se creó la devolución ${returnId} en Odoo pero no se pudo marcar: ${err.message}`);
+  }
   return returnId;
 }
 
