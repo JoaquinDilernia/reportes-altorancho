@@ -149,6 +149,19 @@ export function assertPaymentsEditable(order, patch) {
   }
 }
 
+// Con el plan de devolución guardado (la confirmación ya empezó) lo que vuelve
+// no se toca: los remitos seguirían el plan viejo y la NC las líneas nuevas.
+export function assertReturnLinesEditable(order) {
+  if (order.returnSteps?.plan) {
+    throw new Error('Esta devolución ya empezó a cargarse en Odoo: para cambiar lo que vuelve anulá el pedido y armalo de nuevo');
+  }
+}
+
+// ¿Hay algún documento de la devolución creado en Odoo? (el plan solo no cuenta)
+export function hasReturnDocsInOdoo(returnSteps) {
+  return ['pickings', 'transfers', 'creditNotes'].some((k) => Object.keys(returnSteps?.[k] ?? {}).length > 0);
+}
+
 export function saldoAmount(payments, totals) {
   const saldo = (payments ?? []).find((p) => p.methodId === 'saldo');
   if (!saldo) return 0;
@@ -359,6 +372,7 @@ async function changeReturnLines(orderId, user, change) {
       if (order.localId !== user.localId) throw forbidden();
       assertDraftEditable(order);
     }
+    assertReturnLinesEditable(order);
     const returnLines = change(order.returnLines ?? [], ctx, order);
     const update = { returnLines, kind: orderKind({ lines: order.lines, returnLines }), updatedAt: new Date() };
     tx.update(ref, update);
@@ -607,6 +621,7 @@ export async function markOrderAnnulled(id, user, reason) {
     if (!snap.exists) throw new Error('Pedido no encontrado');
     const order = withId(snap);
     if (!['pendiente', 'error', 'confirmado'].includes(order.status)) throw new Error('Este pedido no se puede anular');
+    if (hasReturnDocsInOdoo(order.returnSteps)) throw new Error('Parte de la devolución ya está en Odoo: resolvelo en Odoo');
     const after = { ...order, status: 'anulado' };
     const restore = order.creditAllocation?.length && order.status !== 'confirmado'
       ? await restoreCreditsInTx(tx, db, order.creditAllocation, { orderId: order.id, orderNumber: order.number, user })

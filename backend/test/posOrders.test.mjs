@@ -163,3 +163,19 @@ test('assertPaymentsEditable: con saldo ya descontado no se cambia el pago', () 
   assert.doesNotThrow(() => assertPaymentsEditable({ creditAllocation: null }, { payments: [] }));
   assert.doesNotThrow(() => assertPaymentsEditable(withAlloc, { notes: 'x' }));
 });
+
+import { assertReturnLinesEditable, hasReturnDocsInOdoo } from '../posOrders.mjs';
+
+test('assertReturnLinesEditable: con el plan de devolución guardado no se cambia lo que vuelve', () => {
+  assert.doesNotThrow(() => assertReturnLinesEditable({ returnSteps: {} }));
+  assert.doesNotThrow(() => assertReturnLinesEditable({}));
+  assert.throws(() => assertReturnLinesEditable({ returnSteps: { plan: { pickings: [], manuals: [], transfers: [] } } }), /ya empezó a cargarse en Odoo/);
+});
+
+test('hasReturnDocsInOdoo: solo cuenta remitos, traslados o NC creados; el plan solo no', () => {
+  assert.equal(hasReturnDocsInOdoo(undefined), false);
+  assert.equal(hasReturnDocsInOdoo({ plan: { pickings: [] }, pickings: {}, transfers: {}, creditNotes: {} }), false);
+  assert.equal(hasReturnDocsInOdoo({ pickings: { 'pick:x': { id: 1 } } }), true);
+  assert.equal(hasReturnDocsInOdoo({ transfers: { 'transfer:rolon': { id: 2 } } }), true);
+  assert.equal(hasReturnDocsInOdoo({ creditNotes: { 'nc:1': { id: 3 } } }), true);
+});
