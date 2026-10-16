@@ -141,6 +141,14 @@ export function assertHolder(order) {
   }
 }
 
+// Con saldo ya descontado (reclamo previo que falló) el pago no se toca: la
+// asignación guardada se desviaría de lo que se cobra.
+export function assertPaymentsEditable(order, patch) {
+  if (patch.payments !== undefined && order.creditAllocation?.length) {
+    throw new Error('El saldo a favor de este pedido ya se descontó: para cambiar el pago anulá el pedido y armalo de nuevo');
+  }
+}
+
 export function saldoAmount(payments, totals) {
   const saldo = (payments ?? []).find((p) => p.methodId === 'saldo');
   if (!saldo) return 0;
@@ -376,6 +384,7 @@ export const removeReturnLine = (orderId, user, rlId) =>
   });
 
 export async function searchAppPurchases({ doc = null, number = null }) {
+  if (!doc && !number) return [];
   const col = getDb().collection(COLLECTION);
   const snap = number ? await col.where('number', '==', number).get() : await col.where('customer.docNumber', '==', doc).get();
   return snap.docs.map(withId)
@@ -447,6 +456,7 @@ export async function updateDraft(orderId, user, patch) {
       return { ...order, ...update };
     }
     assertDraftEditable(order);
+    assertPaymentsEditable(order, patch);
     const update = { updatedAt: new Date() };
     if (patch.customer !== undefined) {
       assertCustomerShape(patch.customer);

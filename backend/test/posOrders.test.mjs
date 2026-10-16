@@ -154,3 +154,12 @@ test('saldoAmount: único medio usa lo que se cobra; dividido usa su monto', () 
   assert.equal(saldoAmount([{ methodId: 'efectivo', amount: 2000 }, { methodId: 'saldo', amount: 5000 }], { total: 7000 }), 5000);
   assert.equal(saldoAmount([{ methodId: 'efectivo', amount: null }], { total: 7000 }), 0);
 });
+
+import { assertPaymentsEditable } from '../posOrders.mjs';
+
+test('assertPaymentsEditable: con saldo ya descontado no se cambia el pago', () => {
+  const withAlloc = { creditAllocation: [{ creditId: 'c1', amount: 5000 }] };
+  assert.throws(() => assertPaymentsEditable(withAlloc, { payments: [] }), /ya se descontó/);
+  assert.doesNotThrow(() => assertPaymentsEditable({ creditAllocation: null }, { payments: [] }));
+  assert.doesNotThrow(() => assertPaymentsEditable(withAlloc, { notes: 'x' }));
+});
