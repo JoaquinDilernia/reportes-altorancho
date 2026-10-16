@@ -179,3 +179,13 @@ test('hasReturnDocsInOdoo: solo cuenta remitos, traslados o NC creados; el plan 
   assert.equal(hasReturnDocsInOdoo({ transfers: { 'transfer:rolon': { id: 2 } } }), true);
   assert.equal(hasReturnDocsInOdoo({ creditNotes: { 'nc:1': { id: 3 } } }), true);
 });
+
+import { cleanHolderReason } from '../posOrders.mjs';
+
+test('cleanHolderReason: solo con algo que vuelve, recortado a 200', () => {
+  const rl = [{ rlId: 'R1' }];
+  assert.equal(cleanHolderReason('  Es la hermana  ', rl), 'Es la hermana');
+  assert.equal(cleanHolderReason('x'.repeat(250), rl).length, 200);
+  assert.equal(cleanHolderReason('Motivo', []), '');
+  assert.equal(cleanHolderReason(undefined, rl), '');
+});

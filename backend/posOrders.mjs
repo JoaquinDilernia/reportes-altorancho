@@ -419,7 +419,13 @@ const cleanCustomer = (c) => ({
   odooPartnerId: c.odooPartnerId ?? null, tagIds: Array.isArray(c.tagIds) ? c.tagIds.map(Number) : [],
 });
 
-export async function submitCart(orderId, user, { customer, shipping }) {
+// Motivo del cambio de titular que manda el vendedor: solo con algo que vuelve.
+export function cleanHolderReason(reason, returnLines) {
+  if (!(returnLines ?? []).length || reason == null) return '';
+  return String(reason).trim().slice(0, 200);
+}
+
+export async function submitCart(orderId, user, { customer, shipping, holderChangeReason }) {
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
   return db.runTransaction(async (tx) => {
@@ -435,6 +441,8 @@ export async function submitCart(orderId, user, { customer, shipping }) {
       status: 'pendiente', customer: cleanCustomer(customer), shipping: withShipping ? shipping : null,
       sentAt: new Date(), updatedAt: new Date(),
     };
+    const reason = cleanHolderReason(holderChangeReason, order.returnLines);
+    if (reason) next.holderChangeReason = reason;
     Object.assign(next, orderKeys({ ...order, ...next }));
     tx.update(ref, next);
     return { ...order, ...next };
