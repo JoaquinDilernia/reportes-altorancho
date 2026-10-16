@@ -97,3 +97,24 @@ test('searchWebPurchases: por número de Tiendanube con o sin "TN"', async () =>
   await searchWebPurchases({ ref: 'TN2095995525', sinceISO: '2025-10-16' }, odoo);
   for (const c of calls) assert.ok(JSON.stringify(c[2]).includes('"name","=","TN2095995525"'));
 });
+
+test('readTpvPurchase: no lista líneas sin move entregado (servicios)', async () => {
+  const { odoo } = fakeOdoo({
+    'pos.order.read': () => [{ id: 1, name: 'T/1', date_order: '2026-10-15 10:00:00', partner_id: false, account_move: false, picking_ids: [5], lines: [10, 11] }],
+    'pos.order.line.read': () => [
+      { id: 10, product_id: [1, '[A] Vaso'], qty: 1, price_subtotal_incl: 1000, refunded_qty: 0 },
+      { id: 11, product_id: [2, '[SRV] Servicio'], qty: 1, price_subtotal_incl: 500, refunded_qty: 0 },
+    ],
+    'stock.move.search_read': () => [{ id: 50, product_id: [1, 'x'], quantity_done: 1, move_line_ids: [], picking_id: [5, 'p'] }],
+    'stock.move.line.read': () => [],
+    'product.product.read': () => [{ id: 1, default_code: 'A', name: 'Vaso' }, { id: 2, default_code: 'SRV', name: 'Servicio' }],
+  });
+  const p = await readTpvPurchase(1, odoo);
+  assert.deepEqual(p.lines.map((l) => l.sku), ['A']);
+});
+
+test('searchTpvPurchases: sin doc ni ref devuelve [] sin llamar a Odoo', async () => {
+  const { odoo, calls } = fakeOdoo({});
+  assert.deepEqual(await searchTpvPurchases({ sinceISO: '2025-10-16' }, odoo), []);
+  assert.equal(calls.length, 0);
+});

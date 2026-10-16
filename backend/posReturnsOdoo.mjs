@@ -79,6 +79,7 @@ async function partnerDomain(doc, odoo) {
 // ---- Búsqueda ----
 
 export async function searchTpvPurchases({ doc, ref, sinceISO }, odoo = defaultOdoo) {
+  if (!doc && !ref) return [];
   const domain = [['amount_total', '>', 0], ['date_order', '>=', sinceISO]];
   if (doc) {
     const byPartner = await partnerDomain(doc, odoo);
@@ -136,7 +137,9 @@ export async function readTpvPurchase(posOrderId, odoo = defaultOdoo) {
   ]);
   const returnedByProduct = new Map();
   for (const m of moves) returnedByProduct.set(id(m.product_id), (returnedByProduct.get(id(m.product_id)) ?? 0) + (returnedByMove.get(m.id) ?? 0));
-  const positive = posLines.filter((l) => l.qty > 0);
+  // Solo lo entregado: servicios/consumibles sin move hecho no se listan.
+  const delivered = new Set(moves.map((m) => id(m.product_id)));
+  const positive = posLines.filter((l) => l.qty > 0 && delivered.has(id(l.product_id)));
   const byApp = allocateReturned(positive.map((l) => ({ id: l.id, productId: id(l.product_id), qty: l.qty - (l.refunded_qty ?? 0) })), returnedByProduct);
   const lines = positive.map((l) => {
     const productId = id(l.product_id);
