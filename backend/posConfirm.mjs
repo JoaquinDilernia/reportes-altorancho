@@ -14,6 +14,8 @@ import * as odoo from './posOdoo.mjs';
 import { validateTwoStep } from './posDelivery.mjs';
 import { withOrderLock } from './feriaDelivery.mjs';
 import { getDb } from './firestore.mjs';
+import { confirmReturnOrder, defaultReturnDeps, applyCreditNotesStep } from './posReturnsConfirm.mjs';
+import { listCustomerCredits } from './posCredits.mjs';
 
 const RETRY_EVERY_MS = 3 * 60 * 1000;
 const RETRY_USER = 'Reintento automático';
@@ -85,6 +87,15 @@ export function invoicePosOrder(order, locale, deps = invoiceDeps()) {
 
 function defaultDeps() {
   return {
+    // Primero: las claves de la Fase 1 de abajo ganan (son las mismas funciones).
+    ...defaultReturnDeps(),
+    invoicingEnabled: invoicingEnabledFor,
+    creditNoteIdsOf: async (order) => {
+      if (!order.creditAllocation?.length) return [];
+      const credits = await listCustomerCredits(order.customer.docNumber);
+      const used = new Set(order.creditAllocation.map((a) => a.creditId));
+      return credits.filter((c) => used.has(c.id)).flatMap((c) => c.creditNoteIds ?? []);
+    },
     findOrCreatePosPartner: odoo.findOrCreatePosPartner, findPaymentMethodId: odoo.findPaymentMethodId,
     findProductIdBySku: odoo.findProductIdBySku, createChildPartner: odoo.createChildPartner, findChildPartner: odoo.findChildPartner,
     createSaleOrder: odoo.createSaleOrder, saveOdooOrders: orders.saveOdooOrders,
@@ -123,9 +134,18 @@ async function shippingPartnerFor(groupLines, order, partnerId, ctx, deps) {
   return childPartnerFor(odoo.buildPickupPartnerVals(partnerId, order.customer.name, label, address), ['name', 'street'], deps);
 }
 
+// El medio de Odoo nunca es "saldo": manda el principal de los pagos reales;
+// si se pagó todo con saldo, el medio configurado en Ajustes.
 async function paymentMethodIdFor(order, ctx, deps) {
-  const principal = principalPayment(order.payments, ctx.methodsById);
-  const odooPaymentName = resolveOdooPaymentName(ctx.methodsById.get(principal.methodId), principal.detailId);
+  const real = order.payments.filter((p) => p.methodId !== 'saldo');
+  let odooPaymentName;
+  if (real.length) {
+    const principal = principalPayment(real, ctx.methodsById);
+    odooPaymentName = resolveOdooPaymentName(ctx.methodsById.get(principal.methodId), principal.detailId);
+  } else {
+    odooPaymentName = ctx.settings.creditOdooPaymentName;
+    if (!odooPaymentName) throw new Error('Configurá en Ajustes el medio de Odoo para ventas pagadas con saldo a favor');
+  }
   const paymentMethodId = await deps.findPaymentMethodId(odooPaymentName);
   if (!paymentMethodId) throw new Error(`Medio de pago no encontrado en Odoo: "${odooPaymentName}"`);
   return paymentMethodId;
@@ -147,7 +167,9 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   let shippingProductId = null;
   let homeServiceProductId = null;
   if (pending.length) {
-    paymentMethodId = await paymentMethodIdFor(order, ctx, deps);
+    // Un cambio con neto <= 0 no tiene pagos: el pedido va sin medio de pago
+    // (buildSaleOrderPayload omite payment_method_ids si es null).
+    paymentMethodId = order.payments.length || ctx.settings.creditOdooPaymentName ? await paymentMethodIdFor(order, ctx, deps) : null;
     if (order.totals.shipping > 0) {
       shippingProductId = await deps.findProductIdBySku(ctx.settings.shippingProductSku);
       if (!shippingProductId) throw new Error(`Producto de envío no encontrado en Odoo: ${ctx.settings.shippingProductSku}`);
@@ -261,9 +283,16 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
   }
   if (warnings.length) await deps.setOrderWarning(order.id, warnings.join(' · '));
 
-  // 6. Factura (nunca tira).
+  // 6. Factura (nunca tira) y 7. aplicación de NC de lo que vuelve / saldos usados.
+  let invoiceId = order.invoiceId ?? null;
   if (order.wantsInvoice && !order.invoiceName && invoicingEnabledFor(ctx.locale)) {
-    await deps.invoice(order, ctx.locale);
+    const result = await deps.invoice(order, ctx.locale);
+    if (result?.status === 'invoiced') invoiceId = result.invoiceId;
+  }
+  if (invoiceId && deps.creditNoteIdsOf) {
+    const own = Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
+    const ncWarnings = await applyCreditNotesStep(order, invoiceId, [...own, ...(await deps.creditNoteIdsOf(order))], deps);
+    if (ncWarnings.length) await deps.setOrderWarning(order.id, [...warnings, ...ncWarnings].join(' · '));
   }
   await deps.clearPostConfirmPending(order.id);
 }
@@ -297,7 +326,11 @@ export async function claimAndConfirmPos(orderId, user, deps = defaultDeps()) {
     }
   }
   try {
-    return await confirmPosOrder(order, user.name, await deps.loadCtx(order.localId), deps);
+    const ctx = await deps.loadCtx(order.localId);
+    if (order.returnLines?.length) {
+      return await confirmReturnOrder(order, user.name, ctx, { ...deps, confirmPosOrder: (o, u, c) => confirmPosOrder(o, u, c, deps) });
+    }
+    return await confirmPosOrder(order, user.name, ctx, deps);
   } catch (err) {
     try {
       await deps.markOrderError(order.id, err.message);
@@ -349,6 +382,7 @@ const annulDeps = () => ({
 export async function annulPosOrder(orderId, user, reason, deps = annulDeps()) {
   const order = await deps.getOrder(orderId);
   if (order.localId !== user.localId) throw Object.assign(new Error('No tenés acceso a ese local'), { status: 403 });
+  if (order.returnLines?.length) throw new Error('Un cambio o devolución confirmado no se anula desde la app: resolvelo en Odoo');
   const odooIds = odooIdsOf(order);
   // Un pedido en error que ya tiene pedidos en Odoo también se anula (cancelándolos).
   if (!['confirmado', 'error'].includes(order.status) || !odooIds.length) throw new Error('Solo se anulan ventas confirmadas');
