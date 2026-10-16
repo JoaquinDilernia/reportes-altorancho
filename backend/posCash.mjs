@@ -6,7 +6,7 @@ import { getDb } from './firestore.mjs';
 import { cashPointerRef, COLLECTION as ORDERS } from './posOrders.mjs';
 import { isConfirming } from './posLines.mjs';
 import { parseAmount, cleanNotes, voidCashMovement } from './feriaCash.mjs';
-import { round2 } from './posPricing.mjs';
+import { round2, collectOf } from './posPricing.mjs';
 
 const SESSIONS = 'pos_cash_sessions';
 export const CASH_METHOD_ID = 'efectivo';
@@ -14,8 +14,9 @@ const MOVEMENT_TYPES = { gasto: 'Gasto', retiro: 'Retiro', ingreso_usd: 'Ingreso
 
 export function paymentsOf(order) {
   const payments = order.payments ?? [];
+  if (!payments.length) return [];
   if (payments.length === 1 || payments.every((p) => p.amount == null)) {
-    return [{ methodId: payments[0]?.methodId, detailId: payments[0]?.detailId ?? null, amount: order.totals?.total ?? 0 }];
+    return [{ methodId: payments[0].methodId, detailId: payments[0].detailId ?? null, amount: collectOf(order.totals) }];
   }
   return payments.map((p) => ({ methodId: p.methodId, detailId: p.detailId ?? null, amount: p.amount }));
 }
@@ -24,11 +25,20 @@ export function computeCashSummary(orders, { openingCash, countedCash = null, mo
   const sold = orders.filter((o) => o.status === 'confirmado');
   const byMethod = {};
   const byDetail = {};
+  const refundsByMethod = {};
+  let creditsUsed = 0;
+  let creditsIssued = 0;
   for (const order of sold) {
     for (const { methodId, detailId, amount } of paymentsOf(order)) {
+      if (methodId === 'saldo') {
+        creditsUsed = round2(creditsUsed + amount);
+        continue;
+      }
       byMethod[methodId] = round2((byMethod[methodId] ?? 0) + amount);
       if (detailId) byDetail[`${methodId}:${detailId}`] = round2((byDetail[`${methodId}:${detailId}`] ?? 0) + amount);
     }
+    for (const { methodId, amount } of order.refund?.cashBack ?? []) refundsByMethod[methodId] = round2((refundsByMethod[methodId] ?? 0) + amount);
+    creditsIssued = round2(creditsIssued + (order.refund?.credit ?? 0));
   }
   const active = movements.filter((m) => !m.voidedAt);
   const sumOf = (type, field = 'amount') => round2(active.filter((m) => m.type === type).reduce((s, m) => s + (m[field] ?? 0), 0));
@@ -36,11 +46,14 @@ export function computeCashSummary(orders, { openingCash, countedCash = null, mo
   const withdrawals = sumOf('retiro');
   const usd = { amount: sumOf('ingreso_usd', 'usdAmount'), pesos: sumOf('ingreso_usd') };
   const total = round2(Object.values(byMethod).reduce((s, v) => s + v, 0));
-  const expectedCash = round2(openingCash + (byMethod[CASH_METHOD_ID] ?? 0) - expenses - withdrawals);
+  const refundsTotal = round2(Object.values(refundsByMethod).reduce((s, v) => s + v, 0));
+  const expectedCash = round2(openingCash + (byMethod[CASH_METHOD_ID] ?? 0) - (refundsByMethod[CASH_METHOD_ID] ?? 0) - expenses - withdrawals);
   return {
-    sales: sold.length,
+    sales: sold.filter((o) => (o.kind ?? 'venta') !== 'devolucion').length,
+    returns: sold.filter((o) => o.kind === 'devolucion' || o.kind === 'cambio').length,
     annulled: orders.filter((o) => o.status === 'anulado' && o.odooOrderId).length,
-    byMethod, byDetail, total, openingCash, expenses, withdrawals, usd, expectedCash,
+    byMethod, byDetail, total, refundsByMethod, refundsTotal, creditsIssued, creditsUsed,
+    openingCash, expenses, withdrawals, usd, expectedCash,
     countedCash, difference: countedCash == null ? null : round2(countedCash - expectedCash),
   };
 }
