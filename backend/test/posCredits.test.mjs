@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  creditExpiry, isUsable, allocateCredits, buildCredit, applyAllocation, consumeCreditsInTx,
+  creditExpiry, isUsable, allocateCredits, buildCredit, applyAllocation, consumeCreditsInTx, createCreditInTx,
 } from '../posCredits.mjs';
 
 const DAY = 864e5;
@@ -67,4 +67,18 @@ test('consumeCreditsInTx: descuenta en la misma transacción; si no alcanza, tir
   const second = fakeTx([credit('pronto', 0, 2), credit('tarde', 200, 20)]);
   await assert.rejects(consumeCreditsInTx(second.tx, second.db, { docNumber: '30123456', amount: 500, orderId: 'o10', orderNumber: 'LL-0051', user: 'Caja', nowMs: NOW }), /saldo a favor/);
   assert.equal(second.writes.length, 0);
+});
+
+test('allocateCredits: monto NaN tira; 0 no asigna nada', () => {
+  const credits = [credit('a', 300, 2)];
+  assert.throws(() => allocateCredits(credits, NaN, NOW), /Monto de saldo inválido/);
+  assert.deepEqual(allocateCredits(credits, 0, NOW), []);
+});
+
+test('createCreditInTx: crea con id = orderId y nunca pisa con set', () => {
+  const calls = [];
+  const tx = { create: (ref, data) => calls.push(['create', ref.id, data]), set: () => calls.push(['set']) };
+  const db = { collection: () => ({ doc: (id) => ({ id }) }) };
+  createCreditInTx(tx, db, 'o77', { balance: 500 });
+  assert.deepEqual(calls, [['create', 'o77', { balance: 500 }]]);
 });

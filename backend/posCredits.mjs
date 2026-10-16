@@ -23,6 +23,7 @@ export function isUsable(credit, nowMs) {
 const byExpiry = (a, b) => (ms(a.expiresAt) ?? Infinity) - (ms(b.expiresAt) ?? Infinity) || ms(a.createdAt) - ms(b.createdAt);
 
 export function allocateCredits(credits, amount, nowMs) {
+  if (!Number.isFinite(amount)) throw new Error('Monto de saldo inválido');
   const usable = credits.filter((c) => isUsable(c, nowMs)).sort(byExpiry);
   const available = round2(usable.reduce((s, c) => s + c.balance, 0));
   const wanted = round2(amount);
@@ -98,9 +99,11 @@ export async function restoreCreditsInTx(tx, db, allocation, { orderId, orderNum
   });
 }
 
-// id = id de la operación: un reintento no crea un segundo saldo.
+// id = id de la operación: un reintento no crea un segundo saldo. Se usa
+// tx.create (no set): si el documento ya existe, Firestore falla la transacción
+// y nunca se pisa un saldo que ya se gastó en parte.
 export function createCreditInTx(tx, db, orderId, credit) {
-  tx.set(db.collection(CREDITS_COLLECTION).doc(orderId), credit);
+  tx.create(db.collection(CREDITS_COLLECTION).doc(orderId), credit);
 }
 
 export async function listCreditsForAdmin({ docNumber = null, expiredOnly = false, nowMs = Date.now() } = {}) {
