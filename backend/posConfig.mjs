@@ -1,6 +1,7 @@
 // Configuración del POS de locales, editable desde el panel Admin. Los ids
 // de Odoo de los valores iniciales se verificaron el 2026-10-13 (ver spec).
 import { getDb } from './firestore.mjs';
+import { SALDO_METHOD } from './posCredits.mjs';
 
 const LOCALES = 'pos_locales';
 const PAYMENT_METHODS = 'pos_payment_methods';
@@ -216,8 +217,10 @@ export async function getPaymentMethods() {
   return (await loadAll()).methods;
 }
 
+// "Saldo a favor" es un medio más (0 %, sin medio de Odoo propio): no se
+// guarda en pos_payment_methods ni se edita desde Admin.
 export async function getPaymentMethodsById() {
-  return new Map((await getPaymentMethods()).map((m) => [m.id, m]));
+  return new Map([...(await getPaymentMethods()).map((m) => [m.id, m]), [SALDO_METHOD.id, SALDO_METHOD]]);
 }
 
 export async function saveLocale(id, input) {

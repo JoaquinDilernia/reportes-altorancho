@@ -100,3 +100,57 @@ test('assertCustomerShape: exige objeto con campos de texto', () => {
   assert.throws(() => assertCustomerShape({ docNumber: 5, name: 'a', phone: '1', email: 'e' }), /Datos del cliente inválidos/);
   assert.throws(() => assertCustomerShape({ name: 'a', phone: '1', email: 'e' }), /Datos del cliente inválidos/);
 });
+
+// ---- Fase 2: lo que vuelve ----
+import { returnCtx, assertHolder, saldoAmount } from '../posOrders.mjs';
+import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
+
+const exMethods = new Map([
+  ['efectivo', { id: 'efectivo', label: 'Efectivo', discountPct: 15, details: [] }],
+  ['saldo', { id: 'saldo', label: 'Saldo a favor', discountPct: 0, details: [] }],
+]);
+const rl = { rlId: 'R1', source: 'tpv', qty: 1, unitValue: 20000, partnerVat: '30123456', destinationId: 'stock' };
+
+test('priceOrder: con lo que vuelve calcula el cambio (descuento sobre la diferencia)', () => {
+  const order = {
+    lines: [{ lineId: 'L1', status: 'activo', qty: 1, basePrice: 30000, delivery: 'ahora' }],
+    returnLines: [rl], payments: [{ methodId: 'efectivo' }], customer: { tagIds: [] },
+  };
+  const { totals } = priceOrder(order, { methodsById: exMethods, promotions: [], now: Date.now() });
+  assert.equal(totals.net, 8500);
+  assert.equal(totals.collect, 8500);
+});
+
+test('claimPricing: devolución sola no pide medio de pago; cambio cobra solo el neto', () => {
+  const devolucion = { lines: [], returnLines: [rl], payments: [], customer: { tagIds: [] } };
+  const a = claimPricing(devolucion, { methodsById: exMethods, promotions: [], now: Date.now() });
+  assert.deepEqual(a.payments, []);
+  assert.equal(a.totals.net, -20000);
+  const cambio = {
+    lines: [{ lineId: 'L1', status: 'activo', qty: 1, basePrice: 30000, delivery: 'ahora' }], returnLines: [rl],
+    payments: [{ methodId: 'efectivo', amount: 4000 }, { methodId: 'saldo', amount: 4500 }], customer: { tagIds: [] },
+  };
+  // con saldo en el pago dividido manda el 0 %: neto 10.000 sin descuento
+  assert.throws(() => claimPricing(cambio, { methodsById: exMethods, promotions: [], now: Date.now() }), /suman \$ 8\.500 y el total es \$ 10\.000/);
+});
+
+test('returnCtx: destinos del local y motivos de ajustes', () => {
+  const c = returnCtx(DEFAULT_LOCALES[0], DEFAULT_SETTINGS);
+  assert.deepEqual(c.destinationIds, ['stock', 'exhibicion', 'rolon']);
+  assert.deepEqual(c.reasons, DEFAULT_SETTINGS.returnReasons);
+});
+
+test('assertHolder: si la compra es de otro documento pide motivo', () => {
+  const order = { customer: { docNumber: '30123456' }, returnLines: [rl], holderChangeReason: '' };
+  assert.doesNotThrow(() => assertHolder(order));
+  const other = { ...order, customer: { docNumber: '99888777' } };
+  assert.throws(() => assertHolder(other), /La compra es de otro cliente/);
+  assert.doesNotThrow(() => assertHolder({ ...other, holderChangeReason: 'Regalo, viene la hija' }));
+  assert.doesNotThrow(() => assertHolder({ ...other, returnLines: [{ ...rl, partnerVat: null }] }));
+});
+
+test('saldoAmount: único medio usa lo que se cobra; dividido usa su monto', () => {
+  assert.equal(saldoAmount([{ methodId: 'saldo', amount: null }], { collect: 7000, total: 9000 }), 7000);
+  assert.equal(saldoAmount([{ methodId: 'efectivo', amount: 2000 }, { methodId: 'saldo', amount: 5000 }], { total: 7000 }), 5000);
+  assert.equal(saldoAmount([{ methodId: 'efectivo', amount: null }], { total: 7000 }), 0);
+});

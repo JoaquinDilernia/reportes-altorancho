@@ -7,8 +7,13 @@
 import { getDb } from './firestore.mjs';
 import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, localeIdsOf, resolveOdooPaymentName,
+  returnDestinationsOf,
 } from './posConfig.mjs';
-import { computeTotals, round2 } from './posPricing.mjs';
+import { computeTotals, computeExchangeTotals, collectOf, round2 } from './posPricing.mjs';
+import {
+  buildReturnLine, editReturnLine, validateReturnLine, returnTotal, orderKind, validateRefund,
+} from './posReturns.mjs';
+import { consumeCreditsInTx, restoreCreditsInTx, createCreditInTx, buildCredit } from './posCredits.mjs';
 import { resolveExtraDiscount, listActivePromotions } from './posPromotions.mjs';
 import { getCatalogProducts, fetchFreeStock, stockLocationIds } from './posCatalog.mjs';
 import {
@@ -95,11 +100,14 @@ export function priceOrder(order, { methodsById, promotions, now }) {
     now,
   };
   const extraDiscount = resolveExtraDiscount(promotions, order.discountChoice ?? {}, ctx);
-  const totals = computeTotals({
+  const args = {
     lines: order.lines, payments: order.payments ?? [], methodsById, extraDiscount,
     shippingAmount: needsShipping(order.lines) ? (order.shipping?.amount ?? 0) : 0,
     homeServiceAmount: needsShipping(order.lines) ? (order.shipping?.homeServiceAmount ?? 0) : 0,
-  });
+  };
+  const totals = order.returnLines?.length
+    ? computeExchangeTotals({ ...args, returnValue: returnTotal(order.returnLines) })
+    : computeTotals(args);
   return { extraDiscount, totals };
 }
 
@@ -108,10 +116,35 @@ export function claimPricing(order, { methodsById, promotions, now }) {
   if (order.odooOrderId && order.totals) {
     return { payments: order.payments, extraDiscount: order.extraDiscount ?? null, totals: order.totals };
   }
+  const exchange = Boolean(order.returnLines?.length);
+  // Cambio/devolución sin nada para cobrar: no lleva medio de pago.
+  if (exchange) {
+    const draft = priceOrder({ ...order, payments: [] }, { methodsById, promotions, now });
+    if (collectOf(draft.totals) === 0) return { payments: [], extraDiscount: draft.extraDiscount, totals: draft.totals };
+  }
   const payments = validatePayments(order.payments, methodsById);
   const { extraDiscount, totals } = priceOrder({ ...order, payments }, { methodsById, promotions, now });
-  assertPaymentsMatchTotal(payments, totals.total);
+  assertPaymentsMatchTotal(payments, collectOf(totals));
   return { payments, extraDiscount, totals };
+}
+
+export function returnCtx(locale, settings) {
+  return { destinationIds: returnDestinationsOf(locale, settings).map((d) => d.id), reasons: settings.returnReasons };
+}
+
+// La NC y el saldo son del cliente de la compra original (spec §5.3).
+export function assertHolder(order) {
+  const doc = String(order.customer?.docNumber ?? '').replace(/\D/g, '');
+  const others = (order.returnLines ?? []).filter((l) => l.partnerVat && l.partnerVat !== doc);
+  if (others.length && !String(order.holderChangeReason ?? '').trim()) {
+    throw new Error('La compra es de otro cliente: escribí el motivo del cambio de titular');
+  }
+}
+
+export function saldoAmount(payments, totals) {
+  const saldo = (payments ?? []).find((p) => p.methodId === 'saldo');
+  if (!saldo) return 0;
+  return payments.length === 1 || saldo.amount == null ? collectOf(totals) : saldo.amount;
 }
 
 export function assertCustomerShape(c) {
@@ -181,6 +214,7 @@ export async function createCart(user, lineInput) {
   const now = new Date();
   const order = {
     localId: user.localId, sellerId: user.id, sellerName: user.name, status: 'carrito', lines: [line],
+    kind: 'venta', returnLines: [], refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
     customer: null, shipping: null, payments: [], discountChoice: null, extraDiscount: null, totals: null,
     wantsInvoice: false, notes: '', odooOrders: [], odooOrderId: null, createdAt: now, updatedAt: now,
   };
@@ -216,7 +250,7 @@ async function changeLines(orderId, user, change, touched = []) {
       if (order.localId !== user.localId) throw forbidden();
       assertDraftEditable(order);
     }
-    let lines = change(order.lines, ctx);
+    let lines = change(order.lines, ctx, order);
     // En carrito la línea sacada desaparece; en caja queda 'eliminado'.
     if (order.status === 'carrito') lines = lines.filter((l) => l.status !== 'eliminado');
     const commit = await reserveInTx(tx, db, ctx, freeStock, order, { ...order, lines });
@@ -244,10 +278,11 @@ export async function updateLine(orderId, user, lineId, changes) {
 
 // Marca la línea como eliminada (changeLines la saca del todo si es carrito).
 export function removeLine(orderId, user, lineId) {
-  return changeLines(orderId, user, (lines) => {
+  return changeLines(orderId, user, (lines, _ctx, order) => {
     const target = lines.find((l) => l.lineId === lineId && l.status === 'activo');
     if (!target) throw new Error('Línea no encontrada');
-    if (!lines.some((l) => l.lineId !== lineId && l.status === 'activo')) {
+    const others = lines.some((l) => l.lineId !== lineId && l.status === 'activo');
+    if (!others && !(order.returnLines ?? []).length) {
       throw new Error('No se puede sacar la última línea: vaciá el carrito o anulá el pedido');
     }
     return lines.map((l) => (l.lineId === lineId ? { ...l, status: 'eliminado' } : l));
@@ -268,6 +303,84 @@ export async function discardCart(orderId, user) {
     tx.update(ref, update);
     return { ...order, ...update };
   });
+}
+
+// ---- Lo que vuelve (cambio / devolución) ----
+// No reserva stock: entra a Odoo recién al confirmar. `purchaseLine` siempre
+// viene de posReturnsService (leída en el servidor).
+
+async function returnLineCtx(localId) {
+  const [locale, settings] = await Promise.all([getLocale(localId), getSettings()]);
+  return returnCtx(locale, settings);
+}
+
+export async function createReturnCart(user, purchaseLine, input) {
+  const ctx = await returnLineCtx(user.localId);
+  const returnLine = buildReturnLine(purchaseLine, input, [], ctx);
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc();
+  const now = new Date();
+  const order = {
+    localId: user.localId, sellerId: user.id, sellerName: user.name, status: 'carrito', lines: [], returnLines: [returnLine],
+    kind: 'devolucion', refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
+    customer: null, shipping: null, payments: [], discountChoice: null, extraDiscount: null, totals: null,
+    wantsInvoice: false, notes: '', odooOrders: [], odooOrderId: null, createdAt: now, updatedAt: now,
+  };
+  Object.assign(order, orderKeys(order));
+  await db.runTransaction(async (tx) => {
+    const counter = await tx.get(counterRef(db, user.localId));
+    const next = (counter.exists ? counter.data().next : 0) + 1;
+    order.number = formatOrderNumber(user.localId, next);
+    tx.set(counterRef(db, user.localId), { next });
+    tx.set(ref, order);
+  });
+  return { id: ref.id, ...order };
+}
+
+async function changeReturnLines(orderId, user, change) {
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  const first = await getOrder(orderId);
+  const ctx = await returnLineCtx(first.localId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = withId(snap);
+    if (order.status === 'carrito') assertCartEditable(order, user);
+    else {
+      if (order.localId !== user.localId) throw forbidden();
+      assertDraftEditable(order);
+    }
+    const returnLines = change(order.returnLines ?? [], ctx, order);
+    const update = { returnLines, kind: orderKind({ lines: order.lines, returnLines }), updatedAt: new Date() };
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
+}
+
+export const addReturnLine = (orderId, user, purchaseLine, input) =>
+  changeReturnLines(orderId, user, (current, ctx) => [...current, buildReturnLine(purchaseLine, input, current, ctx)]);
+
+export const updateReturnLine = (orderId, user, rlId, changes) =>
+  changeReturnLines(orderId, user, (current, ctx) => {
+    if (!current.some((l) => l.rlId === rlId)) throw new Error('Línea no encontrada');
+    return current.map((l) => (l.rlId === rlId ? editReturnLine(l, changes, ctx) : l));
+  });
+
+export const removeReturnLine = (orderId, user, rlId) =>
+  changeReturnLines(orderId, user, (current, _ctx, order) => {
+    if (!current.some((l) => l.rlId === rlId)) throw new Error('Línea no encontrada');
+    const next = current.filter((l) => l.rlId !== rlId);
+    if (!next.length && !activeLines(order.lines).length) throw new Error('No se puede sacar la última línea: vaciá el carrito o anulá el pedido');
+    return next;
+  });
+
+export async function searchAppPurchases({ doc = null, number = null }) {
+  const col = getDb().collection(COLLECTION);
+  const snap = number ? await col.where('number', '==', number).get() : await col.where('customer.docNumber', '==', doc).get();
+  return snap.docs.map(withId)
+    .filter((o) => o.status === 'confirmado' && activeLines(o.lines).length && o.odooOrders?.length)
+    .sort((a, b) => toDate(b.createdAt) - toDate(a.createdAt)).slice(0, 30);
 }
 
 export async function listMyCarts(user) {
@@ -292,8 +405,10 @@ export async function submitCart(orderId, user, { customer, shipping }) {
     const errors = validateCustomer(customer, { wantsInvoice: false });
     const withShipping = needsShipping(order.lines);
     if (withShipping) errors.push(...validateShipping(shipping));
+    if (!activeLines(order.lines).length && !(order.returnLines ?? []).length) errors.push('El pedido no tiene productos');
     if (errors.length) throw new Error(errors.join('; '));
     const next = {
+      kind: orderKind({ lines: order.lines, returnLines: order.returnLines }),
       status: 'pendiente', customer: cleanCustomer(customer), shipping: withShipping ? shipping : null,
       sentAt: new Date(), updatedAt: new Date(),
     };
@@ -342,6 +457,11 @@ export async function updateDraft(orderId, user, patch) {
     if (patch.discountChoice !== undefined) update.discountChoice = patch.discountChoice;
     if (patch.wantsInvoice !== undefined) update.wantsInvoice = Boolean(patch.wantsInvoice);
     if (patch.notes !== undefined) update.notes = String(patch.notes).slice(0, 1000);
+    if (patch.refund !== undefined) update.refund = patch.refund === null ? null : {
+      cashBack: Array.isArray(patch.refund.cashBack) ? patch.refund.cashBack.map(({ methodId, amount }) => ({ methodId: String(methodId), amount: Number(amount) })) : [],
+      credit: Number(patch.refund.credit ?? 0),
+    };
+    if (patch.holderChangeReason !== undefined) update.holderChangeReason = String(patch.holderChangeReason).trim().slice(0, 200);
     tx.update(ref, update);
     return { ...order, ...update };
   });
@@ -350,7 +470,9 @@ export async function updateDraft(orderId, user, patch) {
 // Reclama el pedido para confirmarlo: valida todo, fija precios y totales, y
 // lo ata a la caja abierta del local. Si ya está confirmado, lo devuelve.
 export async function claimOrderForConfirm(orderId, user) {
-  const [methodsById, promotions] = await Promise.all([getPaymentMethodsById(), listActivePromotions()]);
+  const [methodsById, promotions, locale, settings] = await Promise.all([
+    getPaymentMethodsById(), listActivePromotions(), getLocale(user.localId), getSettings(),
+  ]);
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
   return db.runTransaction(async (tx) => {
@@ -366,10 +488,34 @@ export async function claimOrderForConfirm(orderId, user) {
     if (!cashSessionId) throw new Error(CASH_CLOSED_MESSAGE);
     const errors = validateCustomer(order.customer, { wantsInvoice: order.wantsInvoice });
     if (needsShipping(order.lines)) errors.push(...validateShipping(order.shipping));
-    if (!activeLines(order.lines).length) errors.push('El pedido no tiene productos');
+    const exchange = Boolean(order.returnLines?.length);
+    if (!activeLines(order.lines).length && !exchange) errors.push('El pedido no tiene productos');
+    if (exchange) {
+      const ctx = returnCtx(locale, settings);
+      for (const l of order.returnLines) errors.push(...validateReturnLine(l, ctx));
+    }
     if (errors.length) throw new Error(errors.join('; '));
     const { payments, extraDiscount, totals } = claimPricing(order, { methodsById, promotions, now: Date.now() });
-    const update = { confirmingSince: new Date(), cashSessionId, payments, extraDiscount, totals, updatedAt: new Date() };
+    let refund = null;
+    let creditCommit = null;
+    let creditAllocation = order.creditAllocation ?? null;
+    if (exchange) {
+      assertHolder(order);
+      refund = validateRefund(order.refund, totals.net, methodsById);
+    }
+    const saldo = saldoAmount(payments, totals);
+    if (saldo > 0 && !creditAllocation) {
+      const consumed = await consumeCreditsInTx(tx, db, {
+        docNumber: order.customer.docNumber, amount: saldo, orderId: order.id, orderNumber: order.number, user: user.name, nowMs: Date.now(),
+      });
+      creditAllocation = consumed.allocation;
+      creditCommit = consumed.commit;
+    }
+    if (creditCommit) creditCommit();
+    const update = {
+      confirmingSince: new Date(), cashSessionId, payments, extraDiscount, totals, refund, creditAllocation,
+      kind: orderKind(order), updatedAt: new Date(),
+    };
     tx.update(ref, update);
     return { order: { ...order, ...update }, alreadyConfirmed: false };
   });
@@ -385,6 +531,8 @@ export const saveOdooLineIds = (id, lines) => patchOrder(id, { lines });
 export const setOrderWarning = (id, warning) => patchOrder(id, { warning });
 export const markOrderInvoiced = (id, { invoiceId, invoiceName }) => patchOrder(id, { invoiceId, invoiceName, invoiceError: null });
 export const setInvoiceError = (id, invoiceError) => patchOrder(id, { invoiceError });
+export const saveReturnSteps = (id, returnSteps) => patchOrder(id, { returnSteps });
+export const saveAppliedCreditNotes = (id, appliedCreditNoteIds) => patchOrder(id, { appliedCreditNoteIds });
 // Pasos después de confirmar (Exhibición, entrega en el acto, factura) terminados.
 export const clearPostConfirmPending = (id) => patchOrder(id, { postConfirmPending: false });
 
@@ -421,6 +569,12 @@ export async function markOrderConfirmed(id, { odooOrders, user }) {
       confirmingSince: null, errorDetail: null, confirmedAt: new Date(), confirmedBy: user, postConfirmPending: true,
       ...orderKeys(after), updatedAt: new Date(),
     };
+    if (order.refund?.credit > 0) {
+      const creditNoteIds = Object.values(order.returnSteps?.creditNotes ?? {}).map((n) => n.id).filter(Boolean);
+      createCreditInTx(tx, db, order.id, buildCredit({
+        order, amount: order.refund.credit, days: ctx.settings.creditValidityDays, nowMs: Date.now(), user, creditNoteIds,
+      }));
+    }
     tx.update(ref, update);
     return { ...order, ...update };
   });
@@ -444,9 +598,13 @@ export async function markOrderAnnulled(id, user, reason) {
     const order = withId(snap);
     if (!['pendiente', 'error', 'confirmado'].includes(order.status)) throw new Error('Este pedido no se puede anular');
     const after = { ...order, status: 'anulado' };
+    const restore = order.creditAllocation?.length && order.status !== 'confirmado'
+      ? await restoreCreditsInTx(tx, db, order.creditAllocation, { orderId: order.id, orderNumber: order.number, user })
+      : null;
     const commit = await reserveInTx(tx, db, ctx, new Map(), order, after);
     commit();
-    const update = { status: 'anulado', annulledAt: new Date(), annulledBy: user, annulReason: reason ?? '', ...orderKeys(after), updatedAt: new Date() };
+    if (restore) restore();
+    const update = { creditAllocation: null, status: 'anulado', annulledAt: new Date(), annulledBy: user, annulReason: reason ?? '', ...orderKeys(after), updatedAt: new Date() };
     tx.update(ref, update);
     return { ...order, ...update };
   });
