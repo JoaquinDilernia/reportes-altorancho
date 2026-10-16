@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   basePriceOf, paymentDiscountPct, principalPayment, computeTotals, netOfIva, withIva, extraDiscountAmount, round2,
+  computeExchangeTotals, collectOf,
 } from '../posPricing.mjs';
 
 const methodsById = new Map([
@@ -129,4 +130,60 @@ test('computeTotals: la subida al domicilio se suma al final, sin descuentos', (
   assert.equal(t.total, round2(10000 * 0.72 + 5000 + 3000));
   assert.equal(computeTotals({ lines: [{ qty: 1, basePrice: 1000 }], payments: [{ methodId: 'efectivo' }], methodsById }).homeService, 0);
   assert.throws(() => computeTotals({ lines: [], payments: [], methodsById, homeServiceAmount: -1 }), /Subida al domicilio inválida/);
+});
+
+const mById = new Map([
+  ['efectivo', { id: 'efectivo', discountPct: 15 }],
+  ['credito', { id: 'credito', discountPct: 0 }],
+  ['saldo', { id: 'saldo', discountPct: 0 }],
+]);
+const newLine = (basePrice, qty = 1) => ({ status: 'activo', basePrice, qty });
+
+test('computeExchangeTotals: el descuento de efectivo va solo sobre la diferencia', () => {
+  const t = computeExchangeTotals({ lines: [newLine(30000)], payments: [{ methodId: 'efectivo' }], methodsById: mById, returnValue: 20000 });
+  assert.equal(t.paymentDiscount, 1500); // 15 % de 10.000
+  assert.equal(t.lineDiscountPct, 5); // 1.500 / 30.000
+  assert.equal(t.total, 28500);
+  assert.equal(t.net, 8500);
+  assert.equal(t.collect, 8500);
+});
+
+test('computeExchangeTotals: lo que vuelve vale más que lo nuevo → neto negativo, sin descuento', () => {
+  const t = computeExchangeTotals({ lines: [newLine(10000)], payments: [], methodsById: mById, returnValue: 25000 });
+  assert.equal(t.lineDiscountPct, 0);
+  assert.equal(t.total, 10000);
+  assert.equal(t.net, -15000);
+  assert.equal(t.collect, 0);
+});
+
+test('computeExchangeTotals: devolución sola', () => {
+  const t = computeExchangeTotals({ lines: [], payments: [], methodsById: mById, returnValue: 5990 });
+  assert.equal(t.products, 0);
+  assert.equal(t.total, 0);
+  assert.equal(t.net, -5990);
+});
+
+test('computeExchangeTotals: el envío se suma sin descuento', () => {
+  const t = computeExchangeTotals({ lines: [newLine(30000)], payments: [{ methodId: 'efectivo' }], methodsById: mById, returnValue: 20000, shippingAmount: 5000 });
+  assert.equal(t.total, 33500);
+  assert.equal(t.net, 13500);
+});
+
+test('computeExchangeTotals: descuento extra sobre la diferencia ya descontada', () => {
+  const t = computeExchangeTotals({
+    lines: [newLine(30000)], payments: [{ methodId: 'efectivo' }], methodsById: mById, returnValue: 20000,
+    extraDiscount: { type: 'pct', value: 10 },
+  });
+  // 10 % de 8.500 = 850 → % de línea 2.350 / 30.000 = 7,83 (Odoo guarda 2
+  // decimales) → el total sale de ese % para coincidir con la factura.
+  assert.equal(t.lineDiscountPct, 7.83);
+  assert.equal(t.total, 27651);
+  assert.equal(t.extraDiscount, 849);
+  assert.equal(t.net, 7651);
+});
+
+test('collectOf: venta usa total; cambio usa collect', () => {
+  assert.equal(collectOf({ total: 100 }), 100);
+  assert.equal(collectOf({ total: 100, collect: 0 }), 0);
+  assert.equal(collectOf(null), 0);
 });

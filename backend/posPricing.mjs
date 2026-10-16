@@ -72,3 +72,37 @@ export function computeTotals({ lines, payments, methodsById, extraDiscount = nu
   const extra = round2(subtotal - (total - shipping - homeService));
   return { products, paymentPct, paymentDiscount, subtotal, extraDiscount: extra, shipping, homeService, total, lineDiscountPct };
 }
+
+// Cambio: lo nuevo se factura completo y la NC de lo que vuelve se aplica a
+// esa factura. Los descuentos por medio de pago y el extra van solo sobre la
+// diferencia que paga el cliente; se traducen a un único % de línea para
+// Odoo, así factura nueva − NC = lo que paga.
+export function computeExchangeTotals({
+  lines, payments, methodsById, extraDiscount = null, shippingAmount = 0, homeServiceAmount = 0, returnValue = 0,
+}) {
+  const active = (lines ?? []).filter((l) => l.status !== 'eliminado');
+  const products = round2(active.reduce((sum, l) => sum + l.qty * l.basePrice, 0));
+  const back = round2(returnValue ?? 0);
+  if (!Number.isFinite(back) || back < 0) throw new Error('Valor de lo que vuelve inválido');
+  const difference = round2(Math.max(0, products - back));
+  const paymentPct = difference > 0 ? paymentDiscountPct(payments, methodsById) : 0;
+  const paymentDiscount = round2(difference * paymentPct / 100);
+  const extraAmount = extraDiscountAmount(extraDiscount, round2(difference - paymentDiscount));
+  const ship = shippingAmount ?? 0;
+  if (!Number.isFinite(ship) || ship < 0) throw new Error('Costo de envío inválido');
+  const home = homeServiceAmount ?? 0;
+  if (!Number.isFinite(home) || home < 0) throw new Error('Subida al domicilio inválida');
+  const shipping = round2(ship);
+  const homeService = round2(home);
+  const lineDiscountPct = products > 0 ? round2(100 * (paymentDiscount + extraAmount) / products) : 0;
+  const goods = round2(products * (1 - lineDiscountPct / 100));
+  const total = round2(goods + shipping + homeService);
+  const net = round2(total - back);
+  return {
+    products, returnValue: back, paymentPct, paymentDiscount, subtotal: round2(products - paymentDiscount),
+    extraDiscount: round2(products - paymentDiscount - goods), shipping, homeService, total, lineDiscountPct,
+    net, collect: Math.max(0, net),
+  };
+}
+
+export const collectOf = (totals) => totals?.collect ?? totals?.total ?? 0;
