@@ -262,20 +262,28 @@ export async function validatePicking(pickingId, lotsByProduct = new Map(), odoo
   if (picking.state === 'done') return picking;
   if (picking.state === 'draft') await odoo.write('stock.picking', 'action_confirm', [[pickingId]]);
   await odoo.write('stock.picking', 'action_assign', [[pickingId]]);
-  const moves = await odoo.read('stock.move', 'read', [picking.move_ids], { fields: ['id', 'product_id', 'product_uom_qty', 'move_line_ids'] });
+  const moves = await odoo.read('stock.move', 'read', [picking.move_ids], { fields: ['id', 'product_id', 'product_uom', 'location_id', 'location_dest_id', 'picking_id', 'product_uom_qty', 'move_line_ids'] });
   for (const m of moves) {
     const lots = lotsByProduct.get(id(m.product_id)) ?? [];
     if (!lots.length) {
       await odoo.write('stock.move', 'write', [[m.id], { quantity_done: m.product_uom_qty }]);
       continue;
     }
-    // Lote(s) que salieron: la primera línea con el primer lote, el resto se crean.
+    // Con lote: se pone en cero lo que haya (un reintento no suma doble), se
+    // reusan las líneas existentes en orden y las que faltan se crean completas.
+    const existing = m.move_line_ids ?? [];
+    if (existing.length) await odoo.write('stock.move.line', 'write', [existing, { qty_done: 0 }]);
     let left = m.product_uom_qty;
     for (const [i, lot] of lots.entries()) {
       if (left <= 0) break;
       const qty = Math.min(lot.qty, left);
-      if (i === 0 && m.move_line_ids.length) await odoo.write('stock.move.line', 'write', [[m.move_line_ids[0]], { lot_id: lot.lotId, qty_done: qty }]);
-      else await odoo.write('stock.move', 'write', [[m.id], { move_line_ids: [[0, 0, { lot_id: lot.lotId, qty_done: qty }]] }]);
+      if (i < existing.length) await odoo.write('stock.move.line', 'write', [[existing[i]], { lot_id: lot.lotId, qty_done: qty }]);
+      else {
+        await odoo.write('stock.move.line', 'create', [[{
+          move_id: m.id, picking_id: id(m.picking_id) ?? pickingId, product_id: id(m.product_id), product_uom_id: id(m.product_uom),
+          location_id: id(m.location_id), location_dest_id: id(m.location_dest_id), lot_id: lot.lotId, qty_done: qty,
+        }]]);
+      }
       left -= qty;
     }
   }

@@ -199,3 +199,34 @@ test('applyCreditNote: usa la línea a cobrar abierta de la NC', async () => {
   const empty = fakeOdoo({ 'account.move.line.search_read': () => [] });
   assert.equal(await applyCreditNote(400, 368705, empty.odoo), false);
 });
+
+test('validatePicking: varios lotes en un move — pone en cero las líneas, reusa la existente y crea la que falta completa', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'stock.picking.read': () => [{ id: 777, name: 'LL/RET/1', state: 'assigned', move_ids: [1] }],
+    'stock.picking.action_assign': () => true,
+    'stock.move.read': () => [{
+      id: 1, product_id: [29175, 'y'], product_uom: [1, 'Unidades'], location_id: [5, 'Clientes'], location_dest_id: [324, 'Stock'],
+      picking_id: [777, 'LL/RET/1'], product_uom_qty: 3, move_line_ids: [31],
+    }],
+    'stock.move.line.write': () => true,
+    'stock.move.line.create': () => [32],
+    'stock.picking.button_validate': () => true,
+  });
+  await validatePicking(777, new Map([[29175, [{ lotId: 17050, qty: 2 }, { lotId: 17051, qty: 1 }]]]), odoo);
+  const lineCalls = calls.filter((c) => c[0] === 'stock.move.line').map((c) => [c[1], JSON.stringify(c[2])]);
+  assert.deepEqual(lineCalls, [
+    ['write', '[[31],{"qty_done":0}]'],
+    ['write', '[[31],{"lot_id":17050,"qty_done":2}]'],
+    ['create', JSON.stringify([[{ move_id: 1, picking_id: 777, product_id: 29175, product_uom_id: 1, location_id: 5, location_dest_id: 324, lot_id: 17051, qty_done: 1 }]])],
+  ]);
+});
+
+test('validatePicking: si Odoo pide confirmar un asistente, falla con aviso', async () => {
+  const { odoo } = fakeOdoo({
+    'stock.picking.read': () => [{ id: 777, name: 'LL/RET/1', state: 'assigned', move_ids: [] }],
+    'stock.picking.action_assign': () => true,
+    'stock.move.read': () => [],
+    'stock.picking.button_validate': () => ({ res_model: 'stock.backorder.confirmation' }),
+  });
+  await assert.rejects(() => validatePicking(777, new Map(), odoo), /Odoo pidió confirmar/);
+});
