@@ -19,7 +19,10 @@ export function defaultReturnDeps() {
     createInternalTransfer: rOdoo.createInternalTransfer, latestLotFor: rOdoo.latestLotFor,
     findPartnerId: (customer) => findOrCreatePosPartner(customer),
     findCreditNoteByRef: rOdoo.findCreditNoteByRef, createCreditNoteFromInvoice: rOdoo.createCreditNoteFromInvoice,
-    createStandaloneCreditNote: rOdoo.createStandaloneCreditNote, postCreditNote: (ncId, journalId) => postInvoice(ncId, journalId),
+    createStandaloneCreditNote: rOdoo.createStandaloneCreditNote, trimCreditNote: rOdoo.trimCreditNote,
+    postCreditNote: (ncId, journalId) => postInvoice(ncId, journalId),
+    // Por defecto no se factura; posConfirm lo pisa con invoicingEnabledFor.
+    invoicingEnabled: () => false,
     applyCreditNote: rOdoo.applyCreditNote, saveReturnSteps: orders.saveReturnSteps, saveAppliedCreditNotes: orders.saveAppliedCreditNotes,
     markOrderConfirmed: orders.markOrderConfirmed, clearPostConfirmPending: orders.clearPostConfirmPending, getOrder: orders.getOrder,
   };
@@ -81,13 +84,23 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
   const save = () => deps.saveReturnSteps(order.id, structuredClone(steps));
   const origin = (key) => `${order.number} · ${key}`;
 
-  // Tope: lo devuelto en Odoo SIN contar los remitos de esta operación.
-  const moveIds = [...new Set(order.returnLines.flatMap((l) => l.moveIds ?? []))];
-  const moves = moveIds.length ? await deps.readMoves(moveIds) : [];
-  const movesById = new Map(moves.map((m) => [m.id, m]));
-  const pendingPlan = Object.keys(steps.pickings).length === 0;
-  const returnedByMove = moveIds.length && pendingPlan ? await deps.returnedQtyByMove(moveIds) : new Map();
-  const plan = planReturnSteps(order, movesById, returnedByMove, ctx);
+  // El plan se arma UNA vez y se guarda antes de crear nada en Odoo: un
+  // reintento lo reusa tal cual (repartir de nuevo entre remitos podría dar
+  // otras claves y duplicar una devolución).
+  let plan = order.returnSteps?.plan;
+  if (!plan) {
+    // Tope: lo devuelto en Odoo SIN contar los remitos de esta operación.
+    const moveIds = [...new Set(order.returnLines.flatMap((l) => l.moveIds ?? []))];
+    const moves = moveIds.length ? await deps.readMoves(moveIds) : [];
+    const movesById = new Map(moves.map((m) => [m.id, m]));
+    const pendingPlan = Object.keys(steps.pickings).length === 0;
+    const returnedByMove = moveIds.length && pendingPlan ? await deps.returnedQtyByMove(moveIds) : new Map();
+    plan = structuredClone(planReturnSteps(order, movesById, returnedByMove, ctx));
+    steps.plan = plan;
+    await save();
+  } else {
+    steps.plan = plan;
+  }
 
   // 1. Devoluciones de remito.
   for (const group of plan.pickings) {
@@ -155,22 +168,32 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
   for (const g of ncGroups) {
     let step = steps.creditNotes[g.key];
     if (step?.state === 'posted') continue;
+    // Termina con delimitador: "nc:3682 ·" no matchea "nc:36821 ·" (la búsqueda es ilike).
+    const ref = `${reason} ${g.key} ·`;
+    let fresh = false;
     if (!step) {
-      const found = await deps.findCreditNoteByRef(`${reason} ${g.key}`);
+      const found = await deps.findCreditNoteByRef(ref);
       let ncId = found?.id;
       if (!ncId && g.invoiceId) {
-        ncId = await deps.createCreditNoteFromInvoice({ invoiceId: g.invoiceId, journalId: ctx.locale.invoiceJournalId, reason: `${reason} ${g.key}`, items: sumByProduct(g.lines) });
+        ncId = await deps.createCreditNoteFromInvoice({ invoiceId: g.invoiceId, journalId: ctx.locale.invoiceJournalId, reason: ref, items: sumByProduct(g.lines) });
+        fresh = true;
       } else if (!ncId) {
         const partnerId = order.customer.odooPartnerId ?? await deps.findPartnerId(order.customer);
         ncId = await deps.createStandaloneCreditNote({
-          journalId: ctx.locale.invoiceJournalId, partnerId, reason: `${reason} ${g.key}`,
+          journalId: ctx.locale.invoiceJournalId, partnerId, reason: ref,
           items: g.lines.map((l) => ({ productId: l.productId, qty: l.qty, unitValue: l.unitValue })),
         });
+        fresh = true;
       }
       step = { id: ncId, name: found?.name ?? null, state: found?.state ?? 'draft' };
       steps.creditNotes[g.key] = step;
       await save();
+      // Adoptada ya publicada: no se vuelve a publicar.
+      if (step.state === 'posted') continue;
     }
+    // Una NC sobre factura en borrador que no se acaba de crear puede ser la
+    // reversión completa (falla entre reverse_moves y el recorte): se recorta de nuevo.
+    if (g.invoiceId && !fresh && step.state === 'draft') await deps.trimCreditNote(step.id, sumByProduct(g.lines));
     steps.creditNotes[g.key] = await deps.postCreditNote(step.id, ctx.locale.invoiceJournalId);
     await save();
   }

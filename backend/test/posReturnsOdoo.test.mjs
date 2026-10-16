@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   allocateReturned, readTpvPurchase, readSaleOrderPurchase, searchTpvPurchases, searchWebPurchases,
-  allocateToMoves, planCreditNoteCommands, createReturnPicking, validatePicking, createCreditNoteFromInvoice, applyCreditNote,
+  allocateToMoves, planCreditNoteCommands, createReturnPicking, validatePicking, createCreditNoteFromInvoice, applyCreditNote, trimCreditNote,
 } from '../posReturnsOdoo.mjs';
 
 // Odoo falso: responde por modelo+método con funciones (domain, kwargs) → filas.
@@ -229,4 +229,21 @@ test('validatePicking: si Odoo pide confirmar un asistente, falla con aviso', as
     'stock.picking.button_validate': () => ({ res_model: 'stock.backorder.confirmation' }),
   });
   await assert.rejects(() => validatePicking(777, new Map(), odoo), /Odoo pidió confirmar/);
+});
+
+test('trimCreditNote: idempotente; una reversión completa queda solo con lo devuelto, y una ya recortada no cambia', async () => {
+  const full = fakeOdoo({
+    'account.move.read': () => [{ id: 368705, invoice_line_ids: [1215806, 1215807] }],
+    'account.move.line.read': () => [{ id: 1215806, product_id: [68926, 'x'], quantity: 2 }, { id: 1215807, product_id: [11, 'envío'], quantity: 1 }],
+    'account.move.write': () => true,
+  });
+  await trimCreditNote(368705, [{ productId: 68926, qty: 1 }], full.odoo);
+  assert.deepEqual(full.calls.find((c) => c[1] === 'write')[2], [[368705], { invoice_line_ids: [[1, 1215806, { quantity: 1 }], [2, 1215807]] }]);
+  const trimmed = fakeOdoo({
+    'account.move.read': () => [{ id: 368705, invoice_line_ids: [1215806] }],
+    'account.move.line.read': () => [{ id: 1215806, product_id: [68926, 'x'], quantity: 1 }],
+    'account.move.write': () => true,
+  });
+  await trimCreditNote(368705, [{ productId: 68926, qty: 1 }], trimmed.odoo);
+  assert.deepEqual(trimmed.calls.find((c) => c[1] === 'write')[2], [[368705], { invoice_line_ids: [[1, 1215806, { quantity: 1 }]] }]);
 });

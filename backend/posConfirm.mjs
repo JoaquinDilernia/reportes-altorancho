@@ -290,9 +290,21 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
     if (result?.status === 'invoiced') invoiceId = result.invoiceId;
   }
   if (invoiceId && deps.creditNoteIdsOf) {
-    const own = Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
-    const ncWarnings = await applyCreditNotesStep(order, invoiceId, [...own, ...(await deps.creditNoteIdsOf(order))], deps);
-    if (ncWarnings.length) await deps.setOrderWarning(order.id, [...warnings, ...ncWarnings].join(' · '));
+    // Nunca tira: cualquier error queda como aviso y igual se cierra el pendiente.
+    let ncWarnings;
+    try {
+      const own = Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
+      ncWarnings = await applyCreditNotesStep(order, invoiceId, [...own, ...(await deps.creditNoteIdsOf(order))], deps);
+    } catch (err) {
+      ncWarnings = [`No se pudieron aplicar las notas de crédito a la factura (${err.message}): aplicalas en Odoo`];
+    }
+    if (ncWarnings.length) {
+      try {
+        await deps.setOrderWarning(order.id, [...warnings, ...ncWarnings].join(' · '));
+      } catch (err) {
+        console.error('[pos] no se pudo guardar el aviso de notas de crédito:', err.message);
+      }
+    }
   }
   await deps.clearPostConfirmPending(order.id);
 }

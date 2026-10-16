@@ -333,10 +333,17 @@ export async function createCreditNoteFromInvoice({ invoiceId, journalId, reason
   const action = await odoo.write('account.move.reversal', 'reverse_moves', [[wizardId]], { context });
   const creditNoteId = action?.res_id;
   if (!creditNoteId) throw new Error('Odoo no creó la nota de crédito');
+  await trimCreditNote(creditNoteId, items, odoo);
+  return creditNoteId;
+}
+
+// Deja en la NC en borrador solo las líneas y cantidades devueltas. Idempotente:
+// sobre una ya recortada reescribe las mismas cantidades. Sirve también para una
+// NC adoptada que quedó como reversión completa (falla entre reverse_moves y el recorte).
+export async function trimCreditNote(creditNoteId, items, odoo = defaultOdoo) {
   const [nc] = await odoo.read('account.move', 'read', [[creditNoteId]], { fields: ['id', 'invoice_line_ids'] });
   const lines = await odoo.read('account.move.line', 'read', [nc.invoice_line_ids], { fields: ['id', 'product_id', 'quantity'] });
   await odoo.write('account.move', 'write', [[creditNoteId], { invoice_line_ids: planCreditNoteCommands(lines, items) }]);
-  return creditNoteId;
 }
 
 export async function createStandaloneCreditNote({ journalId, partnerId, reason, items }, odoo = defaultOdoo) {

@@ -34,6 +34,7 @@ function fakeDeps(over = {}) {
     findCreditNoteByRef: rec('findNc', null),
     createCreditNoteFromInvoice: rec('createNc', () => nextNc++),
     createStandaloneCreditNote: rec('createNcManual', () => nextNc++),
+    trimCreditNote: rec('trimNc'),
     postCreditNote: rec('postNc', (ncId) => ({ id: ncId, name: `NC-B ${ncId}`, state: 'posted' })),
     saveReturnSteps: rec('saveSteps'),
     invoicingEnabled: () => true,
@@ -133,4 +134,75 @@ test('confirmReturnOrder: cambio → después de los pasos sigue con el flujo de
   const cambio = order({ lines: [{ lineId: 'L1', status: 'activo', qty: 1, basePrice: 9990, origin: 'stock', delivery: 'ahora' }] });
   await confirmReturnOrder(cambio, 'Caja LL', ctx, deps);
   assert.ok(named(calls, 'confirmPos')[0][1].creditNotes['nc:368292']);
+});
+
+test('runReturnSteps: el reintento usa el plan guardado y no vuelve a repartir entre remitos', async () => {
+  const twoMoves = (ids) => ids.map((mid) => ({
+    id: mid, product_id: [70417, 'x'], quantity_done: 1, product_uom: [1, 'u'],
+    picking_id: mid === 612602 ? [192311, 'LL/OUT/00260'] : [192400, 'LL/OUT/00270'],
+  }));
+  const line = rl({ moveIds: [612602, 612603] });
+  const first = fakeDeps({
+    readMoves: async (ids) => twoMoves(ids),
+    returnedQtyByMove: async () => new Map([[612602, 1]]), // devolución anterior ya hecha sobre el primer remito
+    validatePicking: async () => { throw new Error('Odoo caído'); },
+  });
+  await assert.rejects(runReturnSteps(order({ returnLines: [line] }), ctx, first.deps), /Odoo caído/);
+  const saved = named(first.calls, 'saveSteps').at(-1)[2];
+  assert.equal(saved.pickings['pick:tpv:48870:192400:exhibicion'].id, 777);
+  assert.deepEqual(named(first.calls, 'createReturn')[0][1].items.map((i) => i.moveId), [612603]);
+
+  // Reintento: aunque ahora Odoo diga otra cosa, no se vuelve a planificar.
+  const retry = fakeDeps({ readMoves: async (ids) => twoMoves(ids), returnedQtyByMove: async () => new Map() });
+  const steps = await runReturnSteps(order({ returnLines: [line], returnSteps: saved }), ctx, retry.deps);
+  assert.equal(named(retry.calls, 'createReturn').length, 0);
+  assert.equal(named(retry.calls, 'findPicking').length, 0);
+  assert.deepEqual(named(retry.calls, 'validate').map((c) => c[1]), [777]);
+  assert.equal(steps.pickings['pick:tpv:48870:192400:exhibicion'].state, 'done');
+  assert.equal(Object.keys(steps.pickings).length, 1);
+});
+
+test('runReturnSteps: el plan se guarda antes de crear nada en Odoo', async () => {
+  const { deps, calls } = fakeDeps();
+  await runReturnSteps(order(), ctx, deps);
+  const firstSave = calls.findIndex((c) => c[0] === 'saveSteps');
+  const firstCreate = calls.findIndex((c) => c[0] === 'createReturn');
+  assert.ok(firstSave >= 0 && firstSave < firstCreate);
+  assert.deepEqual(calls[firstSave][2].plan.pickings.map((p) => p.key), ['pick:tpv:48870:192311:exhibicion']);
+});
+
+test('runReturnSteps: una NC en borrador adoptada se recorta antes de publicarla', async () => {
+  const previous = { pickings: { 'pick:tpv:48870:192311:exhibicion': { id: 777, name: 'x', state: 'done' } }, transfers: {}, creditNotes: {} };
+  const { deps, calls } = fakeDeps({ findCreditNoteByRef: async (ref) => { calls.push(['findNc', ref]); return { id: 368705, name: '/', state: 'draft' }; } });
+  await runReturnSteps(order({ returnSteps: previous }), ctx, deps);
+  assert.equal(named(calls, 'createNc').length, 0);
+  assert.deepEqual(named(calls, 'trimNc').map((c) => c.slice(1)), [[368705, [{ productId: 70417, qty: 1 }]]]);
+  const trim = calls.findIndex((c) => c[0] === 'trimNc');
+  const post = calls.findIndex((c) => c[0] === 'postNc');
+  assert.ok(trim < post);
+  assert.equal(named(calls, 'findNc')[0][1], 'LL-0042 devolución nc:368292 ·');
+});
+
+test('runReturnSteps: la referencia de la NC termina con delimitador (create y find iguales)', async () => {
+  const previous = { pickings: { 'pick:tpv:48870:192311:exhibicion': { id: 777, name: 'x', state: 'done' } }, transfers: {}, creditNotes: {} };
+  const { deps, calls } = fakeDeps();
+  await runReturnSteps(order({ returnSteps: previous }), ctx, deps);
+  assert.equal(named(calls, 'findNc')[0][1], 'LL-0042 devolución nc:368292 ·');
+  assert.equal(named(calls, 'createNc')[0][1].reason, 'LL-0042 devolución nc:368292 ·');
+  assert.equal(named(calls, 'trimNc').length, 0); // recién creada: createCreditNoteFromInvoice ya la recorta
+});
+
+test('runPostConfirmSteps: si falla la aplicación de NC queda aviso y se cierra el pendiente', async () => {
+  const { runPostConfirmSteps } = await import('../posConfirm.mjs');
+  const calls = [];
+  await runPostConfirmSteps(
+    { id: 'o1', lines: [], odooOrders: [], invoiceId: 400, invoiceName: 'FA-B 2', returnSteps: {} }, 'Caja LL', ctx,
+    {
+      creditNoteIdsOf: async () => { throw new Error('Firestore caído'); },
+      setOrderWarning: async (id, w) => { calls.push(['warning', w]); },
+      clearPostConfirmPending: async () => { calls.push(['clear']); },
+    },
+  );
+  assert.match(named(calls, 'warning')[0][1], /No se pudieron aplicar las notas de crédito.*Firestore caído/);
+  assert.equal(named(calls, 'clear').length, 1);
 });
