@@ -274,7 +274,7 @@ router.delete('/orders/:id/return-lines/:rlId', ...sellers, handle(async (req) =
 
 // ---- Saldo a favor ----
 router.get('/credits', ...sellers, handle(async (req) => {
-  const doc = String(req.query.doc ?? '').replace(/D/g, '');
+  const doc = String(req.query.doc ?? '').replace(/\D/g, '');
   if (doc.length < 7) throw new Error('Escribí el DNI o CUIT completo');
   const { balance, credits } = await customerBalance(doc);
   return { balance, credits: credits.map(({ id, balance: b, expiresAt, localId, orderNumber }) => ({ id, balance: b, expiresAt, localId, orderNumber })) };
@@ -363,7 +363,7 @@ const validId = (pattern, label) => (req, res, next) => {
 };
 
 router.get('/admin/credits', ...admins, handle((req) => listCreditsForAdmin({
-  docNumber: req.query.doc ? String(req.query.doc).replace(/D/g, '') : null, expiredOnly: req.query.expired === '1',
+  docNumber: req.query.doc ? String(req.query.doc).replace(/\D/g, '') : null, expiredOnly: req.query.expired === '1',
 })));
 router.post('/admin/credits/:id/extend', ...admins, validId(CONFIG_ID, 'Id de saldo'), handle((req) => extendCredit(req.params.id, req.body ?? {}, req.posUser.name)));
 
