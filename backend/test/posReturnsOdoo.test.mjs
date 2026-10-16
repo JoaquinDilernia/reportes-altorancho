@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   allocateReturned, readTpvPurchase, readSaleOrderPurchase, searchTpvPurchases, searchWebPurchases,
+  allocateToMoves, planCreditNoteCommands, createReturnPicking, validatePicking, createCreditNoteFromInvoice, applyCreditNote,
 } from '../posReturnsOdoo.mjs';
 
 // Odoo falso: responde por modelo+método con funciones (domain, kwargs) → filas.
@@ -117,4 +118,84 @@ test('searchTpvPurchases: sin doc ni ref devuelve [] sin llamar a Odoo', async (
   const { odoo, calls } = fakeOdoo({});
   assert.deepEqual(await searchTpvPurchases({ sinceISO: '2025-10-16' }, odoo), []);
   assert.equal(calls.length, 0);
+});
+
+test('allocateToMoves: reparte entre los moves del remito descontando lo ya devuelto', () => {
+  const moves = [{ id: 1, quantity_done: 2 }, { id: 2, quantity_done: 3 }];
+  assert.deepEqual(allocateToMoves(3, moves, new Map([[1, 1]])), [{ moveId: 1, qty: 1 }, { moveId: 2, qty: 2 }]);
+  assert.throws(() => allocateToMoves(5, moves, new Map([[1, 1]])), /ya se devolvió/);
+});
+
+test('planCreditNoteCommands: deja solo lo devuelto, con su cantidad; saca el resto (envío incluido)', () => {
+  const ncLines = [
+    { id: 11, product_id: [10, 'x'], quantity: 3 }, { id: 12, product_id: [10, 'x'], quantity: 2 },
+    { id: 13, product_id: [4, 'envío'], quantity: 1 }, { id: 14, product_id: [11, 'y'], quantity: 1 },
+  ];
+  assert.deepEqual(planCreditNoteCommands(ncLines, [{ productId: 10, qty: 4 }, { productId: 11, qty: 1 }]), [
+    [1, 11, { quantity: 3 }], [1, 12, { quantity: 1 }], [2, 13], [1, 14, { quantity: 1 }],
+  ]);
+  assert.throws(() => planCreditNoteCommands(ncLines, [{ productId: 99, qty: 1 }]), /no está en la factura/);
+});
+
+test('createReturnPicking: arma las líneas a mano, fija ubicación, tipo y origen', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'stock.return.picking.create': () => [55],
+    'stock.return.picking.create_returns': () => ({ res_id: 777 }),
+    'stock.picking.write': () => true,
+  });
+  const id = await createReturnPicking({
+    pickingId: 192311, items: [{ moveId: 612602, productId: 70417, uomId: 1, qty: 1 }], locationId: 324, pickingTypeId: 6, origin: 'LL-0042 · tpv:1',
+  }, odoo);
+  assert.equal(id, 777);
+  const [, , [[vals]]] = calls.find((c) => c[1] === 'create');
+  assert.equal(vals.picking_id, 192311);
+  assert.equal(vals.location_id, 324);
+  assert.deepEqual(vals.product_return_moves, [[0, 0, { product_id: 70417, move_id: 612602, uom_id: 1, quantity: 1, to_refund: true }]]);
+  assert.ok(!('create_rma' in vals));
+  const write = calls.find((c) => c[0] === 'stock.picking' && c[1] === 'write');
+  assert.deepEqual(write[2], [[777], { picking_type_id: 6, origin: 'LL-0042 · tpv:1' }]);
+});
+
+test('validatePicking: con lote escribe el lote en la línea; sin lote, cantidad hecha; asistente = error', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'stock.picking.read': () => [{ id: 777, name: 'LL/RET/1', state: 'assigned', move_ids: [1, 2] }],
+    'stock.picking.action_assign': () => true,
+    'stock.move.read': () => [
+      { id: 1, product_id: [70417, 'x'], product_uom_qty: 1, move_line_ids: [] },
+      { id: 2, product_id: [29175, 'y'], product_uom_qty: 2, move_line_ids: [31] },
+    ],
+    'stock.move.write': () => true,
+    'stock.move.line.write': () => true,
+    'stock.picking.button_validate': () => true,
+  });
+  await validatePicking(777, new Map([[29175, [{ lotId: 17050, qty: 2 }]]]), odoo);
+  assert.ok(calls.some((c) => c[0] === 'stock.move' && c[1] === 'write' && JSON.stringify(c[2]) === '[[1],{"quantity_done":1}]'));
+  assert.ok(calls.some((c) => c[0] === 'stock.move.line' && JSON.stringify(c[2]) === '[[31],{"lot_id":17050,"qty_done":2}]'));
+});
+
+test('createCreditNoteFromInvoice: reversión parcial en borrador en el diario del local', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'account.move.reversal.create': () => [9],
+    'account.move.reversal.reverse_moves': () => ({ res_id: 368705 }),
+    'account.move.read': () => [{ id: 368705, invoice_line_ids: [1215806] }],
+    'account.move.line.read': () => [{ id: 1215806, product_id: [68926, 'x'], quantity: 2 }],
+    'account.move.write': () => true,
+  });
+  const id = await createCreditNoteFromInvoice({ invoiceId: 368292, journalId: 32, reason: 'LL-0042 devolución', items: [{ productId: 68926, qty: 1 }] }, odoo);
+  assert.equal(id, 368705);
+  const [, , [[vals]]] = calls.find((c) => c[0] === 'account.move.reversal' && c[1] === 'create');
+  assert.deepEqual(vals, { move_ids: [[6, 0, [368292]]], refund_method: 'refund', journal_id: 32, reason: 'LL-0042 devolución', date_mode: 'entry' });
+  assert.ok(!calls.some((c) => c[1] === 'action_post'));
+  assert.deepEqual(calls.find((c) => c[0] === 'account.move' && c[1] === 'write')[2], [[368705], { invoice_line_ids: [[1, 1215806, { quantity: 1 }]] }]);
+});
+
+test('applyCreditNote: usa la línea a cobrar abierta de la NC', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'account.move.line.search_read': () => [{ id: 5001 }],
+    'account.move.js_assign_outstanding_line': () => true,
+  });
+  assert.equal(await applyCreditNote(400, 368705, odoo), true);
+  assert.deepEqual(calls.at(-1).slice(0, 3), ['account.move', 'js_assign_outstanding_line', [[400], 5001]]);
+  const empty = fakeOdoo({ 'account.move.line.search_read': () => [] });
+  assert.equal(await applyCreditNote(400, 368705, empty.odoo), false);
 });

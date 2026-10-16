@@ -4,6 +4,7 @@
 // transferencia, notas de crédito y su aplicación. Todo con `odoo` inyectable.
 import { defaultOdoo } from './posOdoo.mjs';
 import { tpvUnitValue } from './posReturns.mjs';
+import { netOfIva } from './posPricing.mjs';
 
 const id = (m2o) => (Array.isArray(m2o) ? m2o[0] : m2o || null);
 const cleanName = (m2o) => (Array.isArray(m2o) ? String(m2o[1]).replace(/\s*\(.*\)$/, '') : null);
@@ -201,4 +202,157 @@ export async function readSaleOrderPurchase({ source, purchaseId, label, saleOrd
     source, purchaseId, label, date: orders[0].date_order, ...partner,
     invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, lines, pending,
   };
+}
+
+// ---- Escritura ----
+
+const VALIDATE_CTX = { skip_sms: true, skip_immediate: true, skip_backorder: true, lang: 'es_AR' };
+
+export function allocateToMoves(qty, moves, returnedByMove) {
+  const result = [];
+  let left = qty;
+  for (const m of moves) {
+    if (left <= 0) break;
+    const free = m.quantity_done - (returnedByMove.get(m.id) ?? 0);
+    if (free <= 0) continue;
+    const take = Math.min(free, left);
+    result.push({ moveId: m.id, qty: take });
+    left -= take;
+  }
+  if (left > 0) throw new Error(`Faltan ${left} unidades: ya se devolvió parte de esa compra`);
+  return result;
+}
+
+export function planCreditNoteCommands(ncLines, items) {
+  const left = new Map();
+  for (const { productId, qty } of items) left.set(productId, (left.get(productId) ?? 0) + qty);
+  const commands = ncLines.map((l) => {
+    const want = left.get(id(l.product_id)) ?? 0;
+    if (want <= 0) return [2, l.id];
+    const take = Math.min(want, l.quantity);
+    left.set(id(l.product_id), want - take);
+    return [1, l.id, { quantity: take }];
+  });
+  const missing = [...left].filter(([, q]) => q > 0);
+  if (missing.length) throw new Error(`El producto ${missing.map(([p]) => p).join(', ')} no está en la factura original (o con menos cantidad)`);
+  return commands;
+}
+
+export function readMoves(moveIds, odoo = defaultOdoo) {
+  return odoo.read('stock.move', 'read', [moveIds], { fields: ['id', 'product_id', 'quantity_done', 'product_uom', 'picking_id'] });
+}
+
+// v16: las líneas y la ubicación del asistente salen de un onchange, por eso
+// se arman a mano (spike Fase 2). Nunca create_rma.
+export async function createReturnPicking({ pickingId, items, locationId, pickingTypeId, origin }, odoo = defaultOdoo) {
+  const context = { active_model: 'stock.picking', active_id: pickingId, active_ids: [pickingId] };
+  const [wizardId] = await odoo.write('stock.return.picking', 'create', [[{
+    picking_id: pickingId, location_id: locationId,
+    product_return_moves: items.map((i) => [0, 0, { product_id: i.productId, move_id: i.moveId, uom_id: i.uomId, quantity: i.qty, to_refund: true }]),
+  }]], { context });
+  const action = await odoo.write('stock.return.picking', 'create_returns', [[wizardId]], { context });
+  const returnId = action?.res_id;
+  if (!returnId) throw new Error('Odoo no creó la devolución');
+  await odoo.write('stock.picking', 'write', [[returnId], { ...(pickingTypeId ? { picking_type_id: pickingTypeId } : {}), origin }]);
+  return returnId;
+}
+
+export async function validatePicking(pickingId, lotsByProduct = new Map(), odoo = defaultOdoo) {
+  const [picking] = await odoo.read('stock.picking', 'read', [[pickingId]], { fields: ['id', 'name', 'state', 'move_ids'] });
+  if (picking.state === 'done') return picking;
+  if (picking.state === 'draft') await odoo.write('stock.picking', 'action_confirm', [[pickingId]]);
+  await odoo.write('stock.picking', 'action_assign', [[pickingId]]);
+  const moves = await odoo.read('stock.move', 'read', [picking.move_ids], { fields: ['id', 'product_id', 'product_uom_qty', 'move_line_ids'] });
+  for (const m of moves) {
+    const lots = lotsByProduct.get(id(m.product_id)) ?? [];
+    if (!lots.length) {
+      await odoo.write('stock.move', 'write', [[m.id], { quantity_done: m.product_uom_qty }]);
+      continue;
+    }
+    // Lote(s) que salieron: la primera línea con el primer lote, el resto se crean.
+    let left = m.product_uom_qty;
+    for (const [i, lot] of lots.entries()) {
+      if (left <= 0) break;
+      const qty = Math.min(lot.qty, left);
+      if (i === 0 && m.move_line_ids.length) await odoo.write('stock.move.line', 'write', [[m.move_line_ids[0]], { lot_id: lot.lotId, qty_done: qty }]);
+      else await odoo.write('stock.move', 'write', [[m.id], { move_line_ids: [[0, 0, { lot_id: lot.lotId, qty_done: qty }]] }]);
+      left -= qty;
+    }
+  }
+  const res = await odoo.write('stock.picking', 'button_validate', [[pickingId]], { context: VALIDATE_CTX });
+  if (res && typeof res === 'object' && res.res_model) throw new Error(`Odoo pidió confirmar algo al validar ${picking.name} (${res.res_model}): validalo en Odoo`);
+  const [done] = await odoo.read('stock.picking', 'read', [[pickingId]], { fields: ['id', 'name', 'state'] });
+  return done;
+}
+
+export async function createManualReturn({ pickingTypeId, locationId, partnerId, items, origin }, odoo = defaultOdoo) {
+  const [pickingId] = await odoo.write('stock.picking', 'create', [[{
+    picking_type_id: pickingTypeId, location_id: 5, location_dest_id: locationId, partner_id: partnerId, origin,
+    move_ids_without_package: items.map((i) => [0, 0, { name: origin, product_id: i.productId, product_uom_qty: i.qty, location_id: 5, location_dest_id: locationId }]),
+  }]]);
+  await odoo.write('stock.picking', 'action_confirm', [[pickingId]]);
+  return pickingId;
+}
+
+export async function createInternalTransfer({ pickingTypeId, fromLocationId, toLocationId, items, origin }, odoo = defaultOdoo) {
+  const [pickingId] = await odoo.write('stock.picking', 'create', [[{
+    picking_type_id: pickingTypeId, location_id: fromLocationId, location_dest_id: toLocationId, origin,
+    move_ids_without_package: items.map((i) => [0, 0, { name: origin, product_id: i.productId, product_uom_qty: i.qty, location_id: fromLocationId, location_dest_id: toLocationId }]),
+  }]]);
+  await odoo.write('stock.picking', 'action_confirm', [[pickingId]]);
+  await odoo.write('stock.picking', 'action_assign', [[pickingId]]);
+  const [picking] = await odoo.read('stock.picking', 'read', [[pickingId]], { fields: ['id', 'name', 'state'] });
+  return picking;
+}
+
+export async function findPickingByOrigin(origin, odoo = defaultOdoo) {
+  const [found] = await odoo.read('stock.picking', 'search_read', [[['origin', '=', origin], ['state', '!=', 'cancel']]], { fields: ['id', 'name', 'state'], limit: 1 });
+  return found ?? null;
+}
+
+export async function latestLotFor(productId, odoo = defaultOdoo) {
+  const [lot] = await odoo.read('stock.lot', 'search_read', [[['product_id', '=', productId]]], { fields: ['id'], limit: 1, order: 'create_date desc' });
+  return lot?.id ?? null;
+}
+
+// NC parcial: se revierte la factura original y, en borrador, se dejan solo
+// las líneas y cantidades devueltas (spike Fase 2). Se publica aparte.
+export async function createCreditNoteFromInvoice({ invoiceId, journalId, reason, items }, odoo = defaultOdoo) {
+  const context = { active_model: 'account.move', active_ids: [invoiceId], active_id: invoiceId };
+  const [wizardId] = await odoo.write('account.move.reversal', 'create', [[{
+    move_ids: [[6, 0, [invoiceId]]], refund_method: 'refund', journal_id: journalId, reason, date_mode: 'entry',
+  }]], { context });
+  const action = await odoo.write('account.move.reversal', 'reverse_moves', [[wizardId]], { context });
+  const creditNoteId = action?.res_id;
+  if (!creditNoteId) throw new Error('Odoo no creó la nota de crédito');
+  const [nc] = await odoo.read('account.move', 'read', [[creditNoteId]], { fields: ['id', 'invoice_line_ids'] });
+  const lines = await odoo.read('account.move.line', 'read', [nc.invoice_line_ids], { fields: ['id', 'product_id', 'quantity'] });
+  await odoo.write('account.move', 'write', [[creditNoteId], { invoice_line_ids: planCreditNoteCommands(lines, items) }]);
+  return creditNoteId;
+}
+
+export async function createStandaloneCreditNote({ journalId, partnerId, reason, items }, odoo = defaultOdoo) {
+  const [creditNoteId] = await odoo.write('account.move', 'create', [[{
+    move_type: 'out_refund', journal_id: journalId, partner_id: partnerId, ref: reason,
+    invoice_line_ids: items.map((i) => [0, 0, { product_id: i.productId, quantity: i.qty, price_unit: netOfIva(i.unitValue) }]),
+  }]]);
+  return creditNoteId;
+}
+
+export async function findCreditNoteByRef(ref, odoo = defaultOdoo) {
+  const [found] = await odoo.read('account.move', 'search_read', [[
+    ['move_type', '=', 'out_refund'], ['ref', 'ilike', ref], ['state', '!=', 'cancel'],
+  ]], { fields: ['id', 'name', 'state'], limit: 1 });
+  return found ?? null;
+}
+
+// Aplica (concilia) la NC a la factura nueva: Odoo concilia hasta lo menor
+// entre lo abierto de la NC y lo abierto de la factura.
+export async function applyCreditNote(invoiceId, creditNoteId, odoo = defaultOdoo) {
+  const [line] = await odoo.read('account.move.line', 'search_read', [[
+    ['move_id', '=', creditNoteId], ['account_id.account_type', '=', 'asset_receivable'], ['reconciled', '=', false],
+  ]], { fields: ['id'], limit: 1 });
+  if (!line) return false;
+  await odoo.write('account.move', 'js_assign_outstanding_line', [[invoiceId], line.id]);
+  return true;
 }
