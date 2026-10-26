@@ -7,6 +7,7 @@ process.env.FERIA_AUTH_SECRET = 'test-secret-feria';
 const { default: posRoutes, createLoginLimiter, publicLocale } = await import('../posRoutes.mjs');
 const feria = await import('../feriaAuth.mjs');
 const { generateToken } = await import('../posAuth.mjs');
+const { DEFAULT_SETTINGS } = await import('../posConfig.mjs');
 
 async function withServer(fn) {
   const app = express();
@@ -116,11 +117,11 @@ test('publicLocale: invoices depende de POS_INVOICING_ENABLED y del diario', () 
   const loc = { id: 'LL', name: 'Las Lomas', address: 'x', invoiceJournalId: 32 };
   try {
     process.env.POS_INVOICING_ENABLED = 'true';
-    assert.equal(publicLocale(loc).invoices, true);
-    assert.equal(publicLocale({ ...loc, invoiceJournalId: null }).invoices, false);
+    assert.equal(publicLocale(loc, DEFAULT_SETTINGS).invoices, true);
+    assert.equal(publicLocale({ ...loc, invoiceJournalId: null }, DEFAULT_SETTINGS).invoices, false);
     process.env.POS_INVOICING_ENABLED = 'false';
-    assert.equal(publicLocale(loc).invoices, false);
-    assert.deepEqual(Object.keys(publicLocale(loc)), ['id', 'name', 'address', 'invoices']);
+    assert.equal(publicLocale(loc, DEFAULT_SETTINGS).invoices, false);
+    assert.deepEqual(Object.keys(publicLocale(loc, DEFAULT_SETTINGS)), ['id', 'name', 'address', 'invoices', 'returnDestinations']);
   } finally {
     if (prev === undefined) delete process.env.POS_INVOICING_ENABLED; else process.env.POS_INVOICING_ENABLED = prev;
   }

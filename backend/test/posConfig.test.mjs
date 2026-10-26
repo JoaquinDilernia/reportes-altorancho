@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS, validateLocale, validatePaymentMethod,
   resolveOdooPaymentName, originLocationId, validateSettings,
+  defaultReturnDestinations, returnDestinationsOf, findDestination,
 } from '../posConfig.mjs';
 
 const lomas = DEFAULT_LOCALES.find((l) => l.id === 'LL');
@@ -63,4 +64,56 @@ test('validateSettings: SKU y monto de subida al domicilio', () => {
   assert.equal(validateSettings({ ...ok, homeServiceSku: ' ' }).length, 1);
   assert.equal(validateSettings({ ...ok, homeServiceDefaultAmount: -5 }).length, 1);
   assert.equal(validateSettings({ ...ok, homeServiceDefaultAmount: 'x' }).length, 1);
+});
+
+const LL = DEFAULT_LOCALES.find((l) => l.id === 'LL');
+
+test('defaultReturnDestinations: stock (por defecto), exhibición y enviar a Rolón', () => {
+  const d = defaultReturnDestinations({ ...LL, returnDestinations: undefined }, DEFAULT_SETTINGS);
+  assert.deepEqual(d.map((x) => [x.id, x.locationId, x.transferToLocationId, x.default]), [
+    ['stock', 8, null, true], ['exhibicion', 324, null, false], ['rolon', 8, 174, false],
+  ]);
+});
+
+test('returnDestinationsOf: usa los del local (solo activos) y si no hay, los por defecto', () => {
+  const own = [
+    { id: 'fallas', label: 'Fallas', locationId: 392, transferToLocationId: null, default: true, active: true },
+    { id: 'viejo', label: 'Viejo', locationId: 8, transferToLocationId: null, default: false, active: false },
+  ];
+  assert.deepEqual(returnDestinationsOf({ ...LL, returnDestinations: own }, DEFAULT_SETTINGS).map((d) => d.id), ['fallas']);
+  assert.equal(returnDestinationsOf({ ...LL, returnDestinations: [] }, DEFAULT_SETTINGS)[0].id, 'stock');
+});
+
+test('findDestination: id desconocido tira', () => {
+  assert.equal(findDestination(LL, DEFAULT_SETTINGS, 'exhibicion').locationId, 324);
+  assert.throws(() => findDestination(LL, DEFAULT_SETTINGS, 'nope'), /Destino de devolución inválido/);
+});
+
+test('validateLocale: destinos y tipos de remito', () => {
+  assert.deepEqual(validateLocale(LL), []);
+  const bad = {
+    ...LL, returnPickingTypeId: 0,
+    returnDestinations: [
+      { id: 'a', label: '', locationId: 8, transferToLocationId: null, default: true, active: true },
+      { id: 'a', label: 'B', locationId: 0, transferToLocationId: 'x', default: true, active: true },
+    ],
+  };
+  assert.deepEqual(validateLocale(bad), [
+    'Tipo de remito de devolución inválido',
+    'Destino de devolución: falta el nombre',
+    'Destino de devolución "B": ubicación inválida',
+    'Destino de devolución "B": depósito de traslado inválido',
+    'Destino de devolución repetido: a',
+    'Tiene que haber un solo destino de devolución por defecto',
+  ]);
+});
+
+test('validateSettings: saldo, motivos y días de búsqueda', () => {
+  assert.deepEqual(validateSettings(DEFAULT_SETTINGS), []);
+  assert.deepEqual(validateSettings({ ...DEFAULT_SETTINGS, creditValidityDays: 0, returnReasons: [], returnSearchDays: 5000, creditOdooPaymentName: '' }), [
+    'Días de validez del saldo: entre 1 y 3650, o vacío para que no venza',
+    'Cargá al menos un motivo de devolución',
+    'Días de búsqueda de compras: entre 1 y 1095',
+    'Medio de Odoo para saldo a favor inválido',
+  ]);
 });

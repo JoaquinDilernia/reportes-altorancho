@@ -46,3 +46,24 @@ test('buildPosCashMovement: gasto pide concepto; USD pide monto y cotización', 
   assert.equal(usd.amount, 55000);
   assert.throws(() => buildPosCashMovement({ type: 'ingreso_usd', usdAmount: 50 }, meta), /cotización/);
 });
+
+test('computeCashSummary: cambio cobra solo el neto; reintegro en efectivo resta; saldos aparte', () => {
+  const orders = [
+    order([{ methodId: 'efectivo', amount: null }], 30000, { kind: 'cambio', totals: { total: 30000, net: 8500, collect: 8500 } }),
+    order([], 0, { kind: 'devolucion', totals: { total: 0, net: -5000, collect: 0 }, refund: { cashBack: [{ methodId: 'efectivo', amount: 2000 }, { methodId: 'transferencia', amount: 1000 }], credit: 2000 } }),
+    order([{ methodId: 'saldo', amount: 3000 }, { methodId: 'credito', detailId: '6', amount: 7000 }], 10000),
+  ];
+  const s = computeCashSummary(orders, { openingCash: 10000, movements: [] });
+  assert.deepEqual(s.byMethod, { efectivo: 8500, credito: 7000 });
+  assert.deepEqual(s.refundsByMethod, { efectivo: 2000, transferencia: 1000 });
+  assert.equal(s.refundsTotal, 3000);
+  assert.equal(s.creditsIssued, 2000);
+  assert.equal(s.creditsUsed, 3000);
+  assert.equal(s.returns, 2);
+  assert.equal(s.total, 15500);
+  assert.equal(s.expectedCash, 16500); // 10.000 + 8.500 − 2.000
+});
+
+test('paymentsOf: devolución sin pagos no suma nada', () => {
+  assert.deepEqual(paymentsOf({ payments: [], totals: { total: 0, collect: 0 } }), []);
+});

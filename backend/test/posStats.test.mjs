@@ -31,3 +31,17 @@ test('computePosStats: totales, por local, vendedor, medio y productos', () => {
 test('monthsBetween: meses que toca un rango', () => {
   assert.deepEqual(monthsBetween(new Date('2026-09-15T12:00:00-03:00'), new Date('2026-11-02T12:00:00-03:00')), ['2026-09', '2026-10', '2026-11']);
 });
+
+test('computePosStats: las devoluciones restan del total y de los productos', () => {
+  const at = new Date('2026-10-16T15:00:00-03:00');
+  const orders = [
+    { status: 'confirmado', confirmedAt: at, localId: 'LL', sellerId: 's', sellerName: 'V', payments: [{ methodId: 'efectivo', amount: null }], totals: { total: 10000, lineDiscountPct: 0 }, lines: [{ status: 'activo', sku: 'A', name: 'A', qty: 2, basePrice: 5000 }] },
+    { status: 'confirmado', confirmedAt: at, localId: 'LL', sellerId: 's', sellerName: 'V', kind: 'devolucion', payments: [], totals: { total: 0, net: -5000, collect: 0, lineDiscountPct: 0 }, lines: [], returnLines: [{ sku: 'A', name: 'A', qty: 1, unitValue: 5000 }], refund: { cashBack: [{ methodId: 'efectivo', amount: 5000 }], credit: 0 } },
+  ];
+  const s = computePosStats(orders, {});
+  assert.equal(s.total, 5000);
+  assert.equal(s.sales, 1);
+  assert.equal(s.returns, 1);
+  assert.deepEqual(s.byMethod, { efectivo: 5000 });
+  assert.deepEqual(s.topProducts.map((p) => [p.sku, p.qty, p.total]), [['A', 1, 5000]]);
+});

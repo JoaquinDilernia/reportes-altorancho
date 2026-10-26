@@ -7,8 +7,10 @@ import {
 } from './posAuth.mjs';
 import { listUsers, createUser, updateUser, deleteUser } from './posUsers.mjs';
 import {
-  getLocales, getSettings, getPaymentMethods, getPaymentMethodsById, saveLocale, saveSettings, savePaymentMethod, localeIdsOf,
+  getLocales, getSettings, getPaymentMethods, getPaymentMethodsById, saveLocale, saveSettings, savePaymentMethod, localeIdsOf, returnDestinationsOf,
 } from './posConfig.mjs';
+import { searchPurchases, getPurchase, resolvePurchaseLine, manualLine } from './posReturnsService.mjs';
+import { customerBalance, listCreditsForAdmin, extendCredit, SALDO_METHOD } from './posCredits.mjs';
 import { listPromotions, listActivePromotions, savePromotion } from './posPromotions.mjs';
 import { searchCatalog, fetchFreeStock, groupStock, stockLocationIds } from './posCatalog.mjs';
 import { readReservationsFor, appReservedFor } from './posStock.mjs';
@@ -118,8 +120,11 @@ router.post('/auth/login', handle(async (req) => {
 }));
 
 // ---- Configuración visible para todos ----
-export function publicLocale(locale) {
-  return { id: locale.id, name: locale.name, address: locale.address, invoices: invoicingEnabledFor(locale) };
+export function publicLocale(locale, settings) {
+  return {
+    id: locale.id, name: locale.name, address: locale.address, invoices: invoicingEnabledFor(locale),
+    returnDestinations: returnDestinationsOf(locale, settings).map(({ id, label, default: isDefault }) => ({ id, label, default: isDefault })),
+  };
 }
 
 router.get('/config', ...auth, handle(async () => {
@@ -127,10 +132,11 @@ router.get('/config', ...auth, handle(async () => {
     getLocales(), getPaymentMethods(), listActivePromotions(), getSettings(),
   ]);
   return {
-    locales: locales.filter((l) => l.active !== false).map(publicLocale),
+    locales: locales.filter((l) => l.active !== false).map((l) => publicLocale(l, settings)),
     paymentMethods: paymentMethods.filter((m) => m.active !== false),
     promotions: promotions.filter((p) => p.kind !== 'cupon').map(({ id, name, kind, type, value, requiresPaymentMethodId }) => ({ id, name, kind, type, value, requiresPaymentMethodId })),
-    settings: { decoradorTagId: settings.decoradorTagId, homeServiceDefaultAmount: settings.homeServiceDefaultAmount },
+    creditMethod: SALDO_METHOD,
+    settings: { decoradorTagId: settings.decoradorTagId, homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons },
   };
 }));
 
@@ -227,6 +233,52 @@ router.delete('/orders/:id/lines/:lineId', ...sellers, handle(async (req) => {
   return orders.removeLine(req.params.id, actingUser(req, order.localId), req.params.lineId);
 }));
 
+// ---- Cambios y devoluciones ----
+const sinceISO = (settings) => new Date(Date.now() - settings.returnSearchDays * 864e5).toISOString().slice(0, 10);
+
+router.get('/returns/search', ...sellers, handle(async (req) => searchPurchases(req.query.q, { sinceISO: sinceISO(await getSettings()) })));
+
+router.get('/returns/purchases/:source/:id', ...sellers, handle((req) => getPurchase(req.params.source, req.params.id)));
+
+router.get('/returns/manual-product/:productId', ...sellers, handle((req) => manualLine(req.params.productId)));
+
+router.post('/returns/carts', ...sellers, handle(async (req) => {
+  let localId = req.posUser.localId;
+  if (isAdminRole(req.posUser.role)) {
+    localId = req.body?.localId;
+    if (!(await getLocales()).some((l) => l.id === localId)) throw new Error('Elegí un local válido');
+  }
+  const purchaseLine = await resolvePurchaseLine(req.body?.purchase ?? {});
+  return orders.createReturnCart(actingUser(req, localId), purchaseLine, req.body?.returnLine ?? {});
+}));
+
+router.post('/orders/:id/return-lines', ...sellers, handle(async (req) => {
+  const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
+  const purchaseLine = await resolvePurchaseLine(req.body?.purchase ?? {});
+  return orders.addReturnLine(req.params.id, actingUser(req, order.localId), purchaseLine, req.body?.returnLine ?? {});
+}));
+
+router.patch('/orders/:id/return-lines/:rlId', ...sellers, handle(async (req) => {
+  const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
+  return orders.updateReturnLine(req.params.id, actingUser(req, order.localId), req.params.rlId, req.body ?? {});
+}));
+
+router.delete('/orders/:id/return-lines/:rlId', ...sellers, handle(async (req) => {
+  const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
+  return orders.removeReturnLine(req.params.id, actingUser(req, order.localId), req.params.rlId);
+}));
+
+// ---- Saldo a favor ----
+router.get('/credits', ...sellers, handle(async (req) => {
+  const doc = String(req.query.doc ?? '').replace(/\D/g, '');
+  if (doc.length < 7) throw new Error('Escribí el DNI o CUIT completo');
+  const { balance, credits } = await customerBalance(doc);
+  return { balance, credits: credits.map(({ id, balance: b, expiresAt, localId, orderNumber }) => ({ id, balance: b, expiresAt, localId, orderNumber })) };
+}));
+
 // ---- Caja: pedidos ----
 router.get('/orders/queue', ...cajas, handle((req) => {
   const localId = scopeLocalId(req.posUser, req.query.localId);
@@ -308,6 +360,11 @@ const validId = (pattern, label) => (req, res, next) => {
   if (!pattern.test(req.params.id)) return res.status(400).json({ error: `${label} inválido` });
   return next();
 };
+
+router.get('/admin/credits', ...admins, handle((req) => listCreditsForAdmin({
+  docNumber: req.query.doc ? String(req.query.doc).replace(/\D/g, '') : null, expiredOnly: req.query.expired === '1',
+})));
+router.post('/admin/credits/:id/extend', ...admins, validId(CONFIG_ID, 'Id de saldo'), handle((req) => extendCredit(req.params.id, req.body ?? {}, req.posUser.name)));
 
 router.get('/admin/options', ...admins, handle(() => listOdooOptions()));
 router.get('/admin/locales', ...admins, handle(() => getLocales()));
