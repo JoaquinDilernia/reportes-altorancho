@@ -19,7 +19,7 @@ export function defaultReturnDeps() {
     createInternalTransfer: rOdoo.createInternalTransfer, latestLotFor: rOdoo.latestLotFor,
     findPartnerId: (customer) => findOrCreatePosPartner(customer),
     findCreditNoteByRef: rOdoo.findCreditNoteByRef, createCreditNoteFromInvoice: rOdoo.createCreditNoteFromInvoice,
-    createStandaloneCreditNote: rOdoo.createStandaloneCreditNote, trimCreditNote: rOdoo.trimCreditNote,
+    trimCreditNote: rOdoo.trimCreditNote,
     readCreditNoteState: rOdoo.readCreditNoteState, readMoveResiduals: rOdoo.readMoveResiduals,
     postCreditNote: (ncId, journalId) => postInvoice(ncId, journalId),
     // Por defecto no se factura; posConfirm lo pisa con invoicingEnabledFor.
@@ -169,10 +169,10 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
     await save();
     return steps;
   }
+  // Sin ticket no hay NC: ARCA exige comprobante o período asociado (error
+  // 10197) y Odoo no manda el período. Igual que el POS nativo: solo stock.
   const reason = `${order.number} devolución`;
   const ncGroups = invoiceGroups(order.returnLines).map((g) => ({ key: `nc:${g.invoiceId}`, invoiceId: g.invoiceId, lines: g.lines }));
-  const manualLines = order.returnLines.filter((l) => l.source === 'manual');
-  if (manualLines.length) ncGroups.push({ key: 'nc:manual', invoiceId: null, lines: manualLines });
   for (const g of ncGroups) {
     let step = steps.creditNotes[g.key];
     if (step?.state === 'posted') continue;
@@ -182,15 +182,8 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
     if (!step) {
       const found = await deps.findCreditNoteByRef(ref);
       let ncId = found?.id;
-      if (!ncId && g.invoiceId) {
+      if (!ncId) {
         ncId = await deps.createCreditNoteFromInvoice({ invoiceId: g.invoiceId, journalId: ctx.locale.invoiceJournalId, reason: ref, items: sumByProduct(g.lines) });
-        fresh = true;
-      } else if (!ncId) {
-        const partnerId = order.customer.odooPartnerId ?? await deps.findPartnerId(order.customer);
-        ncId = await deps.createStandaloneCreditNote({
-          journalId: ctx.locale.invoiceJournalId, partnerId, reason: ref,
-          items: g.lines.map((l) => ({ productId: l.productId, qty: l.qty, unitValue: l.unitValue })),
-        });
         fresh = true;
       }
       step = { id: ncId, name: found?.name ?? null, state: found?.state ?? 'draft' };

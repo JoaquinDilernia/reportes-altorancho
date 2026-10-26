@@ -598,6 +598,11 @@ export async function markOrderError(id, errorDetail) {
   });
 }
 
+// NC que respaldan un saldo a favor: solo las publicadas (una en borrador no
+// existe en ARCA y no se puede aplicar a la factura donde se use el saldo).
+export const postedCreditNoteIds = (returnSteps) => Object.values(returnSteps?.creditNotes ?? {})
+  .filter((n) => n.state === 'posted' && n.id).map((n) => n.id);
+
 // Confirmado en Odoo: la reserva pasa a Odoo y la de la app se libera.
 export async function markOrderConfirmed(id, { odooOrders, user }) {
   const db = getDb();
@@ -618,9 +623,9 @@ export async function markOrderConfirmed(id, { odooOrders, user }) {
       ...orderKeys(after), updatedAt: new Date(),
     };
     if (order.refund?.credit > 0) {
-      const creditNoteIds = Object.values(order.returnSteps?.creditNotes ?? {}).map((n) => n.id).filter(Boolean);
       createCreditInTx(tx, db, order.id, buildCredit({
-        order, amount: order.refund.credit, days: ctx.settings.creditValidityDays, nowMs: Date.now(), user, creditNoteIds,
+        order, amount: order.refund.credit, days: ctx.settings.creditValidityDays, nowMs: Date.now(), user,
+        creditNoteIds: postedCreditNoteIds(order.returnSteps),
       }));
     }
     tx.update(ref, update);

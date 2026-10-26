@@ -33,7 +33,6 @@ function fakeDeps(over = {}) {
     findPartnerId: rec('partner', 91779),
     findCreditNoteByRef: rec('findNc', null),
     createCreditNoteFromInvoice: rec('createNc', () => nextNc++),
-    createStandaloneCreditNote: rec('createNcManual', () => nextNc++),
     trimCreditNote: rec('trimNc'),
     readCreditNoteState: rec('readNc', (ncId) => ({ id: ncId, name: '/', state: 'draft' })),
     postCreditNote: rec('postNc', (ncId) => ({ id: ncId, name: `NC-B ${ncId}`, state: 'posted' })),
@@ -114,12 +113,14 @@ test('runReturnSteps: con facturación apagada no crea NC y lo deja marcado', as
   assert.equal(steps.creditNotesSkipped, true);
 });
 
-test('runReturnSteps: sin ticket → ingreso suelto + NC suelta con precio de lista', async () => {
+test('runReturnSteps: sin ticket → ingreso suelto y sin NC (ARCA pide comprobante o período asociado)', async () => {
   const manual = rl({ source: 'manual', purchaseId: null, purchaseLineId: null, moveIds: [], invoiceId: null, destinationId: 'stock' });
   const { deps, calls } = fakeDeps();
-  await runReturnSteps(order({ returnLines: [manual] }), ctx, deps);
+  const steps = await runReturnSteps(order({ returnLines: [manual] }), ctx, deps);
   assert.equal(named(calls, 'createManual')[0][1].locationId, 8);
-  assert.deepEqual(named(calls, 'createNcManual')[0][1].items, [{ productId: 70417, qty: 1, unitValue: 4990 }]);
+  assert.equal(named(calls, 'createNc').length, 0);
+  assert.equal(named(calls, 'postNc').length, 0);
+  assert.deepEqual(steps.creditNotes, {});
 });
 
 test('confirmReturnOrder: devolución sola → pasos de Odoo y confirmada sin pedido nuevo', async () => {

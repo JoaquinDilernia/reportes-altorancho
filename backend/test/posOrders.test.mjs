@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   orderKeys, validateCustomer, validatePayments, assertPaymentsMatchTotal, priceOrder, assertCartEditable, assertDraftEditable,
-  orderGroups, joinOdooNames, claimPricing, assertCustomerShape,
+  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds,
 } from '../posOrders.mjs';
 
 const methodsById = new Map([
@@ -208,4 +208,10 @@ test('cleanHolderReason: solo con algo que vuelve, recortado a 200', () => {
   assert.equal(cleanHolderReason('x'.repeat(250), rl).length, 200);
   assert.equal(cleanHolderReason('Motivo', []), '');
   assert.equal(cleanHolderReason(undefined, rl), '');
+});
+
+test('postedCreditNoteIds: el saldo solo guarda NC publicadas', () => {
+  const steps = { creditNotes: { 'nc:1': { id: 10, state: 'posted' }, 'nc:manual': { id: 11, state: 'draft' }, 'nc:2': { id: null, state: 'posted' } } };
+  assert.deepEqual(postedCreditNoteIds(steps), [10]);
+  assert.deepEqual(postedCreditNoteIds(undefined), []);
 });

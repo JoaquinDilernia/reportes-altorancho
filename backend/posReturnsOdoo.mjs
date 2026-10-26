@@ -4,7 +4,6 @@
 // transferencia, notas de crédito y su aplicación. Todo con `odoo` inyectable.
 import { defaultOdoo } from './posOdoo.mjs';
 import { tpvUnitValue } from './posReturns.mjs';
-import { netOfIva } from './posPricing.mjs';
 
 const id = (m2o) => (Array.isArray(m2o) ? m2o[0] : m2o || null);
 const cleanName = (m2o) => (Array.isArray(m2o) ? String(m2o[1]).replace(/\s*\(.*\)$/, '') : null);
@@ -363,14 +362,6 @@ export async function trimCreditNote(creditNoteId, items, odoo = defaultOdoo) {
   const [nc] = await odoo.read('account.move', 'read', [[creditNoteId]], { fields: ['id', 'invoice_line_ids'] });
   const lines = await odoo.read('account.move.line', 'read', [nc.invoice_line_ids], { fields: ['id', 'product_id', 'quantity'] });
   await odoo.write('account.move', 'write', [[creditNoteId], { invoice_line_ids: planCreditNoteCommands(lines, items) }]);
-}
-
-export async function createStandaloneCreditNote({ journalId, partnerId, reason, items }, odoo = defaultOdoo) {
-  const [creditNoteId] = await odoo.write('account.move', 'create', [[{
-    move_type: 'out_refund', journal_id: journalId, partner_id: partnerId, ref: reason,
-    invoice_line_ids: items.map((i) => [0, 0, { product_id: i.productId, quantity: i.qty, price_unit: netOfIva(i.unitValue) }]),
-  }]]);
-  return creditNoteId;
 }
 
 export async function findCreditNoteByRef(ref, odoo = defaultOdoo) {
