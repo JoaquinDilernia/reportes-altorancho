@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  allocateReturned, readTpvPurchase, readSaleOrderPurchase, searchTpvPurchases, searchWebPurchases,
+  allocateReturned, returnedQtyByMove, readTpvPurchase, readSaleOrderPurchase, searchTpvPurchases, searchWebPurchases,
   allocateToMoves, planCreditNoteCommands, createReturnPicking, validatePicking, createCreditNoteFromInvoice, applyCreditNote, trimCreditNote,
 } from '../posReturnsOdoo.mjs';
 
@@ -20,6 +20,18 @@ function fakeOdoo(handlers) {
 test('allocateReturned: reparte lo devuelto de un producto entre sus líneas en orden', () => {
   const lines = [{ id: 1, productId: 5, qty: 2 }, { id: 2, productId: 5, qty: 3 }, { id: 3, productId: 6, qty: 1 }];
   assert.deepEqual([...allocateReturned(lines, new Map([[5, 3], [6, 0]]))], [[1, 2], [2, 1], [3, 0]]);
+});
+
+test('returnedQtyByMove: suma lo devuelto por move y descuenta las devoluciones revertidas', async () => {
+  const { odoo } = fakeOdoo({
+    'stock.move.search_read': ([domain]) => {
+      const ids = domain[0][2];
+      if (ids.includes(700)) return [{ id: 900, origin_returned_move_id: [700, 'x'], quantity_done: 2 }, { id: 901, origin_returned_move_id: [701, 'x'], quantity_done: 1 }];
+      if (ids.includes(900)) return [{ id: 950, origin_returned_move_id: [900, 'x'], quantity_done: 1 }];
+      return [];
+    },
+  });
+  assert.deepEqual([...await returnedQtyByMove([700, 701], odoo)], [[700, 1], [701, 1]]);
 });
 
 test('readTpvPurchase: líneas con valor pagado, reembolsado por el POS + devuelto por la app, lotes y factura', async () => {

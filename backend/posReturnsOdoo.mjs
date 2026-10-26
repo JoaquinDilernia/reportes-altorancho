@@ -28,9 +28,21 @@ export async function returnedQtyByMove(moveIds, odoo = defaultOdoo) {
   const returns = await odoo.read('stock.move', 'search_read', [[
     ['origin_returned_move_id', 'in', moveIds], ['state', '=', 'done'],
   ]], { fields: ['id', 'origin_returned_move_id', 'quantity_done'] });
+  const origOfReturn = new Map();
   for (const r of returns) {
     const orig = id(r.origin_returned_move_id);
+    origOfReturn.set(r.id, orig);
     result.set(orig, (result.get(orig) ?? 0) + r.quantity_done);
+  }
+  // Una devolución revertida en Odoo (devolución de la devolución) vuelve a
+  // dejar la unidad para devolver.
+  if (!returns.length) return result;
+  const reversals = await odoo.read('stock.move', 'search_read', [[
+    ['origin_returned_move_id', 'in', returns.map((r) => r.id)], ['state', '=', 'done'],
+  ]], { fields: ['id', 'origin_returned_move_id', 'quantity_done'] });
+  for (const r of reversals) {
+    const orig = origOfReturn.get(id(r.origin_returned_move_id));
+    if (orig != null) result.set(orig, Math.max(0, result.get(orig) - r.quantity_done));
   }
   return result;
 }
