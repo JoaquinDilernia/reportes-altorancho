@@ -307,9 +307,11 @@ export async function createManualReturn({ pickingTypeId, locationId, partnerId,
   return pickingId;
 }
 
-export async function createInternalTransfer({ pickingTypeId, fromLocationId, toLocationId, items, origin }, odoo = defaultOdoo) {
+// Los bultos (cajas físicas) los carga logística al validar el traslado.
+export async function createInternalTransfer({ pickingTypeId, fromLocationId, toLocationId, items, origin, reason }, odoo = defaultOdoo) {
   const [pickingId] = await odoo.write('stock.picking', 'create', [[{
     picking_type_id: pickingTypeId, location_id: fromLocationId, location_dest_id: toLocationId, origin,
+    ...(reason ? { x_motivo_transferencia: reason } : {}),
     move_ids_without_package: items.map((i) => [0, 0, { name: origin, product_id: i.productId, product_uom_qty: i.qty, location_id: fromLocationId, location_dest_id: toLocationId }]),
   }]]);
   await odoo.write('stock.picking', 'action_confirm', [[pickingId]]);

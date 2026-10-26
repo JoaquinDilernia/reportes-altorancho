@@ -35,6 +35,10 @@ const sumByProduct = (lines) => {
   return [...map].map(([productId, qty]) => ({ productId, qty }));
 };
 
+// Motivo del traslado en Odoo (x_motivo_transferencia, obligatorio al validar):
+// "Fallas" si alguna línea vuelve por falla; si no, "Reubicación".
+export const transferReasonOf = (lines) => (lines.some((l) => /falla/i.test(l.reason ?? '')) ? 'fallas' : 'reubicacion');
+
 // Puro. `movesById`: moves de los remitos originales; `returnedByMove`: lo ya
 // devuelto en Odoo por move (para repartir y para el tope).
 export function planReturnSteps(order, movesById, returnedByMove, ctx) {
@@ -64,10 +68,13 @@ export function planReturnSteps(order, movesById, returnedByMove, ctx) {
   }
   const transfers = [...destinations.values()]
     .filter((d) => d.transferToLocationId && order.returnLines.some((l) => l.destinationId === d.id))
-    .map((d) => ({
-      key: `transfer:${d.id}`, fromLocationId: d.locationId, toLocationId: d.transferToLocationId,
-      items: sumByProduct(order.returnLines.filter((l) => l.destinationId === d.id)),
-    }));
+    .map((d) => {
+      const lines = order.returnLines.filter((l) => l.destinationId === d.id);
+      return {
+        key: `transfer:${d.id}`, fromLocationId: d.locationId, toLocationId: d.transferToLocationId,
+        items: sumByProduct(lines), reason: transferReasonOf(lines),
+      };
+    });
   return { pickings: [...pickings.values()], manuals: [...manuals.values()], transfers };
 }
 
@@ -151,7 +158,7 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
     const found = await deps.findPickingByOrigin(origin(t.key));
     steps.transfers[t.key] = found ?? await deps.createInternalTransfer({
       pickingTypeId: ctx.locale.internalPickingTypeId, fromLocationId: t.fromLocationId, toLocationId: t.toLocationId,
-      items: t.items, origin: origin(t.key),
+      items: t.items, origin: origin(t.key), reason: t.reason,
     });
     await save();
   }

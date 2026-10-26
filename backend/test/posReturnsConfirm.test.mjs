@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planReturnSteps, runReturnSteps, confirmReturnOrder } from '../posReturnsConfirm.mjs';
+import { planReturnSteps, runReturnSteps, confirmReturnOrder, transferReasonOf } from '../posReturnsConfirm.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
 
 const ctx = { locale: DEFAULT_LOCALES[0], locales: DEFAULT_LOCALES, settings: DEFAULT_SETTINGS, methodsById: new Map() };
@@ -51,7 +51,13 @@ test('planReturnSteps: agrupa por remito original y destino; sin ticket por dest
   const plan = planReturnSteps(o, movesById, new Map(), ctx);
   assert.deepEqual(plan.pickings.map((p) => p.key), ['pick:tpv:48870:192311:exhibicion']);
   assert.deepEqual(plan.manuals.map((p) => [p.key, p.locationId]), [['manual:rolon', 8]]);
-  assert.deepEqual(plan.transfers.map((t) => [t.key, t.fromLocationId, t.toLocationId]), [['transfer:rolon', 8, 174]]);
+  assert.deepEqual(plan.transfers.map((t) => [t.key, t.fromLocationId, t.toLocationId, t.reason]), [['transfer:rolon', 8, 174, 'reubicacion']]);
+});
+
+test('transferReasonOf: "Fallas" si alguna línea vuelve por falla; si no, "Reubicación"', () => {
+  assert.equal(transferReasonOf([{ reason: 'Talle o medida' }, { reason: 'Falla' }]), 'fallas');
+  assert.equal(transferReasonOf([{ reason: 'No le gustó' }]), 'reubicacion');
+  assert.equal(transferReasonOf([{}]), 'reubicacion');
 });
 
 test('runReturnSteps: devolución de remito → validada → NC parcial publicada; guarda cada paso', async () => {
