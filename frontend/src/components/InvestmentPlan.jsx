@@ -298,8 +298,9 @@ export default function InvestmentPlan({ data }) {
         <div>
           <strong>Presupuesto:</strong> {millions(inv.dailyBudget)} por día entre Meta y Google ({millions(inv.total)} en
           total{data.current.launchHours ? `, el día del lanzamiento proporcional a ${data.current.launchHours} h` : ''}).
-          Se reparte según cuánto vendió la web ese mismo día en {data.previous.year}, con un mínimo de la mitad y un
-          máximo de 1,6 veces el promedio diario.
+          Un monto fijo por día en cada etapa (previa, días oficiales, extensión), según cuánto vendió la web en esa
+          etapa en {data.previous.year}: entre la mitad y 1,6 veces el promedio diario, redondeado para cargarlo
+          directo en las plataformas.
         </div>
         <div>
           <strong>ROAS objetivo:</strong> lo que tiene que reportar cada plataforma para que la web llegue a su objetivo del

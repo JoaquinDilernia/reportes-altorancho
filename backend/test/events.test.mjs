@@ -150,6 +150,29 @@ test('buildInvestmentPlan: budget follows last year demand, split tilts to the p
   assert.equal(plan.phases.find(p => p.phase === 'extension').metaShare, 0.5);
 });
 
+test('buildInvestmentPlan: one flat, rounded daily amount per phase even when last year zig-zagged', () => {
+  const day = (date, phase, prevRevenue) => ({ date, refDate: date, phase, isLaunch: false, web: { prevRevenue, target: prevRevenue } });
+  const days = [
+    day('2026-10-30', 'pre', 120), day('2026-10-31', 'pre', 60), day('2026-11-01', 'pre', 100),
+    day('2026-11-02', 'oficial', 400), day('2026-11-03', 'oficial', 300),
+    day('2026-11-04', 'extension', 90), day('2026-11-05', 'extension', 150),
+  ];
+  const plan = buildInvestmentPlan({
+    days,
+    current: { dailyAdBudget: 4_000_000 },
+    prevAds: adsByDate([], []),
+    prevBaselineDates: [],
+    shares: { meta: 0.2, google: 0.3 },
+  });
+  const byPhase = (phase) => plan.days.filter(d => d.phase === phase).map(d => d.spend);
+  for (const phase of ['pre', 'oficial', 'extension']) assert.equal(new Set(byPhase(phase)).size, 1, phase);
+  assert.ok(byPhase('oficial')[0] > byPhase('pre')[0]);
+  for (const d of plan.days) {
+    assert.equal(d.spend % 100_000, 0);
+    assert.equal(d.meta % 100_000, 0);
+  }
+});
+
 test('normalizeGoogleAdsDaily: Tiendanube purchase before the GA4 switch, GA4 purchase after', () => {
   const names = { a: 'Tiendanube Website purchases', b: 'ALTORANCHO - GA4 (web) purchase', c: 'Clics de llamada' };
   const cost = [

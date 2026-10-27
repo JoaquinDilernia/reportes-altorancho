@@ -317,6 +317,9 @@ const DAY_BUDGET_MAX = 1.6;
 // base plan, for the same reason.
 const PLATFORM_SHARE_MIN = 0.35;
 const PLATFORM_SHARE_MAX = 0.65;
+// Budgets are rounded to 1/40 of the daily budget ($100k on $4M) so the
+// plan reads as amounts someone can actually load in the ad managers.
+const BUDGET_STEPS_PER_DAY = 40;
 
 // date -> { meta: { spend, value }, google: { spend, value } } from the
 // Meta and Google daily docs (each with spend + purchaseValue).
@@ -393,15 +396,29 @@ export function allocateWithBounds(weights, total, min, max) {
 export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates, shares }) {
   const daily = current.dailyAdBudget;
   const launchSpend = current.launchHours ? daily * (current.launchHours / 24) : null;
+  const step = daily / BUDGET_STEPS_PER_DAY;
+  const roundBudget = (v) => Math.round(v / step) * step;
   const fullIdx = days.map((d, i) => i).filter(i => !(days[i].isLaunch && launchSpend != null));
-  const total = daily * fullIdx.length + (launchSpend || 0);
   const alloc = allocateWithBounds(
     fullIdx.map(i => days[i].web.prevRevenue),
     daily * fullIdx.length,
     daily * DAY_BUDGET_MIN,
     daily * DAY_BUDGET_MAX,
   );
-  const spendByIdx = new Map(fullIdx.map((i, k) => [i, alloc[k]]));
+  // One flat daily amount per phase (the phase's average of the demand-based
+  // allocation): following last year's demand day by day made the budget go
+  // up and down in ways nobody can run in the ad managers.
+  const phaseFlat = new Map();
+  fullIdx.forEach((i, k) => {
+    const e = phaseFlat.get(days[i].phase) || { sum: 0, n: 0 };
+    e.sum += alloc[k];
+    e.n += 1;
+    phaseFlat.set(days[i].phase, e);
+  });
+  const spendByIdx = new Map(fullIdx.map(i => {
+    const e = phaseFlat.get(days[i].phase);
+    return [i, roundBudget(e.sum / e.n)];
+  }));
 
   const baseline = sumAds(prevAds, prevBaselineDates);
   const phases = ['pre', 'oficial', 'extension'].map((phase) => {
@@ -437,8 +454,8 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
   const shareByPhase = Object.fromEntries(phases.map(p => [p.phase, p.metaShare]));
 
   const planDays = days.map((d, i) => {
-    const spend = spendByIdx.get(i) ?? launchSpend;
-    const meta = spend * shareByPhase[d.phase];
+    const spend = spendByIdx.get(i) ?? roundBudget(launchSpend);
+    const meta = roundBudget(spend * shareByPhase[d.phase]);
     const google = spend - meta;
     return {
       date: d.date,
@@ -467,5 +484,6 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
     }
   }
 
+  const total = planDays.reduce((s, d) => s + d.spend, 0);
   return { dailyBudget: daily, total, shares, phases, days: planDays };
 }
