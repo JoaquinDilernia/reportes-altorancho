@@ -13,6 +13,7 @@ import ProvincesChart from '../components/ProvincesChart.jsx';
 import LocalesPanel from '../components/LocalesPanel.jsx';
 import MayoristaPanel from '../components/MayoristaPanel.jsx';
 import TopAdsTable from '../components/TopAdsTable.jsx';
+import EventPanel from '../components/EventPanel.jsx';
 import InsightsButton from '../components/InsightsButton.jsx';
 import ChatWidget from '../components/ChatWidget.jsx';
 import { META_ADS_METRICS } from '../lib/metaAdsMetrics.js';
@@ -51,9 +52,17 @@ export default function Dashboard({ onLogout }) {
   // effect on the /api/report channels filter (metaAds data is account-wide
   // and comes back regardless of which channel was requested).
   const apiChannel = channel === 'meta_ads' ? null : channel;
+  // "Cyber / Black" is its own fixed-dates view (EventPanel fetches
+  // /api/event), so the period selector and /api/report don't apply to it.
+  const isEventTab = channel === 'eventos';
   const salesMetrics = apiChannel === 'mayorista' ? [...SALES_METRICS, ...MAYORISTA_EXTRA_METRICS] : SALES_METRICS;
 
   useEffect(() => {
+    if (isEventTab) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
     if (rangeInvalid) {
       setLoading(false);
       setError('El rango de fechas es inválido');
@@ -74,28 +83,34 @@ export default function Dashboard({ onLogout }) {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period, date, customStart, customEnd, rangeInvalid, channel, onLogout]);
+  }, [period, date, customStart, customEnd, rangeInvalid, channel, isEventTab, onLogout]);
 
   return (
     <div className="dashboard">
       <header className="dashboard-header">
         <span className="logo">altorancho.</span>
-        <PeriodSelector
-          period={period}
-          date={date}
-          onPeriodChange={setPeriod}
-          onNavigate={(direction) => setDate((prev) => shiftPeriod(prev, period, direction))}
-          customStart={customStart}
-          customEnd={customEnd}
-          onCustomChange={(start, end) => { setCustomStart(start); setCustomEnd(end); }}
-        />
+        {!isEventTab && (
+          <PeriodSelector
+            period={period}
+            date={date}
+            onPeriodChange={setPeriod}
+            onNavigate={(direction) => setDate((prev) => shiftPeriod(prev, period, direction))}
+            customStart={customStart}
+            customEnd={customEnd}
+            onCustomChange={(start, end) => { setCustomStart(start); setCustomEnd(end); }}
+          />
+        )}
         <ChannelTabs channel={channel} onChannelChange={setChannel} />
       </header>
 
-      <InsightsButton period={period} date={date} customStart={customStart} customEnd={customEnd} channel={apiChannel} />
+      {isEventTab && <EventPanel onLogout={onLogout} />}
 
-      {loading && <p className="status-text">Cargando...</p>}
-      {error && <p className="status-text status-error">Error: {error}</p>}
+      {!isEventTab && (
+        <InsightsButton period={period} date={date} customStart={customStart} customEnd={customEnd} channel={apiChannel} />
+      )}
+
+      {!isEventTab && loading && <p className="status-text">Cargando...</p>}
+      {!isEventTab && error && <p className="status-text status-error">Error: {error}</p>}
 
       {report && !loading && channel === 'meta_ads' && report.current.metaAds && (
         <main className="dashboard-body">
@@ -119,7 +134,7 @@ export default function Dashboard({ onLogout }) {
         </main>
       )}
 
-      {report && !loading && channel !== 'meta_ads' && (
+      {report && !loading && channel !== 'meta_ads' && !isEventTab && (
         <main className="dashboard-body">
           <KpiCards current={report.current.totals} comparisons={report.comparisons} metrics={salesMetrics} />
           <DailyChart

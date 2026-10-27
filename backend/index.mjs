@@ -6,6 +6,8 @@ import cron from 'node-cron';
 import { requireAuth, generateToken } from './auth.mjs';
 import { getProductBySku } from './firestore.mjs';
 import { buildFullReport } from './report.mjs';
+import { getEventReport } from './eventReport.mjs';
+import { EVENTS } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
 import posRoutes from './posRoutes.mjs';
@@ -62,6 +64,19 @@ app.get('/api/report', requireAuth, async (req, res) => {
     res.json({ ok: true, ...report });
   } catch (err) {
     console.error('[server] report error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Cyber / Black: this year's event day by day vs. last year, with targets.
+app.get('/api/event', requireAuth, async (req, res) => {
+  try {
+    const eventId = req.query.event || 'cyber';
+    if (!EVENTS[eventId]) return res.status(400).json({ ok: false, error: `Unknown event: ${eventId}` });
+    const report = await getEventReport(eventId);
+    res.json({ ok: true, ...report });
+  } catch (err) {
+    console.error('[server] event report error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

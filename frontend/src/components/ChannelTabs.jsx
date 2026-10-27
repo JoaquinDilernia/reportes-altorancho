@@ -27,6 +27,13 @@ export default function ChannelTabs({ channel, onChannelChange }) {
       >
         Meta Ads
       </button>
+      <button
+        className={`channel-tab ${channel === 'eventos' ? 'active' : ''}`}
+        style={channel === 'eventos' ? { '--tab-color': '#C9A24B' } : undefined}
+        onClick={() => onChannelChange('eventos')}
+      >
+        Cyber / Black
+      </button>
     </div>
   );
 }

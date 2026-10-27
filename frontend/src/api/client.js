@@ -83,3 +83,21 @@ export async function chatInsights({ messages, ...params }) {
   const data = await postAuthed('/api/insights/chat', { ...reportBody(params), messages });
   return data.text;
 }
+
+export async function getEventReport(event) {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(`${API_URL}/api/event?event=${encodeURIComponent(event)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Event report fetch failed');
+  return data;
+}
