@@ -20,6 +20,8 @@ export const DEFAULT_LOCALES = [
 export const DEFAULT_SETTINGS = {
   rolon: { warehouseId: 28, locationId: 174, outPickingTypeId: 191 },
   web: { locationId: 150 },
+  // Transferencia interna EC/Stock → RL/Stock al vender stock web (EC, wh 24).
+  webTransferPickingTypeId: 166,
   fullPricelistId: 312,
   orderPricelistId: 314,
   promoPricelistId: 313,
@@ -104,6 +106,7 @@ export function validateSettings(input) {
   if (!isId(input.rolon?.warehouseId) || !isId(input.rolon?.locationId)) errors.push('Rolón: depósito y ubicación obligatorios');
   if (input.rolon?.outPickingTypeId != null && !isId(input.rolon.outPickingTypeId)) errors.push('Rolón: tipo de operación inválido');
   if (!isId(input.web?.locationId)) errors.push('Web: ubicación obligatoria');
+  if (input.webTransferPickingTypeId != null && !isId(input.webTransferPickingTypeId)) errors.push('Web: tipo de transferencia inválido');
   for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId']) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
   }
@@ -137,14 +140,18 @@ export function resolveOdooPaymentName(method, detailId) {
   return method.odooName;
 }
 
-export const ORIGINS = ['stock', 'exhibicion', 'rolon'];
+export const ORIGINS = ['stock', 'exhibicion', 'rolon', 'web'];
 
 export function originLocationId(locale, settings, origin) {
   if (origin === 'stock') return locale.stockLocationId;
   if (origin === 'exhibicion') return locale.exhibicionLocationId;
   if (origin === 'rolon') return settings.rolon.locationId;
+  if (origin === 'web') return settings.web.locationId;
   throw new Error(`Origen inválido: ${origin}`);
 }
+
+// De dónde sale físicamente en Odoo: lo de web se traslada antes a Rolón.
+export const shipLocationId = (locale, settings, origin) => originLocationId(locale, settings, origin === 'web' ? 'rolon' : origin);
 
 export function defaultReturnDestinations(locale, settings) {
   return [

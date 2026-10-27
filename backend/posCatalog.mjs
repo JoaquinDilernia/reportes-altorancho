@@ -57,7 +57,8 @@ export function groupStock({ freeByLoc, appReserved, locales, settings, localId 
   return {
     local: own ? { stock: free(own.stockLocationId), exhibicion: free(own.exhibicionLocationId) } : null,
     rolon: free(settings.rolon.locationId),
-    web: webRaw >= WEB_UNLIMITED_FROM ? { qty: null, unlimited: true } : { qty: Math.max(0, webRaw), unlimited: false },
+    // Web también descuenta lo reservado en la app (se puede vender desde el local).
+    web: webRaw >= WEB_UNLIMITED_FROM ? { qty: null, unlimited: true } : { qty: free(settings.web.locationId), unlimited: false },
     otros: locales
       .filter((l) => l.id !== localId)
       .map((l) => ({ localId: l.id, name: l.name, qty: free(l.stockLocationId) + free(l.exhibicionLocationId) }))

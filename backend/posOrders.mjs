@@ -18,7 +18,7 @@ import { resolveExtraDiscount, listActivePromotions } from './posPromotions.mjs'
 import { getCatalogProducts, fetchFreeStock, stockLocationIds } from './posCatalog.mjs';
 import {
   buildLine, editLine, reservationDeltas, needsShipping, validateShipping, formatOrderNumber, isConfirming,
-  CONFIRMING_MESSAGE, activeLines,
+  CONFIRMING_MESSAGE, activeLines, shipsFromRolon,
 } from './posLines.mjs';
 import { readReservations, checkAvailability, writeReservations } from './posStock.mjs';
 import { isValidCuit } from './feriaOdoo.mjs';
@@ -45,7 +45,7 @@ export function orderKeys({ localId, status, createdAt }) {
 // Líneas activas separadas por depósito de origen: un pedido de Odoo por grupo.
 export function orderGroups(lines) {
   const active = activeLines(lines);
-  return { local: active.filter((l) => l.origin !== 'rolon'), rolon: active.filter((l) => l.origin === 'rolon') };
+  return { local: active.filter((l) => !shipsFromRolon(l.origin)), rolon: active.filter((l) => shipsFromRolon(l.origin)) };
 }
 
 export const joinOdooNames = (odooOrders) => (odooOrders ?? []).map((o) => o.odooOrderName).filter(Boolean).join(' + ');
@@ -576,6 +576,7 @@ async function patchOrder(id, update) {
 // `odooOrderId` siempre refleja el primer pedido de Odoo (lo usa assertDraftEditable).
 export const saveOdooOrders = (id, odooOrders) => patchOrder(id, { odooOrders, odooOrderId: odooOrders[0]?.odooOrderId ?? null });
 export const saveOdooLineIds = (id, lines) => patchOrder(id, { lines });
+export const saveWebTransfer = (id, webTransfer) => patchOrder(id, { webTransfer });
 export const setOrderWarning = (id, warning) => patchOrder(id, { warning });
 export const markOrderInvoiced = (id, { invoiceId, invoiceName }) => patchOrder(id, { invoiceId, invoiceName, invoiceError: null });
 export const setInvoiceError = (id, invoiceError) => patchOrder(id, { invoiceError });

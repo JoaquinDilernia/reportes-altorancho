@@ -6,7 +6,7 @@ import { callKw } from './odoo.mjs';
 import { ensureAuth, callKwReadWithRetry, docIdentityType, findIdentificationTypeIds } from './feriaOdoo.mjs';
 import { planMoveLocations } from './feriaPlacement.mjs';
 import { netOfIva, round2 } from './posPricing.mjs';
-import { activeLines } from './posLines.mjs';
+import { activeLines, shipsFromRolon, pickWebLots } from './posLines.mjs';
 
 // Acceso a Odoo inyectable (los tests pasan uno falso): lecturas con
 // reintento de sesión, escrituras sin reintento (ver callKwReadWithRetry).
@@ -140,7 +140,7 @@ export function buildOdooOrderLines(lines, totals, shippingProductId) {
 
 export function splitByOrigin(lines) {
   const active = activeLines(lines);
-  return { local: active.filter((l) => l.origin !== 'rolon'), rolon: active.filter((l) => l.origin === 'rolon') };
+  return { local: active.filter((l) => !shipsFromRolon(l.origin)), rolon: active.filter((l) => shipsFromRolon(l.origin)) };
 }
 
 // Un pedido de Odoo por depósito de origen (spike S1b): primero el del local,
@@ -233,6 +233,15 @@ export function findSaleOrdersByRef({ clientOrderRef, warehouseId, teamId }, odo
   return odoo.read('sale.order', 'search_read', [[
     ['client_order_ref', '=', clientOrderRef], ['warehouse_id', '=', warehouseId], ['team_id', '=', teamId], ['state', '!=', 'cancel'],
   ]], { fields: ['id', 'name', 'state'] });
+}
+
+// Lotes con stock en la ubicación web para el traslado a Rolón.
+export async function webLotsFor(productIds, locationId, odoo = defaultOdoo) {
+  if (!productIds.length) return new Map();
+  const quants = await odoo.read('stock.quant', 'search_read', [[
+    ['product_id', 'in', productIds], ['location_id', '=', locationId], ['lot_id', '!=', false], ['quantity', '>', 0],
+  ]], { fields: ['product_id', 'lot_id', 'quantity'] });
+  return pickWebLots(quants);
 }
 
 export function readOrderStates(odooOrderIds, odoo = defaultOdoo) {

@@ -8,7 +8,7 @@ import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName,
 } from './posConfig.mjs';
 import { principalPayment } from './posPricing.mjs';
-import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE } from './posLines.mjs';
+import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE, webTransferItems } from './posLines.mjs';
 import * as orders from './posOrders.mjs';
 import * as odoo from './posOdoo.mjs';
 import { validateTwoStep } from './posDelivery.mjs';
@@ -99,6 +99,7 @@ function defaultDeps() {
     findOrCreatePosPartner: odoo.findOrCreatePosPartner, findPaymentMethodId: odoo.findPaymentMethodId,
     findProductIdBySku: odoo.findProductIdBySku, createChildPartner: odoo.createChildPartner, findChildPartner: odoo.findChildPartner,
     createSaleOrder: odoo.createSaleOrder, saveOdooOrders: orders.saveOdooOrders,
+    webLotsFor: odoo.webLotsFor, saveWebTransfer: orders.saveWebTransfer,
     readOrderLineIds: odoo.readOrderLineIds, saveOdooLineIds: orders.saveOdooLineIds,
     findSaleOrdersByRef: odoo.findSaleOrdersByRef, readOrderStates: odoo.readOrderStates,
     confirmSaleOrder: odoo.confirmSaleOrder,
@@ -151,6 +152,29 @@ async function paymentMethodIdFor(order, ctx, deps) {
   return paymentMethodId;
 }
 
+// 0. Stock web: el local no descuenta directo de EC/Stock. Antes de crear
+// nada se traslada a RL/Stock (mismo depósito físico, se valida solo) y la
+// línea sale de Rolón. Reintentable: se busca por origen antes de crear otro.
+// Si no queda validado, no se confirma nada.
+export async function moveWebStockToRolon(order, ctx, deps) {
+  const items = webTransferItems(order.lines);
+  if (!items.length || order.webTransfer?.state === 'done') return order.webTransfer ?? null;
+  const origin = `${order.number} web a Rolón`;
+  let picking = await deps.findPickingByOrigin(origin);
+  if (picking?.state !== 'done') {
+    picking ??= await deps.createInternalTransfer({
+      pickingTypeId: ctx.settings.webTransferPickingTypeId, fromLocationId: ctx.settings.web.locationId,
+      toLocationId: ctx.settings.rolon.locationId, items, origin,
+    });
+    const lots = await deps.webLotsFor(items.map((i) => i.productId), ctx.settings.web.locationId);
+    picking = await deps.validatePicking(picking.id, lots);
+    if (picking.state !== 'done') throw new Error(`El traslado ${picking.name} de web a Rolón no quedó validado: validalo en Odoo y reintentá`);
+  }
+  const saved = { id: picking.id, name: picking.name, state: picking.state };
+  await deps.saveWebTransfer(order.id, saved);
+  return saved;
+}
+
 export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   const odooOrders = (order.odooOrders ?? []).map((o) => ({ ...o }));
   // Un pedido en Odoo sin el detalle por grupo no se sabe a qué grupo
@@ -160,6 +184,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   }
   const existingFor = (group) => odooOrders.find((o) => o.group === group && o.odooOrderId);
 
+  await moveWebStockToRolon(order, ctx, deps);
   const partnerId = await deps.findOrCreatePosPartner(order.customer);
   const pending = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId: null })
     .filter((g) => !existingFor(g.group));

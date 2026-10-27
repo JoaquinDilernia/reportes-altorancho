@@ -24,11 +24,12 @@ test('valores iniciales: efectivo 15 %, transferencia 20 %, tarjetas 0 %', () =>
   assert.equal(pct.credito, 0);
 });
 
-test('originLocationId: stock / exhibición del local, o Rolón', () => {
+test('originLocationId: stock / exhibición del local, Rolón o web', () => {
   assert.equal(originLocationId(lomas, DEFAULT_SETTINGS, 'stock'), 8);
   assert.equal(originLocationId(lomas, DEFAULT_SETTINGS, 'exhibicion'), 324);
   assert.equal(originLocationId(lomas, DEFAULT_SETTINGS, 'rolon'), 174);
-  assert.throws(() => originLocationId(lomas, DEFAULT_SETTINGS, 'web'), /Origen inválido/);
+  assert.equal(originLocationId(lomas, DEFAULT_SETTINGS, 'web'), 150);
+  assert.throws(() => originLocationId(lomas, DEFAULT_SETTINGS, 'otro'), /Origen inválido/);
 });
 
 test('resolveOdooPaymentName: el detalle (cuotas) manda sobre el medio', () => {

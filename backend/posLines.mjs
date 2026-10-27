@@ -8,7 +8,9 @@ export const DELIVERY_LABELS = {
   ahora: 'Se lo lleva ahora', retira_local: 'Retira otro día en el local', envio: 'Envío a domicilio',
   retira_rolon: 'Retira en Rolón', retira_otro_local: 'Retira en otro local',
 };
-export const ORIGIN_LABELS = { stock: 'Stock del local', exhibicion: 'Exhibición', rolon: 'Rolón' };
+export const ORIGIN_LABELS = { stock: 'Stock del local', exhibicion: 'Exhibición', rolon: 'Rolón', web: 'Web' };
+// Web está dentro de Rolón: se vende como Rolón (mismas entregas, mismo remito).
+export const shipsFromRolon = (origin) => origin === 'rolon' || origin === 'web';
 // Mientras el pedido está en estos estados la app reserva su stock. Al
 // confirmar, la reserva pasa a Odoo (remito reservado) y la de la app se libera.
 export const RESERVING_ORDER_STATUSES = new Set(['carrito', 'pendiente', 'error']);
@@ -20,12 +22,12 @@ export function validateLine(line, { localId, localeIds }) {
   if (!ORIGINS.includes(line.origin)) errors.push(`${sku}: origen inválido`);
   if (!DELIVERIES.includes(line.delivery)) errors.push(`${sku}: forma de entrega inválida`);
   if (errors.length) return errors;
-  if (line.delivery === 'ahora' && line.origin === 'rolon') {
+  if (line.delivery === 'ahora' && shipsFromRolon(line.origin)) {
     errors.push(`${sku}: "Se lo lleva ahora" solo sale del local (Stock o Exhibición)`);
   }
-  if (line.delivery === 'retira_rolon' && line.origin !== 'rolon') errors.push(`${sku}: "Retira en Rolón" sale de Rolón`);
+  if (line.delivery === 'retira_rolon' && !shipsFromRolon(line.origin)) errors.push(`${sku}: "Retira en Rolón" sale de Rolón`);
   if (line.delivery === 'retira_otro_local') {
-    if (line.origin !== 'rolon') errors.push(`${sku}: "Retira en otro local" sale de Rolón`);
+    if (!shipsFromRolon(line.origin)) errors.push(`${sku}: "Retira en otro local" sale de Rolón`);
     if (!localeIds.includes(line.pickupLocalId) || line.pickupLocalId === localId) errors.push(`${sku}: elegí en qué otro local retira`);
   }
   return errors;
@@ -37,6 +39,29 @@ export function nextLineId(lines) {
 }
 
 export const activeLines = (lines) => (lines ?? []).filter((l) => l.status !== 'eliminado');
+
+// Lo que hay que trasladar de web a Rolón antes de crear la venta, por producto.
+export function webTransferItems(lines) {
+  const byProduct = new Map();
+  for (const l of activeLines(lines)) {
+    if (l.origin === 'web') byProduct.set(l.productId, (byProduct.get(l.productId) ?? 0) + l.qty);
+  }
+  return [...byProduct].map(([productId, qty]) => ({ productId, qty }));
+}
+
+// Lotes con stock en web por producto, el de más cantidad primero (el
+// traslado los va usando en ese orden). Los productos sin lote no van.
+export function pickWebLots(quants) {
+  const result = new Map();
+  for (const q of quants) {
+    if (!q.lot_id) continue;
+    const productId = q.product_id[0];
+    if (!result.has(productId)) result.set(productId, []);
+    result.get(productId).push({ lotId: q.lot_id[0], qty: q.quantity });
+  }
+  for (const lots of result.values()) lots.sort((a, b) => b.qty - a.qty);
+  return result;
+}
 
 export function buildLine(product, { qty = 1, origin = 'stock', delivery = 'ahora', pickupLocalId = null }, lines, ctx) {
   const line = {
