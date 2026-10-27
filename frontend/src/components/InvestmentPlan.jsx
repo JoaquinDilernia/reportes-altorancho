@@ -202,15 +202,13 @@ function PreviousAds({ previousAds, recapDaily, eventLabel, prevYear }) {
       web,
       roasMeta: ratio(d.meta.value, d.meta.spend),
       roasGoogle: ratio(d.google.value, d.google.spend),
-      roasGoogleNonBrand: ratio(d.google.value - (d.google.valueBrand || 0), d.google.spend - (d.google.spendBrand || 0)),
       mer: ratio(web, spend),
     };
   });
   const tot = rows.reduce((t, r) => ({
     meta: t.meta + r.meta.spend, google: t.google + r.google.spend,
     metaValue: t.metaValue + r.meta.value, googleValue: t.googleValue + r.google.value, web: t.web + r.web,
-    googleBrand: t.googleBrand + (r.google.spendBrand || 0), googleValueBrand: t.googleValueBrand + (r.google.valueBrand || 0),
-  }), { meta: 0, google: 0, metaValue: 0, googleValue: 0, web: 0, googleBrand: 0, googleValueBrand: 0 });
+  }), { meta: 0, google: 0, metaValue: 0, googleValue: 0, web: 0 });
   return (
     <>
       <h2 className="section-title">Pauta {eventLabel} {prevYear}: Meta y Google</h2>
@@ -255,7 +253,6 @@ function PreviousAds({ previousAds, recapDaily, eventLabel, prevYear }) {
                 <th className="num">ROAS Meta</th>
                 <th className="num">Inversión Google</th>
                 <th className="num">ROAS Google (GA4)</th>
-                <th className="num">ROAS Google sin marca</th>
                 <th className="num">Inversión total</th>
                 <th className="num">Facturación web</th>
                 <th className="num">Venta web / $1</th>
@@ -269,7 +266,6 @@ function PreviousAds({ previousAds, recapDaily, eventLabel, prevYear }) {
                   <td className="num">{times(r.roasMeta)}</td>
                   <td className="num">{formatCurrency(r.google.spend)}</td>
                   <td className="num">{times(r.roasGoogle)}</td>
-                  <td className="num">{times(r.roasGoogleNonBrand)}</td>
                   <td className="num">{formatCurrency(r.spend)}</td>
                   <td className="num">{formatCurrency(r.web)}</td>
                   <td className="num">{times(r.mer)}</td>
@@ -281,7 +277,6 @@ function PreviousAds({ previousAds, recapDaily, eventLabel, prevYear }) {
                 <td className="num">{times(ratio(tot.metaValue, tot.meta))}</td>
                 <td className="num">{formatCurrency(tot.google)}</td>
                 <td className="num">{times(ratio(tot.googleValue, tot.google))}</td>
-                <td className="num">{times(ratio(tot.googleValue - tot.googleValueBrand, tot.google - tot.googleBrand))}</td>
                 <td className="num">{formatCurrency(tot.meta + tot.google)}</td>
                 <td className="num">{formatCurrency(tot.web)}</td>
                 <td className="num">{times(ratio(tot.web, tot.meta + tot.google))}</td>
