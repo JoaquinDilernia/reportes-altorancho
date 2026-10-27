@@ -5,6 +5,7 @@ import { syncLocales } from './sync/locales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 import { syncFeria } from './sync/feria.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
+import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
 
 function monthsAgoOdoo(months) {
@@ -36,6 +37,9 @@ async function backfill() {
 
   const metaAdsResult = await syncMetaAds({ daysBack: months * 31, includeAdLevel: false });
   console.log('[backfill] metaAds:', metaAdsResult);
+
+  const googleAdsResult = await syncGoogleAds({ daysBack: months * 31 });
+  console.log('[backfill] googleAds:', googleAdsResult);
 
   const inflationResult = await syncInflation();
   console.log('[backfill] inflation:', inflationResult);

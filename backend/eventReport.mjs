@@ -1,13 +1,29 @@
-import { querySalesByRange, getProductsBySku, getInflationIndexByMonth } from './firestore.mjs';
+import {
+  querySalesByRange, getProductsBySku, getInflationIndexByMonth, queryMetaAdsDailyByRange, queryGoogleAdsDailyByRange,
+} from './firestore.mjs';
 import { computeTopProducts } from './aggregate.mjs';
 import {
   EVENTS, EVENT_GROUPS, TARGET_REAL_GROWTH, addDays, argDay, dailyByChannel, buildEventDays,
   summarizePastEvent, baselineRange, projectInflationIndex, inflationFactor, channelsWithoutHistory,
+  adsByDate, attributionShares, buildInvestmentPlan, AD_PLATFORMS,
 } from './events.mjs';
 
 const ALL_EVENT_CHANNELS = Object.values(EVENT_GROUPS).flat();
 // "A normal day" for last year's lift: the two weeks right before the event.
 const RECAP_BASELINE_DAYS = 14;
+// How much of real web revenue each ad platform claims, measured over the
+// last 4 normal weeks (current attribution settings), to turn the web
+// revenue target into a per-platform ROAS target.
+const SHARES_DAYS = 28;
+
+async function queryAds(start, end) {
+  const [meta, google] = await Promise.all([queryMetaAdsDailyByRange(start, end), queryGoogleAdsDailyByRange(start, end)]);
+  return adsByDate(meta, google);
+}
+
+function emptyAds() {
+  return { meta: { spend: 0, value: 0 }, google: { spend: 0, value: 0 } };
+}
 
 // Tiendanube coupons come through as a negative-priced "Descuento
 // Tiendanube" line, which would otherwise top the units ranking during a
@@ -61,13 +77,22 @@ export async function buildEventReport(eventId) {
     const missing = channelsWithoutHistory(dailyByChannel(sales), previous);
     return missing.length ? querySalesByRange(missing, baseline.start, baseline.end) : [];
   });
-  const [indexByMonth, productsBySku, prevSales, currentSales, baselineSales, recapBaselineSales] = await Promise.all([
+  const sharesEnd = [addDays(current.start, -1), addDays(today, -1)].sort()[0];
+  const sharesStart = addDays(sharesEnd, -SHARES_DAYS + 1);
+  const [
+    indexByMonth, productsBySku, prevSales, currentSales, baselineSales, recapBaselineSales,
+    prevAds, currentAds, sharesAds, sharesWebSales,
+  ] = await Promise.all([
     getInflationIndexByMonth(),
     getProductsBySku(),
     prevSalesPromise,
     querySalesByRange(ALL_EVENT_CHANNELS, current.start, current.end),
     baselinePromise,
     querySalesByRange(ALL_EVENT_CHANNELS, recapBaselineStart, recapBaselineEnd),
+    queryAds([recapBaselineStart, prevQueryStart].sort()[0], prevQueryEnd),
+    queryAds(current.start, current.end),
+    queryAds(sharesStart, sharesEnd),
+    querySalesByRange(EVENT_GROUPS.web, sharesStart, sharesEnd),
   ]);
 
   const result = buildEventDays({
@@ -79,6 +104,27 @@ export async function buildEventReport(eventId) {
     indexByMonth,
     today,
   });
+
+  for (const day of result.days) {
+    day.ads = {
+      prev: prevAds.get(day.refDate) || emptyAds(),
+      actual: day.played ? (currentAds.get(day.date) || emptyAds()) : null,
+    };
+  }
+  const shares = attributionShares(sharesAds, dailyByChannel(sharesWebSales).ecommerce, sharesStart, sharesEnd);
+  const recapBaselineDates = [];
+  for (let d = recapBaselineStart; d <= recapBaselineEnd; d = addDays(d, 1)) recapBaselineDates.push(d);
+  const investment = {
+    ...buildInvestmentPlan({ days: result.days, current, prevAds, prevBaselineDates: recapBaselineDates, shares }),
+    sharesRange: { start: sharesStart, end: sharesEnd },
+    prevBaselineRange: { start: recapBaselineStart, end: recapBaselineEnd },
+  };
+  // Last year's full promo window, day by day (not the aligned days).
+  const prevWindowAds = [];
+  for (let d = previous.start; d <= previous.end; d = addDays(d, 1)) {
+    const a = prevAds.get(d) || emptyAds();
+    prevWindowAds.push({ date: d, ...Object.fromEntries(AD_PLATFORMS.map(p => [p, a[p]])) });
+  }
 
   const inWindow = (s) => {
     const d = argDay(s.date);
@@ -114,6 +160,8 @@ export async function buildEventReport(eventId) {
     days: result.days,
     totals: result.totals,
     previousRecap: recap,
+    investment,
+    previousAds: prevWindowAds,
   };
 }
 

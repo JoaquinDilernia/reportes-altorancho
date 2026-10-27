@@ -6,6 +6,7 @@ import { getEventReport } from '../api/client.js';
 import { formatCurrency, formatNumber, formatPercent } from '../lib/format.js';
 import { getChannelColor, getChannelLabel } from '../lib/channels.js';
 import TopProductsTable from './TopProductsTable.jsx';
+import InvestmentPlan from './InvestmentPlan.jsx';
 
 const EVENTS = [
   { id: 'cyber', label: 'Cyber' },
@@ -327,6 +328,7 @@ export default function EventPanel({ onLogout }) {
           </div>
           <DayByDayChart days={data.days} group={group} prevYear={data.previous.year} currentYear={data.current.year} />
           <DayByDayTable days={data.days} group={group} prevYear={data.previous.year} currentYear={data.current.year} />
+          {data.investment && <InvestmentPlan data={data} />}
           <PastEventRecap recap={data.previousRecap[groupId]} group={group} eventLabel={data.label} prevYear={data.previous.year} />
         </>
       )}

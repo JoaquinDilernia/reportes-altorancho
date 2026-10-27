@@ -344,3 +344,17 @@ button {
 .event-table { min-width: 680px; }
 .event-table th.num, .event-table td.num { text-align: right; }
 .event-row-official td { font-weight: 600; background: rgba(53, 52, 52, 0.04); }
+.invest-phases { display: flex; flex-wrap: wrap; gap: 16px; }
+.invest-phase { flex: 1 1 280px; max-width: 420px; }
+.invest-split { display: flex; flex-direction: column; gap: 2px; font-size: 13px; margin: 4px 0 10px; }
+.invest-split i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.invest-reason { font-size: 12px; line-height: 1.5; margin: 10px 0 0; }
+.invest-warning {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(194, 106, 0, 0.1);
+}
+.invest-table { min-width: 860px; }

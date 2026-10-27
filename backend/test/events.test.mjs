@@ -103,3 +103,69 @@ test('baselineRange: 8 weeks ending the day before the event, or yesterday if th
   assert.deepEqual(baselineRange({ start: '2026-10-29' }, '2026-11-20'), { start: '2026-09-03', end: '2026-10-28' });
   assert.deepEqual(baselineRange({ start: '2026-11-26' }, '2026-10-27'), { start: '2026-09-01', end: '2026-10-26' });
 });
+
+import { allocateWithBounds, adsByDate, attributionShares, buildInvestmentPlan } from '../events.mjs';
+import { normalizeGoogleAdsDaily, GA4_SWITCH_DATE } from '../googleAds.mjs';
+
+test('allocateWithBounds: spreads proportionally, caps big days and lifts small ones to the floor', () => {
+  const r = allocateWithBounds([1, 1, 10, 1], 16, 2, 6);
+  assert.deepEqual(r.map(x => Math.round(x * 100) / 100), [3.33, 3.33, 6, 3.33]);
+  assert.ok(Math.abs(r.reduce((a, b) => a + b, 0) - 16) < 1e-9);
+});
+
+test('attributionShares: platform-reported value over real web revenue', () => {
+  const ads = adsByDate(
+    [{ date: '2026-10-01', spend: 10, purchaseValue: 30 }],
+    [{ date: '2026-10-01', spend: 10, purchaseValue: 50 }],
+  );
+  const web = new Map([['2026-10-01', { revenue: 100, orders: 1 }]]);
+  assert.deepEqual(attributionShares(ads, web, '2026-10-01', '2026-10-01'), { meta: 0.3, google: 0.5 });
+});
+
+test('buildInvestmentPlan: budget follows last year demand, split tilts to the platform that lifted more, ROAS target ties to the web target', () => {
+  const days = [
+    { date: '2026-11-01', refDate: '2025-11-02', phase: 'pre', isLaunch: true, web: { prevRevenue: 10, target: 13 } },
+    { date: '2026-11-02', refDate: '2025-11-03', phase: 'oficial', isLaunch: false, web: { prevRevenue: 300, target: 400 } },
+    { date: '2026-11-03', refDate: '2025-11-04', phase: 'extension', isLaunch: false, web: { prevRevenue: 100, target: 130 } },
+  ];
+  // baseline: both platforms ROAS 2; official day: meta ROAS 8 (4x lift), google ROAS 4 (2x)
+  const prevAds = adsByDate(
+    [{ date: '2025-10-20', spend: 1, purchaseValue: 2 }, { date: '2025-11-03', spend: 1, purchaseValue: 8 }, { date: '2025-11-04', spend: 1, purchaseValue: 2 }],
+    [{ date: '2025-10-20', spend: 1, purchaseValue: 2 }, { date: '2025-11-03', spend: 1, purchaseValue: 4 }, { date: '2025-11-04', spend: 1, purchaseValue: 2 }],
+  );
+  const plan = buildInvestmentPlan({
+    days,
+    current: { dailyAdBudget: 4, launchHours: 6 },
+    prevAds,
+    prevBaselineDates: ['2025-10-20'],
+    shares: { meta: 0.2, google: 0.3 },
+  });
+  const [launch, official, ext] = plan.days;
+  assert.equal(launch.spend, 1);
+  assert.ok(official.spend > ext.spend);
+  assert.ok(Math.abs(official.spend + ext.spend - 8) < 1e-9);
+  const oficial = plan.phases.find(p => p.phase === 'oficial');
+  assert.ok(Math.abs(oficial.metaShare - 0.65) < 1e-9); // 0.5 × 4 / 3 = 0.667 → capped at 0.65
+  assert.ok(Math.abs(official.roasTarget.meta - (0.2 * 400) / official.meta) < 1e-9);
+  assert.equal(plan.phases.find(p => p.phase === 'extension').metaShare, 0.5);
+});
+
+test('normalizeGoogleAdsDaily: Tiendanube purchase before the GA4 switch, GA4 purchase after', () => {
+  const names = { a: 'Tiendanube Website purchases', b: 'ALTORANCHO - GA4 (web) purchase', c: 'Clics de llamada' };
+  const cost = [
+    { segments: { date: '2025-11-03' }, metrics: { costMicros: '2000000', clicks: '5', impressions: '100' } },
+    { segments: { date: GA4_SWITCH_DATE }, metrics: { costMicros: '1000000' } },
+  ];
+  const conv = [
+    { segments: { date: '2025-11-03', conversionAction: 'a' }, metrics: { allConversions: 2, allConversionsValue: 50 } },
+    { segments: { date: '2025-11-03', conversionAction: 'c' }, metrics: { allConversions: 9, allConversionsValue: 0 } },
+    { segments: { date: GA4_SWITCH_DATE, conversionAction: 'a' }, metrics: { allConversions: 1, allConversionsValue: 10 } },
+    { segments: { date: GA4_SWITCH_DATE, conversionAction: 'b' }, metrics: { allConversions: 3, allConversionsValue: 30 } },
+  ];
+  const [old, recent] = normalizeGoogleAdsDaily(cost, conv, names);
+  assert.equal(old.spend, 2);
+  assert.equal(old.purchaseValue, 50);
+  assert.equal(old.purchases, 2);
+  assert.equal(recent.purchaseValue, 30);
+  assert.equal(recent.purchaseValueTn, 10);
+});

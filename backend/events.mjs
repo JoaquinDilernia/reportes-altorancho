@@ -13,6 +13,10 @@ export const EVENTS = {
       year: 2026, start: '2026-10-29', end: '2026-11-15',
       officialStart: '2026-11-02', officialEnd: '2026-11-04',
       launchNote: 'lanzamiento jueves 29/10 a las 21 h',
+      // Hours the promo is live on launch day (21 h → midnight).
+      launchHours: 3,
+      // Meta + Google combined; the base plan was 2M per platform per day.
+      dailyAdBudget: 4_000_000,
     },
     previous: {
       year: 2025, start: '2025-10-29', end: '2025-11-09',
@@ -26,6 +30,8 @@ export const EVENTS = {
     current: {
       year: 2026, start: '2026-11-26', end: '2026-11-30',
       officialStart: '2026-11-27', officialEnd: '2026-11-27',
+      // Not defined for Black yet — assumed the same as Cyber.
+      dailyAdBudget: 4_000_000,
     },
     previous: {
       year: 2025, start: '2025-11-27', end: '2025-12-01',
@@ -294,4 +300,167 @@ export function summarizePastEvent(salesDocs, baselineDocs, window) {
     daily,
     hourly,
   };
+}
+
+// ---- Ad investment (Meta + Google) ----
+
+export const AD_PLATFORMS = ['meta', 'google'];
+// A day never gets less than 50% or more than 160% of the average daily
+// budget: last year's spend barely moved day to day, so we have no evidence
+// of how returns hold up far outside that range.
+const DAY_BUDGET_MIN = 0.5;
+const DAY_BUDGET_MAX = 1.6;
+// Platform split stays within 35–65% of a day's budget around the 50/50
+// base plan, for the same reason.
+const PLATFORM_SHARE_MIN = 0.35;
+const PLATFORM_SHARE_MAX = 0.65;
+
+// date -> { meta: { spend, value }, google: { spend, value } } from the
+// Meta and Google daily docs (each with spend + purchaseValue).
+export function adsByDate(metaDocs, googleDocs) {
+  const map = new Map();
+  const get = (date) => {
+    if (!map.has(date)) map.set(date, { meta: { spend: 0, value: 0 }, google: { spend: 0, value: 0 } });
+    return map.get(date);
+  };
+  for (const d of metaDocs) { const e = get(d.date).meta; e.spend += d.spend || 0; e.value += d.purchaseValue || 0; }
+  for (const d of googleDocs) { const e = get(d.date).google; e.spend += d.spend || 0; e.value += d.purchaseValue || 0; }
+  return map;
+}
+
+function sumAds(adsMap, dates) {
+  const out = { meta: { spend: 0, value: 0 }, google: { spend: 0, value: 0 } };
+  for (const date of dates) {
+    const a = adsMap.get(date);
+    if (!a) continue;
+    for (const p of AD_PLATFORMS) { out[p].spend += a[p].spend; out[p].value += a[p].value; }
+  }
+  return out;
+}
+
+function datesBetween(start, end) {
+  const out = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+const roas = (x) => (x.spend ? x.value / x.spend : null);
+
+// Share of real web revenue each platform claims (platform-reported
+// purchase value ÷ web revenue) over a recent normal stretch — converts a
+// web revenue target into the ROAS each platform needs to report.
+export function attributionShares(adsMap, webDailyMap, start, end) {
+  const dates = datesBetween(start, end);
+  const ads = sumAds(adsMap, dates);
+  const web = dates.reduce((s, d) => s + (webDailyMap?.get(d)?.revenue || 0), 0);
+  return { meta: web ? ads.meta.value / web : 0, google: web ? ads.google.value / web : 0 };
+}
+
+// Fits `total` across days proportionally to `weights`, keeping each day in
+// [min, max] (water-filling: clamp, then re-spread the remainder).
+export function allocateWithBounds(weights, total, min, max) {
+  const n = weights.length;
+  const out = Array(n).fill(null);
+  let remaining = total;
+  let free = weights.map((_, i) => i);
+  for (let iter = 0; iter < n + 1 && free.length; iter++) {
+    const wSum = free.reduce((s, i) => s + (weights[i] || 0), 0);
+    const tentative = free.map(i => (wSum ? remaining * (weights[i] || 0) / wSum : remaining / free.length));
+    // Clamp one side per pass: capping the big days frees budget that may
+    // lift the small ones above the floor on the next pass.
+    const over = free.filter((i, k) => tentative[k] > max);
+    const violators = over.length ? over : free.filter((i, k) => tentative[k] < min);
+    if (!violators.length) {
+      free.forEach((i, k) => { out[i] = tentative[k]; });
+      break;
+    }
+    for (const i of violators) {
+      const k = free.indexOf(i);
+      out[i] = tentative[k] < min ? min : max;
+      remaining -= out[i];
+    }
+    free = free.filter(i => !violators.includes(i));
+  }
+  return out;
+}
+
+// Proposed spend per day and platform for this year's event, plus the ROAS
+// each platform has to report for the day's web revenue target, and the
+// phase-level evidence from last year that drives the split.
+export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates, shares }) {
+  const daily = current.dailyAdBudget;
+  const launchSpend = current.launchHours ? daily * (current.launchHours / 24) : null;
+  const fullIdx = days.map((d, i) => i).filter(i => !(days[i].isLaunch && launchSpend != null));
+  const total = daily * fullIdx.length + (launchSpend || 0);
+  const alloc = allocateWithBounds(
+    fullIdx.map(i => days[i].web.prevRevenue),
+    daily * fullIdx.length,
+    daily * DAY_BUDGET_MIN,
+    daily * DAY_BUDGET_MAX,
+  );
+  const spendByIdx = new Map(fullIdx.map((i, k) => [i, alloc[k]]));
+
+  const baseline = sumAds(prevAds, prevBaselineDates);
+  const phases = ['pre', 'oficial', 'extension'].map((phase) => {
+    const phaseDays = days.filter(d => d.phase === phase);
+    const ads = sumAds(prevAds, phaseDays.map(d => d.refDate));
+    const lift = {};
+    for (const p of AD_PLATFORMS) {
+      const r = roas(ads[p]);
+      const b = roas(baseline[p]);
+      lift[p] = r != null && b ? r / b : null;
+    }
+    let metaShare = 0.5;
+    if (lift.meta != null && lift.google != null) {
+      metaShare = Math.min(PLATFORM_SHARE_MAX, Math.max(PLATFORM_SHARE_MIN, 0.5 * lift.meta / ((lift.meta + lift.google) / 2)));
+    }
+    const prevSpend = ads.meta.spend + ads.google.spend;
+    const prevWeb = phaseDays.reduce((s, d) => s + d.web.prevRevenue, 0);
+    return {
+      phase,
+      days: phaseDays.length,
+      metaShare,
+      prev: {
+        meta: { ...ads.meta, roas: roas(ads.meta), baselineRoas: roas(baseline.meta), lift: lift.meta },
+        google: { ...ads.google, roas: roas(ads.google), baselineRoas: roas(baseline.google), lift: lift.google },
+        spend: prevSpend,
+        webRevenue: prevWeb,
+        mer: prevSpend ? prevWeb / prevSpend : null,
+      },
+    };
+  });
+  const shareByPhase = Object.fromEntries(phases.map(p => [p.phase, p.metaShare]));
+
+  const planDays = days.map((d, i) => {
+    const spend = spendByIdx.get(i) ?? launchSpend;
+    const meta = spend * shareByPhase[d.phase];
+    const google = spend - meta;
+    return {
+      date: d.date,
+      phase: d.phase,
+      spend,
+      meta,
+      google,
+      roasTarget: {
+        meta: meta ? (shares.meta * d.web.target) / meta : null,
+        google: google ? (shares.google * d.web.target) / google : null,
+      },
+      merTarget: spend ? d.web.target / spend : null,
+    };
+  });
+  for (const p of phases) {
+    const pd = planDays.filter(d => d.phase === p.phase);
+    p.plan = { spend: pd.reduce((s, d) => s + d.spend, 0), meta: pd.reduce((s, d) => s + d.meta, 0), google: pd.reduce((s, d) => s + d.google, 0) };
+    // How many times last year's spend (in today's pesos) each platform is
+    // asked to absorb — the further above 1, the less last year's ROAS
+    // can be trusted to hold.
+    const phaseDays = days.filter(d => d.phase === p.phase);
+    p.scale = {};
+    for (const platform of AD_PLATFORMS) {
+      const prevReal = phaseDays.reduce((s, d) => s + (prevAds.get(d.refDate)?.[platform].spend || 0) * (d.inflationFactor || 1), 0);
+      p.scale[platform] = prevReal ? p.plan[platform] / prevReal : null;
+    }
+  }
+
+  return { dailyBudget: daily, total, shares, phases, days: planDays };
 }

@@ -26,6 +26,7 @@ const BATCH_SIZE   = 500;
 const META_ADS_DAILY_COL = 'altorancho_reportes_meta_ads_daily';
 const META_ADS_AD_DAILY_COL = 'altorancho_reportes_meta_ads_ad_daily';
 const INFLATION_INDEX_COL = 'altorancho_reportes_inflation_index';
+const GOOGLE_ADS_DAILY_COL = 'altorancho_reportes_google_ads_daily';
 
 export async function saveSalesDocs(docs) {
   const firestore = getDb();
@@ -148,6 +149,30 @@ export async function queryMetaAdsDailyByRange(startDate, endDate) {
 export async function queryMetaAdsAdDailyByRange(startDate, endDate) {
   const firestore = getDb();
   const snap = await firestore.collection(META_ADS_AD_DAILY_COL)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
+  return snap.docs.map(d => d.data());
+}
+
+export async function saveGoogleAdsDailyDocs(docs) {
+  const firestore = getDb();
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const batch = firestore.batch();
+    for (const doc of docs.slice(i, i + BATCH_SIZE)) {
+      batch.set(firestore.collection(GOOGLE_ADS_DAILY_COL).doc(doc.date), {
+        ...doc,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+  return { written: docs.length };
+}
+
+export async function queryGoogleAdsDailyByRange(startDate, endDate) {
+  const firestore = getDb();
+  const snap = await firestore.collection(GOOGLE_ADS_DAILY_COL)
     .where('date', '>=', startDate)
     .where('date', '<=', endDate)
     .get();

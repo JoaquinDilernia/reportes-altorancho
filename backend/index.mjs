@@ -21,6 +21,7 @@ import { syncPosLocales } from './sync/posLocales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 import { syncFeria } from './sync/feria.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
+import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
 
@@ -179,6 +180,11 @@ async function runFullSync() {
     await syncMayorista(categoryBySku);
     await syncFeria(categoryBySku);
     await syncMetaAds();
+    try {
+      await syncGoogleAds();
+    } catch (err) {
+      console.error('[cron] googleAds sync error:', err.message);
+    }
     await syncInflation();
     console.log('[cron] full sync complete');
   } catch (err) {
