@@ -42,7 +42,7 @@ function phaseReason(p) {
   const head = `En 2025 el ROAS de Meta se multiplicó ×${meta.lift.toFixed(1)} y el de Google ×${google.lift.toFixed(1)} contra semanas normales`;
   return diff < 0.1
     ? `${head}: respondieron parecido, va mitad y mitad.`
-    : `${head}: ${better} respondió mejor y se lleva un poco más.`;
+    : `${head}: ${better} respondió mejor y se lleva más presupuesto.`;
 }
 
 function ScaleWarning({ scale }) {
@@ -81,7 +81,11 @@ function PhaseCards({ phases }) {
               <span>{times(p.prev.mer)}</span>
             </div>
           </div>
-          <p className="invest-reason">{phaseReason(p)}</p>
+          <p className="invest-reason">
+            {p.splitFromConfig
+              ? `Reparto fijado a mano. La data de 2025 sugería ${Math.round(p.suggestedMetaShare * 100)}% Meta.`
+              : phaseReason(p)}
+          </p>
           <ScaleWarning scale={p.scale} />
         </div>
       ))}
@@ -152,7 +156,7 @@ function PlanTable({ planDays, days }) {
               <th className="num">Google</th>
               <th className="num">Total</th>
               <th className="num">ROAS obj. Meta</th>
-              <th className="num">ROAS obj. Google</th>
+              <th className="num">ROAS obj. Google (GA4)</th>
               <th className="num">Venta web / $1 obj.</th>
               {anyPlayed && <th className="num">Real Meta (ROAS)</th>}
               {anyPlayed && <th className="num">Real Google (ROAS)</th>}
@@ -248,7 +252,7 @@ function PreviousAds({ previousAds, recapDaily, eventLabel, prevYear }) {
                 <th className="num">Inversión Meta</th>
                 <th className="num">ROAS Meta</th>
                 <th className="num">Inversión Google</th>
-                <th className="num">ROAS Google</th>
+                <th className="num">ROAS Google (GA4)</th>
                 <th className="num">Inversión total</th>
                 <th className="num">Facturación web</th>
                 <th className="num">Venta web / $1</th>
@@ -304,9 +308,20 @@ export default function InvestmentPlan({ data }) {
           se solapan, por eso suman más que lo vendido). "Venta web / $1" es la venta real dividida por toda la inversión.
         </div>
         <div>
-          Meta: compras con 1 día desde el clic. Google: "Tiendanube Website purchases" hasta feb-26 y "GA4 purchase"
-          desde mar-26.
+          <strong>Cómo se mide:</strong> Meta, compras con 1 día desde el clic (Meta Ads). Google, compras e ingresos de
+          GA4 de las visitas que llegan por <em>google / cpc</em> (no la conversión de Google Ads, que atribuye con
+          ventanas de 30–90 días).
         </div>
+        {inv.googleBrand?.previous?.revenuePct != null && (
+          <div>
+            <strong>Ojo con la búsqueda de marca:</strong> en {data.label} {data.previous.year} la campaña de marca
+            ("altorancho" en Google) fue el {Math.round(inv.googleBrand.previous.spendPct * 100)}% de la inversión de
+            Google pero el {Math.round(inv.googleBrand.previous.revenuePct * 100)}% de sus ingresos. Son en gran parte
+            ventas que se hacían igual: sin marca, Google rindió {times(inv.googleBrand.previous.roasNonBrand)}
+            {inv.googleBrand.recent?.roasNonBrand != null && <> (hoy {times(inv.googleBrand.recent.roasNonBrand)})</>}.
+            Por eso la plata extra rinde más en las campañas que no son de marca.
+          </div>
+        )}
       </div>
       <PhaseCards phases={inv.phases} />
       <PlanChart planDays={inv.days} days={data.days} />

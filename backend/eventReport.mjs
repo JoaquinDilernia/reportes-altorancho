@@ -21,6 +21,20 @@ async function queryAds(start, end) {
   return adsByDate(meta, google);
 }
 
+// Share of Google's spend and GA4 revenue that is brand search, over a range.
+async function googleBrandShare(start, end) {
+  const docs = await queryGoogleAdsDailyByRange(start, end);
+  const t = docs.reduce((a, d) => ({
+    spend: a.spend + (d.spend || 0), spendBrand: a.spendBrand + (d.spendBrand || 0),
+    revenue: a.revenue + (d.purchaseValue || 0), revenueBrand: a.revenueBrand + (d.ga4RevenueBrand || 0),
+  }), { spend: 0, spendBrand: 0, revenue: 0, revenueBrand: 0 });
+  return {
+    spendPct: t.spend ? t.spendBrand / t.spend : null,
+    revenuePct: t.revenue ? t.revenueBrand / t.revenue : null,
+    roasNonBrand: t.spend - t.spendBrand ? (t.revenue - t.revenueBrand) / (t.spend - t.spendBrand) : null,
+  };
+}
+
 function emptyAds() {
   return { meta: { spend: 0, value: 0 }, google: { spend: 0, value: 0 } };
 }
@@ -81,7 +95,7 @@ export async function buildEventReport(eventId) {
   const sharesStart = addDays(sharesEnd, -SHARES_DAYS + 1);
   const [
     indexByMonth, productsBySku, prevSales, currentSales, baselineSales, recapBaselineSales,
-    prevAds, currentAds, sharesAds, sharesWebSales,
+    prevAds, currentAds, sharesAds, sharesWebSales, brandPrev, brandRecent,
   ] = await Promise.all([
     getInflationIndexByMonth(),
     getProductsBySku(),
@@ -93,6 +107,8 @@ export async function buildEventReport(eventId) {
     queryAds(current.start, current.end),
     queryAds(sharesStart, sharesEnd),
     querySalesByRange(EVENT_GROUPS.web, sharesStart, sharesEnd),
+    googleBrandShare(previous.start, previous.end),
+    googleBrandShare(sharesStart, sharesEnd),
   ]);
 
   const result = buildEventDays({
@@ -118,6 +134,7 @@ export async function buildEventReport(eventId) {
     ...buildInvestmentPlan({ days: result.days, current, prevAds, prevBaselineDates: recapBaselineDates, shares }),
     sharesRange: { start: sharesStart, end: sharesEnd },
     prevBaselineRange: { start: recapBaselineStart, end: recapBaselineEnd },
+    googleBrand: { previous: brandPrev, recent: brandRecent },
   };
   // Last year's full promo window, day by day (not the aligned days).
   const prevWindowAds = [];

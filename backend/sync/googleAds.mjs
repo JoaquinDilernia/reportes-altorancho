@@ -1,4 +1,5 @@
 import { fetchGoogleAdsDaily, isGoogleAdsConfigured } from '../googleAds.mjs';
+import { fetchGa4GoogleAdsDaily, isGa4Configured } from '../ga4.mjs';
 import { saveGoogleAdsDailyDocs, setSyncMetadata } from '../firestore.mjs';
 
 function isoDate(d) { return d.toISOString().slice(0, 10); }
@@ -14,7 +15,10 @@ export async function syncGoogleAds({ daysBack = 30 } = {}) {
   const since = new Date(until);
   since.setUTCDate(since.getUTCDate() - daysBack);
 
-  const docs = await fetchGoogleAdsDaily(isoDate(since), isoDate(until));
+  // Without GA4 the docs fall back to Google Ads' own conversion value.
+  const ga4ByDate = isGa4Configured() ? await fetchGa4GoogleAdsDaily(isoDate(since), isoDate(until)) : null;
+  if (!ga4ByDate) console.log('[sync:googleAds] sin GA4_SERVICE_ACCOUNT/GA4_PROPERTY_ID, se usa la conversión de Google Ads');
+  const docs = await fetchGoogleAdsDaily(isoDate(since), isoDate(until), ga4ByDate);
   await saveGoogleAdsDailyDocs(docs);
   await setSyncMetadata('googleAds', { lastSyncedAt: new Date().toISOString(), dailyCount: docs.length });
 

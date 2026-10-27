@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { BRAND_CAMPAIGN_PATTERN } from './ga4.mjs';
 
 // Google Ads API (REST v24) with a service account — same approach as the
 // altorancho-ventas backend (gineza-agent), which proved it works without a
@@ -8,10 +9,12 @@ const BASE = 'https://googleads.googleapis.com/v24/';
 const SCOPE = 'https://www.googleapis.com/auth/adwords';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
-// Google's "purchase" changed over time: until Feb 2026 the conversion that
-// tracked sales was "Tiendanube Website purchases"; from Mar 2026 "GA4
-// purchase" took over (and the Tiendanube one degraded to ~half). Both are
-// stored per day; purchaseValue picks the one that was the real one then.
+// Google Ads' own purchase conversions, kept for reference only: their
+// attribution (30–90 day click, 15 day view, data-driven) isn't comparable
+// with Meta's 1-day click, and the action that tracked sales changed in
+// Mar 2026 ("Tiendanube Website purchases" → "GA4 purchase"). The value the
+// report uses for Google is GA4's google / cpc revenue (see ga4.mjs), which
+// is how marketing measures it.
 export const TN_PURCHASE_ACTION = 'Tiendanube Website purchases';
 export const GA4_PURCHASE_ACTION = 'ALTORANCHO - GA4 (web) purchase';
 export const GA4_SWITCH_DATE = '2026-03-01';
@@ -62,22 +65,33 @@ export function isGoogleAdsConfigured() {
   return Boolean(process.env.GOOGLE_ADS_SERVICE_ACCOUNT && process.env.GOOGLE_ADS_CUSTOMER_ID);
 }
 
-export function googlePurchaseValue(doc) {
+function adsPurchaseValue(doc) {
   return doc.date >= GA4_SWITCH_DATE ? doc.purchaseValueGa4 : doc.purchaseValueTn;
 }
 
-export function googlePurchases(doc) {
+function adsPurchases(doc) {
   return doc.date >= GA4_SWITCH_DATE ? doc.purchasesGa4 : doc.purchasesTn;
 }
 
-// Joins the account-level cost rows and per-conversion-action rows into one
-// doc per day. `actionNames` maps conversion_action resource names to names.
-export function normalizeGoogleAdsDaily(costRows, conversionRows, actionNames) {
+// GA4 revenue when GA4 data was merged in for the day; Google Ads' own
+// conversion value otherwise.
+export function googlePurchaseValue(doc) {
+  return doc.ga4Revenue ?? adsPurchaseValue(doc);
+}
+
+export function googlePurchases(doc) {
+  return doc.ga4Purchases ?? adsPurchases(doc);
+}
+
+// Joins the per-campaign cost rows, per-conversion-action rows and (when
+// available) GA4's google / cpc results into one doc per day.
+// `actionNames` maps conversion_action resource names to names.
+export function normalizeGoogleAdsDaily(costRows, conversionRows, actionNames, ga4ByDate = null) {
   const byDate = new Map();
   const get = (date) => {
     if (!byDate.has(date)) {
       byDate.set(date, {
-        date, spend: 0, clicks: 0, impressions: 0,
+        date, spend: 0, spendBrand: 0, clicks: 0, impressions: 0,
         purchaseValueTn: 0, purchasesTn: 0, purchaseValueGa4: 0, purchasesGa4: 0, currency: 'ARS',
       });
     }
@@ -85,7 +99,9 @@ export function normalizeGoogleAdsDaily(costRows, conversionRows, actionNames) {
   };
   for (const r of costRows) {
     const d = get(r.segments.date);
-    d.spend += Number(r.metrics.costMicros || 0) / 1e6;
+    const cost = Number(r.metrics.costMicros || 0) / 1e6;
+    d.spend += cost;
+    if (BRAND_CAMPAIGN_PATTERN.test(r.campaign?.name || '')) d.spendBrand += cost;
     d.clicks += Number(r.metrics.clicks || 0);
     d.impressions += Number(r.metrics.impressions || 0);
   }
@@ -97,19 +113,28 @@ export function normalizeGoogleAdsDaily(costRows, conversionRows, actionNames) {
     if (name === TN_PURCHASE_ACTION) { d.purchaseValueTn += value; d.purchasesTn += count; }
     if (name === GA4_PURCHASE_ACTION) { d.purchaseValueGa4 += value; d.purchasesGa4 += count; }
   }
+  if (ga4ByDate) {
+    for (const [date, g] of ga4ByDate) {
+      const d = get(date);
+      d.ga4Revenue = g.revenue;
+      d.ga4Purchases = g.purchases;
+      d.ga4RevenueBrand = g.revenueBrand;
+      d.ga4PurchasesBrand = g.purchasesBrand;
+    }
+  }
   return [...byDate.values()]
     .map(d => ({ ...d, purchaseValue: googlePurchaseValue(d), purchases: googlePurchases(d) }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// 3 queries per call regardless of range length.
-export async function fetchGoogleAdsDaily(since, until) {
+// 3 Google Ads queries per call regardless of range length.
+export async function fetchGoogleAdsDaily(since, until, ga4ByDate = null) {
   const between = `segments.date BETWEEN '${since}' AND '${until}'`;
   const [actions, costRows, conversionRows] = await Promise.all([
     search('SELECT conversion_action.resource_name, conversion_action.name FROM conversion_action'),
-    search(`SELECT segments.date, metrics.cost_micros, metrics.clicks, metrics.impressions FROM customer WHERE ${between}`),
+    search(`SELECT campaign.name, segments.date, metrics.cost_micros, metrics.clicks, metrics.impressions FROM campaign WHERE ${between}`),
     search(`SELECT segments.date, segments.conversion_action, metrics.all_conversions, metrics.all_conversions_value FROM customer WHERE ${between}`),
   ]);
   const actionNames = Object.fromEntries(actions.map(a => [a.conversionAction.resourceName, a.conversionAction.name]));
-  return normalizeGoogleAdsDaily(costRows, conversionRows, actionNames);
+  return normalizeGoogleAdsDaily(costRows, conversionRows, actionNames, ga4ByDate);
 }

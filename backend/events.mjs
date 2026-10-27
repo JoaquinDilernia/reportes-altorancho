@@ -17,6 +17,9 @@ export const EVENTS = {
       launchHours: 3,
       // Meta + Google combined; the base plan was 2M per platform per day.
       dailyAdBudget: 4_000_000,
+      // Optional fixed Meta share (e.g. 0.6 for 60/40) to override the
+      // per-phase split suggested by last year's data. Marketing's own
+      // projection was 60/40, which the suggested split averages out to.
     },
     previous: {
       year: 2025, start: '2025-10-29', end: '2025-11-09',
@@ -410,16 +413,18 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
       const b = roas(baseline[p]);
       lift[p] = r != null && b ? r / b : null;
     }
-    let metaShare = 0.5;
+    let suggestedMetaShare = 0.5;
     if (lift.meta != null && lift.google != null) {
-      metaShare = Math.min(PLATFORM_SHARE_MAX, Math.max(PLATFORM_SHARE_MIN, 0.5 * lift.meta / ((lift.meta + lift.google) / 2)));
+      suggestedMetaShare = Math.min(PLATFORM_SHARE_MAX, Math.max(PLATFORM_SHARE_MIN, 0.5 * lift.meta / ((lift.meta + lift.google) / 2)));
     }
     const prevSpend = ads.meta.spend + ads.google.spend;
     const prevWeb = phaseDays.reduce((s, d) => s + d.web.prevRevenue, 0);
     return {
       phase,
       days: phaseDays.length,
-      metaShare,
+      metaShare: current.metaShare ?? suggestedMetaShare,
+      suggestedMetaShare,
+      splitFromConfig: current.metaShare != null,
       prev: {
         meta: { ...ads.meta, roas: roas(ads.meta), baselineRoas: roas(baseline.meta), lift: lift.meta },
         google: { ...ads.google, roas: roas(ads.google), baselineRoas: roas(baseline.google), lift: lift.google },

@@ -169,3 +169,40 @@ test('normalizeGoogleAdsDaily: Tiendanube purchase before the GA4 switch, GA4 pu
   assert.equal(recent.purchaseValue, 30);
   assert.equal(recent.purchaseValueTn, 10);
 });
+
+import { normalizeGa4GoogleAdsRows } from '../ga4.mjs';
+
+test('Google: GA4 google / cpc revenue replaces Ads conversion value; brand campaigns tracked apart', () => {
+  const ga4 = normalizeGa4GoogleAdsRows([
+    { dimensionValues: [{ value: '20251103' }, { value: 'altorancho_search_brand_aon' }], metricValues: [{ value: '4' }, { value: '400' }] },
+    { dimensionValues: [{ value: '20251103' }, { value: 'weare_pmax_muebles' }], metricValues: [{ value: '1' }, { value: '100' }] },
+  ]);
+  assert.deepEqual(ga4.get('2025-11-03'), { revenue: 500, purchases: 5, revenueBrand: 400, purchasesBrand: 4 });
+  const cost = [
+    { campaign: { name: 'altorancho_search_brand_aon' }, segments: { date: '2025-11-03' }, metrics: { costMicros: '1000000' } },
+    { campaign: { name: 'weare_pmax_muebles' }, segments: { date: '2025-11-03' }, metrics: { costMicros: '3000000' } },
+  ];
+  const conv = [{ segments: { date: '2025-11-03', conversionAction: 'a' }, metrics: { allConversions: 9, allConversionsValue: 9000 } }];
+  const [doc] = normalizeGoogleAdsDaily(cost, conv, { a: 'Tiendanube Website purchases' }, ga4);
+  assert.equal(doc.spend, 4);
+  assert.equal(doc.spendBrand, 1);
+  assert.equal(doc.purchaseValue, 500);
+  assert.equal(doc.purchaseValueTn, 9000);
+  assert.equal(doc.ga4RevenueBrand, 400);
+});
+
+test('buildInvestmentPlan: a split set in the event config wins over the suggested one', () => {
+  const days = [{ date: '2026-11-02', refDate: '2025-11-03', phase: 'oficial', isLaunch: false, web: { prevRevenue: 100, target: 130 } }];
+  const plan = buildInvestmentPlan({
+    days,
+    current: { dailyAdBudget: 10, metaShare: 0.6 },
+    prevAds: adsByDate([], []),
+    prevBaselineDates: [],
+    shares: { meta: 0.2, google: 0.3 },
+  });
+  assert.equal(plan.days[0].meta, 6);
+  assert.equal(plan.days[0].google, 4);
+  const p = plan.phases.find(x => x.phase === 'oficial');
+  assert.equal(p.splitFromConfig, true);
+  assert.equal(p.suggestedMetaShare, 0.5);
+});
