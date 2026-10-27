@@ -76,6 +76,7 @@ function fakeDeps(overrides = {}) {
     createInternalTransfer: rec('transfer', { id: 800, name: 'EC/INT/00001', state: 'assigned' }),
     webLotsFor: rec('webLots', new Map([[10, [{ lotId: 2, qty: 5 }]]])),
     validatePicking: rec('validate', (id) => ({ id, name: 'EC/INT/00001', state: 'done' })),
+    markVirtualTransfer: rec('reason'),
     saveWebTransfer: rec('saveWebTransfer'),
     ...overrides,
   };
@@ -90,6 +91,8 @@ test('confirmar con stock web: traslado EC → RL validado antes de crear la ven
   assert.deepEqual(named(calls, 'transfer')[0][1], {
     pickingTypeId: 166, fromLocationId: 150, toLocationId: 174, items: [{ productId: 10, qty: 1 }], origin: 'LL-0009 web a Rolón',
   });
+  assert.deepEqual(named(calls, 'reason')[0].slice(1), [800, 'reasignacion_venta']);
+  assert.ok(at(calls, 'reason') < at(calls, 'validate'));
   assert.deepEqual(named(calls, 'webLots')[0].slice(1), [[10], 150]);
   const [, pickingId, lots] = named(calls, 'validate')[0];
   assert.equal(pickingId, 800);
@@ -119,6 +122,7 @@ test('reintento: reusa el traslado ya hecho (guardado o encontrado en Odoo)', as
   ({ deps, calls } = fakeDeps({ findPickingByOrigin: async () => ({ id: 800, name: 'EC/INT/00001', state: 'assigned' }) }));
   await confirmPosOrder(order(), 'Caja', ctx, deps);
   assert.equal(named(calls, 'transfer').length, 0);
+  assert.deepEqual(named(calls, 'reason')[0].slice(1), [800, 'reasignacion_venta']);
   assert.equal(named(calls, 'validate')[0][1], 800);
 });
 

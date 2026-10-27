@@ -244,6 +244,11 @@ export async function webLotsFor(productIds, locationId, odoo = defaultOdoo) {
   return pickWebLots(quants);
 }
 
+// Traslado sin cajas físicas: motivo + "Sin bultos" (los dos obligatorios al validar).
+export function markVirtualTransfer(pickingId, reason, odoo = defaultOdoo) {
+  return odoo.write('stock.picking', 'write', [[pickingId], { x_motivo_transferencia: reason, x_sin_bultos: true }]);
+}
+
 export function readOrderStates(odooOrderIds, odoo = defaultOdoo) {
   return odoo.read('sale.order', 'read', [odooOrderIds], { fields: ['id', 'name', 'state'] });
 }

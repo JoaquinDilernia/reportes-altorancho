@@ -99,7 +99,7 @@ function defaultDeps() {
     findOrCreatePosPartner: odoo.findOrCreatePosPartner, findPaymentMethodId: odoo.findPaymentMethodId,
     findProductIdBySku: odoo.findProductIdBySku, createChildPartner: odoo.createChildPartner, findChildPartner: odoo.findChildPartner,
     createSaleOrder: odoo.createSaleOrder, saveOdooOrders: orders.saveOdooOrders,
-    webLotsFor: odoo.webLotsFor, saveWebTransfer: orders.saveWebTransfer,
+    webLotsFor: odoo.webLotsFor, markVirtualTransfer: odoo.markVirtualTransfer, saveWebTransfer: orders.saveWebTransfer,
     readOrderLineIds: odoo.readOrderLineIds, saveOdooLineIds: orders.saveOdooLineIds,
     findSaleOrdersByRef: odoo.findSaleOrdersByRef, readOrderStates: odoo.readOrderStates,
     confirmSaleOrder: odoo.confirmSaleOrder,
@@ -155,7 +155,10 @@ async function paymentMethodIdFor(order, ctx, deps) {
 // 0. Stock web: el local no descuenta directo de EC/Stock. Antes de crear
 // nada se traslada a RL/Stock (mismo depósito físico, se valida solo) y la
 // línea sale de Rolón. Reintentable: se busca por origen antes de crear otro.
-// Si no queda validado, no se confirma nada.
+// Si no queda validado, no se confirma nada. Odoo exige motivo y bultos para
+// validar: es un traslado sin cajas (mismo depósito físico).
+export const WEB_TRANSFER_REASON = 'reasignacion_venta'; // "Reasignación de stock para venta desde local"
+
 export async function moveWebStockToRolon(order, ctx, deps) {
   const items = webTransferItems(order.lines);
   if (!items.length || order.webTransfer?.state === 'done') return order.webTransfer ?? null;
@@ -166,6 +169,7 @@ export async function moveWebStockToRolon(order, ctx, deps) {
       pickingTypeId: ctx.settings.webTransferPickingTypeId, fromLocationId: ctx.settings.web.locationId,
       toLocationId: ctx.settings.rolon.locationId, items, origin,
     });
+    await deps.markVirtualTransfer(picking.id, WEB_TRANSFER_REASON);
     const lots = await deps.webLotsFor(items.map((i) => i.productId), ctx.settings.web.locationId);
     picking = await deps.validatePicking(picking.id, lots);
     if (picking.state !== 'done') throw new Error(`El traslado ${picking.name} de web a Rolón no quedó validado: validalo en Odoo y reintentá`);
