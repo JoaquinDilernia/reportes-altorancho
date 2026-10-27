@@ -318,16 +318,23 @@ const DAY_BUDGET_MAX = 1.6;
 const PLATFORM_SHARE_MIN = 0.35;
 const PLATFORM_SHARE_MAX = 0.65;
 
-// date -> { meta: { spend, value }, google: { spend, value } } from the
-// Meta and Google daily docs (each with spend + purchaseValue).
+// date -> { meta: { spend, value }, google: { spend, value, spendBrand,
+// valueBrand } } from the Meta and Google daily docs (each with spend +
+// purchaseValue; Google's also carry the brand-search part).
 export function adsByDate(metaDocs, googleDocs) {
   const map = new Map();
   const get = (date) => {
-    if (!map.has(date)) map.set(date, { meta: { spend: 0, value: 0 }, google: { spend: 0, value: 0 } });
+    if (!map.has(date)) map.set(date, { meta: { spend: 0, value: 0 }, google: { spend: 0, value: 0, spendBrand: 0, valueBrand: 0 } });
     return map.get(date);
   };
   for (const d of metaDocs) { const e = get(d.date).meta; e.spend += d.spend || 0; e.value += d.purchaseValue || 0; }
-  for (const d of googleDocs) { const e = get(d.date).google; e.spend += d.spend || 0; e.value += d.purchaseValue || 0; }
+  for (const d of googleDocs) {
+    const e = get(d.date).google;
+    e.spend += d.spend || 0;
+    e.value += d.purchaseValue || 0;
+    e.spendBrand += d.spendBrand || 0;
+    e.valueBrand += d.ga4RevenueBrand || 0;
+  }
   return map;
 }
 
