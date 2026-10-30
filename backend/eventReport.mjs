@@ -19,8 +19,8 @@ const RECAP_BASELINE_DAYS = 14;
 // revenue target into a per-platform ROAS target.
 const SHARES_DAYS = 28;
 
-async function queryAds(start, end) {
-  const [meta, google] = await Promise.all([queryMetaAdsDailyByRange(start, end), queryGoogleAdsDailyByRange(start, end)]);
+async function queryAds(start, end, opts) {
+  const [meta, google] = await Promise.all([queryMetaAdsDailyByRange(start, end, opts), queryGoogleAdsDailyByRange(start, end, opts)]);
   return adsByDate(meta, google);
 }
 
@@ -233,8 +233,9 @@ export async function buildEventReport(eventId) {
 
   const [st, currentSales, currentAds, ecommerceMeta] = await Promise.all([
     getStaticInputs(eventId),
-    querySalesByRange(ALL_EVENT_CHANNELS, current.start, current.end),
-    queryAds(current.start, current.end),
+    // Período en curso del evento: siempre directo a Firestore, sin cache.
+    querySalesByRange(ALL_EVENT_CHANNELS, current.start, current.end, { fresh: true }),
+    queryAds(current.start, current.end, { fresh: true }),
     getSyncMetadata('ecommerce'),
   ]);
   const {
