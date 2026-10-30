@@ -89,6 +89,7 @@ export async function syncProducts() {
     doc.stockByLocation = stockByLocationBySku.get(doc.sku) || null;
     const odooProduct = odooBySku.get(doc.sku);
     doc.odooTemplateId = odooProduct?.id ?? null;
+    doc.odooCategPath = odooProduct?.categ_id?.[1] ?? null;
     doc.nombreModeloAr = odooProduct?.nombre_modelo_ar?.length
       ? odooProduct.nombre_modelo_ar.map(id => modeloNameById.get(id)).filter(Boolean).join(', ')
       : null;
