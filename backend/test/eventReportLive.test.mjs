@@ -72,3 +72,16 @@ test('buildLive: projection.total is null when one group has no projection', () 
   assert.equal(live.projection.locales, null);
   assert.equal(live.projection.total, null);
 });
+
+test('buildLive: 2025 window day that is not a refDate uses the month-based inflation factor', () => {
+  const ev = { current: { year: 2026, start: '2026-10-29', end: '2026-11-02' }, previous: { year: 2025, start: '2025-10-29', end: '2025-11-02' } };
+  const productsBySku = new Map([['S1', { sku: 'S1', name: 'Silla', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: {} }]]);
+  const prevSales = [{ id: 'p1', channel: 'ecommerce', date: '2025-11-01T15:00:00Z', status: 'completed', total: 100, items: [{ sku: 'S1', name: 'Silla', qty: 1, unitPrice: 100 }] }];
+  const indexByMonth = new Map([['2025-11', 100], ['2026-11', 150]]);
+  const live = buildLive({
+    event: ev, result: { days: [mkDay('2026-10-29', true, 10, 100)] }, currentSales: [], prevSales, productsBySku,
+    indexByMonth, today: '2026-10-29', ecommerceMeta: null, nowIso: '2026-10-29T15:00:00Z',
+  });
+  const sillas = live.categories.find(c => c.id === 'sillas');
+  assert.ok(Math.abs(sillas.prevRevenueAdj - 150) < 1e-9);
+});

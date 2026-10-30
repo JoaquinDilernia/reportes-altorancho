@@ -170,7 +170,7 @@ function todayShareFor(curve, current, today, nowIso) {
 
 // Live block: pace of today against the typical hourly curve, projected
 // close, recent orders and per-category progress.
-export function buildLive({ event, result, currentSales, prevSales, productsBySku, today, ecommerceMeta, nowIso = new Date().toISOString() }) {
+export function buildLive({ event, result, currentSales, prevSales, productsBySku, indexByMonth, today, ecommerceMeta, nowIso = new Date().toISOString() }) {
   const { current, previous } = event;
   const inPrevWindow = (s) => {
     const d = argDay(s.date);
@@ -302,7 +302,7 @@ export async function buildEventReport(eventId) {
     };
   }
 
-  const { curves, ...live } = buildLive({ event, result, currentSales, prevSales, productsBySku, today, ecommerceMeta });
+  const { curves, ...live } = buildLive({ event, result, currentSales, prevSales, productsBySku, indexByMonth, today, ecommerceMeta });
 
   return {
     event: eventId,
