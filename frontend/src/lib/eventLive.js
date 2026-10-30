@@ -101,7 +101,8 @@ export function compactMoney(v) {
   if (v == null) return '—';
   const a = Math.abs(v);
   const sign = v < 0 ? '-' : '';
-  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',')}M`;
+  if (a >= 1e7) return `${sign}$${formatNumber(Math.round(a / 1e6))}M`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1).replace('.', ',')}M`;
   if (a >= 1e3) return `${sign}$${Math.round(a / 1e3)}K`;
   return formatCurrency(v).replace(/\s/g, '');
 }

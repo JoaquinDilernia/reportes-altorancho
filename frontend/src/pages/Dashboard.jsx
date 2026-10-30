@@ -13,7 +13,7 @@ import ProvincesChart from '../components/ProvincesChart.jsx';
 import LocalesPanel from '../components/LocalesPanel.jsx';
 import MayoristaPanel from '../components/MayoristaPanel.jsx';
 import TopAdsTable from '../components/TopAdsTable.jsx';
-import EventPanel from '../components/EventPanel.jsx';
+import EventLive from '../components/event/EventLive.jsx';
 import InsightsButton from '../components/InsightsButton.jsx';
 import ChatWidget from '../components/ChatWidget.jsx';
 import { META_ADS_METRICS } from '../lib/metaAdsMetrics.js';
@@ -52,7 +52,7 @@ export default function Dashboard({ onLogout }) {
   // effect on the /api/report channels filter (metaAds data is account-wide
   // and comes back regardless of which channel was requested).
   const apiChannel = channel === 'meta_ads' ? null : channel;
-  // "Cyber / Black" is its own fixed-dates view (EventPanel fetches
+  // "Cyber / Black" is its own fixed-dates view (EventLive fetches
   // /api/event), so the period selector and /api/report don't apply to it.
   const isEventTab = channel === 'eventos';
   const salesMetrics = apiChannel === 'mayorista' ? [...SALES_METRICS, ...MAYORISTA_EXTRA_METRICS] : SALES_METRICS;
@@ -103,7 +103,7 @@ export default function Dashboard({ onLogout }) {
         <ChannelTabs channel={channel} onChannelChange={setChannel} />
       </header>
 
-      {isEventTab && <EventPanel onLogout={onLogout} />}
+      {isEventTab && <EventLive onLogout={onLogout} />}
 
       {!isEventTab && (
         <InsightsButton period={period} date={date} customStart={customStart} customEnd={customEnd} channel={apiChannel} />

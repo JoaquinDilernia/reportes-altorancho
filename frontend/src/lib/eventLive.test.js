@@ -157,6 +157,7 @@ describe('compactMoney', () => {
     expect(compactMoney(6_685_618)).toBe('$6,7M');
     expect(compactMoney(321_400)).toBe('$321K');
     expect(compactMoney(950)).toBe('$950');
+    expect(compactMoney(1_156_457_237)).toBe('$1.156M');
   });
 });
 
