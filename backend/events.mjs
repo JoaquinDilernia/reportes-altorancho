@@ -580,6 +580,12 @@ export function recentSales(salesDocs, limit = 12) {
     });
 }
 
+// Like activeEvent, but stays on one extra day so the last night's orders
+// still arrive within minutes after the window closes.
+export function liveSyncEvent(today) {
+  return activeEvent(today) ?? activeEvent(addDays(today, -1));
+}
+
 // Id of the event whose run window contains `today` (ART date), if any.
 export function activeEvent(today) {
   for (const [id, e] of Object.entries(EVENTS)) {

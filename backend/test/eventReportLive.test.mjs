@@ -26,3 +26,49 @@ test('peakHourOfDay: ART hour with most completed revenue', () => {
   assert.deepEqual(peakHourOfDay(docs, '2026-10-29'), { hour: 21, revenue: 100 });
   assert.equal(peakHourOfDay(docs, '2026-10-01'), null);
 });
+
+import { buildLive } from '../eventReport.mjs';
+
+const cell = (revenue, target) => ({ revenue, target, floor: target * 0.8, prevRevenue: 0, prevOrders: 0, orders: 0 });
+const mkDay = (date, played, rev, target) => ({
+  date, refDate: date.replace('2026', '2025'), played, inflationFactor: 1,
+  web: cell(played ? rev : null, target), locales: cell(played ? rev : null, target),
+});
+const event = { current: { start: '2026-10-29', end: '2026-10-30' }, previous: { start: '2025-10-29', end: '2025-10-30' } };
+const run = (today, days, nowIso) => buildLive({
+  event, result: { days }, currentSales: [], prevSales: [], productsBySku: new Map(), today, ecommerceMeta: null, nowIso,
+});
+
+test('buildLive: before the event starts -> share 0, no projection', () => {
+  const days = [mkDay('2026-10-29', false, 0, 100), mkDay('2026-10-30', false, 0, 100)];
+  const live = run('2026-10-28', days, '2026-10-28T15:00:00Z');
+  assert.deepEqual(live.todayShare, { web: 0, locales: 0 });
+  assert.deepEqual(live.projection, { web: null, locales: null, total: null });
+  assert.equal(live.todayStatus.total, null);
+});
+
+test('buildLive: during the event -> share from the curve and a projection', () => {
+  const days = [mkDay('2026-10-29', true, 100, 100), mkDay('2026-10-30', true, 50, 100)];
+  const live = run('2026-10-30', days, '2026-10-30T15:00:00Z'); // 12:00 ART, even curve
+  assert.equal(live.todayShare.web, 0.5);
+  assert.equal(live.todayStatus.web.pct, 100);
+  assert.equal(live.projection.web, 200);
+  assert.equal(live.projection.total, 400);
+  assert.equal(live.updatedAt, null);
+});
+
+test('buildLive: after the event -> share 1, projection is the actual total', () => {
+  const days = [mkDay('2026-10-29', true, 100, 100), mkDay('2026-10-30', true, 80, 100)];
+  const live = run('2026-11-02', days, '2026-11-02T15:00:00Z');
+  assert.deepEqual(live.todayShare, { web: 1, locales: 1 });
+  assert.equal(live.projection.web, 180);
+  assert.equal(live.todayStatus.web, null);
+});
+
+test('buildLive: projection.total is null when one group has no projection', () => {
+  const days = [mkDay('2026-10-29', true, 100, 100), mkDay('2026-10-30', true, 50, 100)];
+  days.forEach(d => { d.locales.target = 0; });
+  const live = run('2026-10-30', days, '2026-10-30T15:00:00Z');
+  assert.equal(live.projection.locales, null);
+  assert.equal(live.projection.total, null);
+});

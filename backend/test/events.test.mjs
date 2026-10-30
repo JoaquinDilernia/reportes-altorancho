@@ -329,3 +329,11 @@ test('activeEvent: id of the event whose window contains today', () => {
   assert.equal(activeEvent('2026-11-20'), null);
   assert.equal(activeEvent('2026-11-27'), 'black');
 });
+
+import { liveSyncEvent } from '../events.mjs';
+
+test('liveSyncEvent: active through the day after the window closes', () => {
+  assert.equal(liveSyncEvent('2026-11-15'), 'cyber');
+  assert.equal(liveSyncEvent('2026-11-16'), 'cyber');
+  assert.equal(liveSyncEvent('2026-11-17'), null);
+});

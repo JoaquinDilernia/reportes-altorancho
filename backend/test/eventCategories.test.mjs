@@ -35,6 +35,9 @@ test('summarizeCategories: units, revenue (2025 inflation-adjusted), stock and c
   const productsBySku = new Map([
     ['S1', { sku: 'S1', name: 'Silla 1', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: { local_lomas: 2, deposito: 3 } }],
     ['S2', { sku: 'S2', name: 'Silla 2', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: { local_lomas: 1, deposito: -5 } }],
+    ['F1', { sku: 'F1', name: 'Insumo', odooCategPath: 'All / Fábrica / Insumos', stockByLocation: { deposito: 1000000 } }],
+    ['G1', { sku: 'G1', name: 'Gift Card', odooCategPath: 'All / Biblia/ GIFTCARD / GIFTCARD', stockByLocation: { ecommerce_odoo: 99999999 } }],
+    ['N1', { sku: 'N1', name: 'Sin ruta', odooCategPath: null, stockByLocation: { deposito: 500 } }],
   ]);
   const prevDocs = [
     sale('2025-11-03T15:00:00Z', 'completed', [it('S1', 10, 100), it('ZZ', 1, 50), it('S1', 1, -40)]),
@@ -65,4 +68,5 @@ test('summarizeCategories: units, revenue (2025 inflation-adjusted), stock and c
   assert.equal(otros.prevUnits, 1);
   assert.equal(otros.units, 0);
   assert.equal(otros.cantMatch, true); // 0 + 0 < 1
+  assert.equal(otros.stock, 0); // non-Biblia products add no stock
 });

@@ -88,7 +88,11 @@ export function summarizeCategories({ prevDocs, prevToDateDocs, currentDocs, pro
 
   // Stock counts every location (incl. mayorista and depósito) of every
   // product in the category, sold or not.
+  // Only sellable ("Biblia") products: factory/supplies have no sales.
   for (const product of productsBySku.values()) {
+    if (!product.odooCategPath?.includes('Biblia')) continue;
+    // Gift cards carry a virtual ~100M stock in Odoo.
+    if (/GIFTCARD/i.test(product.odooCategPath)) continue;
     const c = byId.get(eventCategoryOf(product));
     for (const n of Object.values(product.stockByLocation || {})) c.stock += Math.max(0, n || 0);
   }

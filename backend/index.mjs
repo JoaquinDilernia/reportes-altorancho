@@ -7,7 +7,7 @@ import { requireAuth, generateToken } from './auth.mjs';
 import { getProductBySku, getProductsBySku } from './firestore.mjs';
 import { buildFullReport } from './report.mjs';
 import { getEventReport } from './eventReport.mjs';
-import { EVENTS, activeEvent, argDay } from './events.mjs';
+import { EVENTS, liveSyncEvent, argDay } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
 import posRoutes from './posRoutes.mjs';
@@ -211,7 +211,9 @@ console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
 // While an event is running, sales and ads refresh far more often than the
 // 4-hourly full sync so the live tab is current.
 const LIVE_SYNC_MINUTES = parseInt(process.env.LIVE_SYNC_MINUTES || '5', 10);
-const eventIsActive = () => !!activeEvent(argDay(new Date().toISOString()));
+const eventIsActive = () => !!liveSyncEvent(argDay(new Date().toISOString()));
+const LIVE_ADS_EVERY_MS = 30 * 60 * 1000;
+let lastLiveAdsSyncAt = 0;
 
 async function runLive(name, steps) {
   if (!eventIsActive()) return;
@@ -235,18 +237,19 @@ async function runLiveSalesSync() {
     ['ecommerce', async () => syncEcommerce(await getCategoryBySku())],
     ['locales', async () => syncLocales(await getCategoryBySku())],
     ['posLocales', async () => syncPosLocales(await getCategoryBySku())],
-  ]);
-}
-
-async function runLiveAdsSync() {
-  await runLive('pauta', [
-    ['metaAds', () => syncMetaAds({ daysBack: 2, includeAdLevel: false })],
-    ['googleAds', () => syncGoogleAds({ daysBack: 2 })],
+    // Ads ride along in this job (at most every 30 min) instead of having
+    // their own cron: both would fire on the same second and the second one
+    // would always find the shared lock taken.
+    ['ads', async () => {
+      if (Date.now() - lastLiveAdsSyncAt < LIVE_ADS_EVERY_MS) return;
+      lastLiveAdsSyncAt = Date.now();
+      try { await syncMetaAds({ daysBack: 2, includeAdLevel: false }); } catch (err) { console.error('[cron:live] metaAds error:', err.message); }
+      try { await syncGoogleAds({ daysBack: 2 }); } catch (err) { console.error('[cron:live] googleAds error:', err.message); }
+    }],
   ]);
 }
 
 cron.schedule(`*/${LIVE_SYNC_MINUTES} * * * *`, runLiveSalesSync);
-cron.schedule('*/30 * * * *', runLiveAdsSync);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startPosAutoRetry();
