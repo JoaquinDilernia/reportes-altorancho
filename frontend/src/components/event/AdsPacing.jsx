@@ -35,7 +35,7 @@ export default function AdsPacing({ days, prevYear }) {
               {plan > 0 && <u style={{ left: pct(planToDate[id]) }} title="plan a hoy" />}
             </div>
             <div className="ev-sub">
-              de {compactMoney(plan)} plan (a hoy {compactMoney(planToDate[id])}) · ROAS{' '}
+              de {compactMoney(plan)} plan (a hoy {compactMoney(planToDate[id])}) · ROAS{id === 'google' ? ' (parcial por GA4)' : ''}{' '}
               <b style={{ color: 'var(--ink)' }}>{roasText(ratio(actual[id].value, spent))}</b>{' '}
               ({prevYear}: {roasText(ratio(prev[id].value, prev[id].spend))})
             </div>

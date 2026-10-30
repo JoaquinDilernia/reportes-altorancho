@@ -86,12 +86,13 @@ function Topbar({ data, eventId, onEvent, view, onView, now, stale }) {
   );
 }
 
-function Tile({ label, value, chip, chipClass = '' }) {
+function Tile({ label, value, chip, chipClass = '', note }) {
   return (
     <div className="ev-tile">
       <div className="ev-l">{label}</div>
       <div className="v num">{value}</div>
       {chip && <span className={`ev-chip ${chipClass}`}>{chip}</span>}
+      {note && <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>{note}</div>}
     </div>
   );
 }
@@ -159,6 +160,7 @@ function LiveHero({ data, v, view, phase }) {
           value={`${roasText(ads.roas.meta)} · ${roasText(ads.roas.google)}`}
           chip={`vs ${roasText(ads.roas.prevMeta)} · ${roasText(ads.roas.prevGoogle)} ${data.previous.year}`}
           chipClass={roasChipClass(ads.roas)}
+          note="Google de hoy/ayer parcial (GA4)"
         />
       </div>
     </div>

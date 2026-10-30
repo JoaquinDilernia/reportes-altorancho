@@ -34,7 +34,10 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
   }, { floor: 0, target: 0, revenue: 0 });
   const firstExtension = days.find(d => d.phase === 'extension')?.date;
 
-  const adCells = (prevAdj, prev, actual, plan, future) => ['meta', 'google'].map((p, i) => [
+  // GA4 takes 24-48 h to settle: Google ROAS of today and yesterday is partial.
+  const yesterday = today ? new Date(Date.parse(`${today}T00:00:00Z`) - 864e5).toISOString().slice(0, 10) : null;
+
+  const adCells = (prevAdj, prev, actual, plan, future, partial = false) => ['meta', 'google'].map((p, i) => [
     <td key={`${p}a`} className={i ? 'sepL' : undefined}>{compactMoney(prevAdj?.[p]?.spend)}</td>,
     future
       ? <td key={`${p}b`} className="pend">{plan?.[p] != null ? `plan ${compactMoney(plan[p])}` : '—'}</td>
@@ -42,7 +45,9 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
     <td key={`${p}c`}>{roasText(ratio(prev?.[p]?.value, prev?.[p]?.spend))}</td>,
     future
       ? <td key={`${p}d`} className="pend">—</td>
-      : <td key={`${p}d`}>{actual ? roasText(ratio(actual[p]?.value, actual[p]?.spend)) : '—'}</td>,
+      : p === 'google' && partial && actual
+        ? <td key={`${p}d`} style={{ opacity: 0.55 }} title="GA4 todavía está cargando la facturación">{roasText(ratio(actual[p]?.value, actual[p]?.spend))}*</td>
+        : <td key={`${p}d`}>{actual ? roasText(ratio(actual[p]?.value, actual[p]?.spend)) : '—'}</td>,
   ]);
 
   return (
@@ -94,7 +99,7 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
             return (
               <tr key={d.date} className={cls || undefined}>
                 <td>{dayLabel(d.date)}{tags.length ? ` · ${tags.join(' · ')}` : ''}</td>
-                {adCells(d.ads?.prevAdj, d.ads?.prev, d.ads?.actual, d.ads?.plan, future)}
+                {adCells(d.ads?.prevAdj, d.ads?.prev, d.ads?.actual, d.ads?.plan, future, d.date === today || d.date === yesterday)}
                 <td className="sepL">{compactMoney(s.floor)}</td>
                 <td>{compactMoney(s.target)}</td>
                 <td className={future ? 'pend' : undefined}>
@@ -111,6 +116,8 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
         crecimiento real (web +{Math.round((realGrowth?.web ?? 0) * 100)}%, locales +{Math.round((realGrowth?.locales ?? 0) * 100)}%).
         La inversión 2025 también está ajustada por inflación, con el mismo factor del día (el ROAS no cambia). Google se
         mide con GA4 (google / cpc) e incluye la búsqueda de marca. La pauta es siempre de la web.
+        <br />
+        * Google: GA4 tarda 24–48 h en cargar la facturación; el ROAS de hoy y ayer todavía es parcial.
       </div>
     </div>
   );
