@@ -83,7 +83,7 @@ function PhaseCards({ phases }) {
           </div>
           <p className="invest-reason">
             {p.splitFromConfig
-              ? `Reparto fijado a mano. La data de 2025 sugería ${Math.round(p.suggestedMetaShare * 100)}% Meta.`
+              ? `Reparto del plan de marketing. La data de 2025 sugería ${Math.round(p.suggestedMetaShare * 100)}% Meta.`
               : phaseReason(p)}
           </p>
           <ScaleWarning scale={p.scale} />
@@ -295,13 +295,21 @@ export default function InvestmentPlan({ data }) {
     <>
       <h2 className="section-title">Propuesta de inversión en pauta · {data.label} {data.current.year}</h2>
       <div className="event-assumptions">
-        <div>
-          <strong>Presupuesto:</strong> {millions(inv.dailyBudget)} por día entre Meta y Google ({millions(inv.total)} en
-          total{data.current.launchHours ? `, el día del lanzamiento proporcional a ${data.current.launchHours} h` : ''}).
-          Un monto fijo por día en cada etapa (previa, días oficiales, extensión), según cuánto vendió la web en esa
-          etapa en {data.previous.year}: entre la mitad y 1,6 veces el promedio diario, redondeado para cargarlo
-          directo en las plataformas.
-        </div>
+        {inv.fixedPlan ? (
+          <div>
+            <strong>Presupuesto:</strong> el plan día por día confirmado por marketing, {millions(inv.total)} en total
+            entre Meta y Google ({millions(inv.dailyBudget)} por día en promedio). Los montos de cada día salen de la
+            planilla, no de este reporte.
+          </div>
+        ) : (
+          <div>
+            <strong>Presupuesto:</strong> {millions(inv.dailyBudget)} por día entre Meta y Google ({millions(inv.total)} en
+            total{data.current.launchHours ? `, el día del lanzamiento proporcional a ${data.current.launchHours} h` : ''}).
+            Un monto fijo por día en cada etapa (previa, días oficiales, extensión), según cuánto vendió la web en esa
+            etapa en {data.previous.year}: entre la mitad y 1,6 veces el promedio diario, redondeado para cargarlo
+            directo en las plataformas.
+          </div>
+        )}
         <div>
           <strong>ROAS objetivo:</strong> lo que tiene que reportar cada plataforma para que la web llegue a su objetivo del
           día. Hoy Meta se adjudica el {Math.round(inv.shares.meta * 100)}% de la venta web y Google

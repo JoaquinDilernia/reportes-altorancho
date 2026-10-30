@@ -258,6 +258,34 @@ test('buildInvestmentPlan: a split set in the event config wins over the suggest
   assert.equal(p.suggestedMetaShare, 0.5);
 });
 
+test('buildInvestmentPlan: a day-by-day plan in the config replaces the computed amounts', () => {
+  const day = (date, phase) => ({ date, refDate: date, phase, isLaunch: false, web: { prevRevenue: 100, target: 100 } });
+  const plan = buildInvestmentPlan({
+    days: [day('2026-11-01', 'pre'), day('2026-11-02', 'oficial'), day('2026-11-03', 'oficial')],
+    current: {
+      dailyAdBudget: 4_000_000,
+      adPlan: [
+        { from: '2026-11-01', to: '2026-11-01', meta: 2_000_000, google: 1_700_000 },
+        { from: '2026-11-02', to: '2026-11-03', meta: 5_000_000, google: 4_250_000 },
+      ],
+    },
+    prevAds: adsByDate([], []),
+    prevBaselineDates: [],
+    shares: { meta: 0.2, google: 0.3 },
+  });
+  assert.deepEqual(plan.days.map(d => [d.meta, d.google, d.spend]), [
+    [2_000_000, 1_700_000, 3_700_000],
+    [5_000_000, 4_250_000, 9_250_000],
+    [5_000_000, 4_250_000, 9_250_000],
+  ]);
+  assert.equal(plan.total, 22_200_000);
+  assert.equal(plan.fixedPlan, true);
+  const oficial = plan.phases.find(p => p.phase === 'oficial');
+  assert.equal(oficial.plan.meta, 10_000_000);
+  assert.ok(Math.abs(oficial.metaShare - 5 / 9.25) < 1e-9);
+  assert.equal(oficial.splitFromConfig, true);
+});
+
 import {
   statusOf, hourlyShareCurve, expectedShare, dayStatusSoFar, projectClose, recentSales, activeEvent,
 } from '../events.mjs';

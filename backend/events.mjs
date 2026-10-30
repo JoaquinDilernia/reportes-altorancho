@@ -20,6 +20,17 @@ export const EVENTS = {
       // Optional fixed Meta share (e.g. 0.6 for 60/40) to override the
       // per-phase split suggested by last year's data. Marketing's own
       // projection was 60/40, which the suggested split averages out to.
+      // Marketing's confirmed day-by-day plan (sheet "Proyeccion Cyber 2026",
+      // tab "Plan 2026 por día", $75,1M sin imp.). It replaces the computed
+      // amounts for the days it covers.
+      adPlan: [
+        { from: '2026-10-29', to: '2026-10-31', meta: 1_200_000, google: 1_020_000 },
+        { from: '2026-11-01', to: '2026-11-01', meta: 2_000_000, google: 1_700_000 },
+        { from: '2026-11-02', to: '2026-11-04', meta: 5_000_000, google: 4_250_000 },
+        { from: '2026-11-05', to: '2026-11-08', meta: 2_625_000, google: 2_231_250 },
+        { from: '2026-11-09', to: '2026-11-12', meta: 1_250_000, google: 1_062_500 },
+        { from: '2026-11-13', to: '2026-11-15', meta: 1_500_000, google: 1_275_000 },
+      ],
     },
     previous: {
       year: 2025, start: '2025-10-29', end: '2025-11-09',
@@ -472,11 +483,14 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
     };
   });
   const shareByPhase = Object.fromEntries(phases.map(p => [p.phase, p.metaShare]));
+  const fixed = fixedAdPlan(current.adPlan);
 
   const planDays = days.map((d, i) => {
-    const spend = spendByIdx.get(i) ?? roundBudget(launchSpend);
-    const meta = roundBudget(spend * shareByPhase[d.phase]);
-    const google = spend - meta;
+    let spend = spendByIdx.get(i) ?? roundBudget(launchSpend);
+    let meta = roundBudget(spend * shareByPhase[d.phase]);
+    let google = spend - meta;
+    const f = fixed.get(d.date);
+    if (f) { meta = f.meta; google = f.google; spend = meta + google; }
     return {
       date: d.date,
       phase: d.phase,
@@ -493,6 +507,10 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
   for (const p of phases) {
     const pd = planDays.filter(d => d.phase === p.phase);
     p.plan = { spend: pd.reduce((s, d) => s + d.spend, 0), meta: pd.reduce((s, d) => s + d.meta, 0), google: pd.reduce((s, d) => s + d.google, 0) };
+    if (fixed.size) {
+      p.metaShare = p.plan.spend ? p.plan.meta / p.plan.spend : p.metaShare;
+      p.splitFromConfig = true;
+    }
     // How many times last year's spend (in today's pesos) each platform is
     // asked to absorb — the further above 1, the less last year's ROAS
     // can be trusted to hold.
@@ -505,7 +523,20 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
   }
 
   const total = planDays.reduce((s, d) => s + d.spend, 0);
-  return { dailyBudget: daily, total, shares, phases, days: planDays };
+  return {
+    dailyBudget: fixed.size ? total / planDays.length : daily,
+    fixedPlan: fixed.size > 0,
+    total, shares, phases, days: planDays,
+  };
+}
+
+// date -> { meta, google } from the config's `adPlan` date ranges.
+function fixedAdPlan(ranges = []) {
+  const out = new Map();
+  for (const r of ranges) {
+    for (const date of datesBetween(r.from, r.to)) out.set(date, { meta: r.meta, google: r.google });
+  }
+  return out;
 }
 
 // ---- Live event helpers ----
