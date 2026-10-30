@@ -124,7 +124,12 @@ function projectionChip(projection, v) {
   return ['no llega al piso', 'r'];
 }
 
-function LiveHero({ data, v, view }) {
+function todayChip(v, phase) {
+  if (phase === 'post') return null;
+  return v.today.pct != null ? `${Math.round(v.today.pct)}% del obj. a esta hora` : 'todavía sin datos';
+}
+
+function LiveHero({ data, v, view, phase }) {
   const ads = adsSummary(data.days);
   const realPct = v.floorElapsed ? (v.revenue / v.floorElapsed - 1) * 100 : null;
   const avgTicket = v.orders ? v.revenue / v.orders : null;
@@ -145,7 +150,7 @@ function LiveHero({ data, v, view }) {
         <Tile
           label="Hoy"
           value={v.today.revenue == null ? '—' : compactMoney(v.today.revenue)}
-          chip={v.today.pct != null ? `${Math.round(v.today.pct)}% del obj. a esta hora` : 'sin objetivo hoy'}
+          chip={todayChip(v, phase)}
           chipClass={statusClass(v.today.status)}
         />
         <Tile label="Si seguimos así" value={v.projection == null ? '—' : compactMoney(v.projection)} chip={projText} chipClass={projClass} />
@@ -197,7 +202,9 @@ function CountdownHero({ data, v, view }) {
   );
 }
 
-function GroupRow({ label, totals }) {
+// Status against the floor/target of the time elapsed (today pro-rated).
+function GroupRow({ label, data, group }) {
+  const totals = groupView(data, group);
   return (
     <div className="row">
       <span className="ev-l">{label}</span>
@@ -240,8 +247,8 @@ function Side({ data, v, view, now, phase }) {
       <div className="ev-panel ev-ringrow">
         <TodayRing pct={v.today.pct} />
         <div className="ev-split">
-          <GroupRow label="Web" totals={data.totals.web} />
-          <GroupRow label="Locales" totals={data.totals.locales} />
+          <GroupRow label="Web" data={data} group="web" />
+          <GroupRow label="Locales" data={data} group="locales" />
           <div className="row">
             <span className="ev-l">Hoy vs mismo día {data.previous.year}</span>
             <span><b className={`num ${vsPrev == null ? '' : vsPrev >= 0 ? 'pos' : 'neg'}`}>{pctText(vsPrev, { sign: true })}</b></span>
@@ -316,7 +323,7 @@ export default function EventLive({ onLogout }) {
       const seenId = id.endsWith('_dia') ? `${view}:${id}:${v.today.date}` : `${view}:${id}`;
       if (seen.has(seenId)) continue;
       markSeen(eventId, seenId);
-      fresh.push({ id: ++toastSeq.current, text: milestoneText(id, data.label) });
+      fresh.push({ id: ++toastSeq.current, text: milestoneText(id, data.label, view) });
     }
     if (fresh.length) setToasts(q => [...q, ...fresh]);
   }, [data, v, view, eventId, phase]);
@@ -340,7 +347,7 @@ export default function EventLive({ onLogout }) {
             <div className="ev-hero">
               {phase === 'pre'
                 ? <CountdownHero data={data} v={v} view={view} />
-                : <LiveHero data={data} v={v} view={view} />}
+                : <LiveHero data={data} v={v} view={view} phase={phase} />}
               <Side data={data} v={v} view={view} now={now} phase={phase} />
             </div>
 
@@ -387,6 +394,7 @@ export default function EventLive({ onLogout }) {
               today={data.today}
               todayStatus={data.live?.todayStatus?.[view] ?? null}
               totalStatus={v.status}
+              elapsed={{ floor: v.floorElapsed, target: v.targetElapsed }}
               realGrowth={data.assumptions?.realGrowth}
             />
 

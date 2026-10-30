@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import {
-  STATUS_LABELS, MILESTONE_COPY, groupView, crossedMilestones, minutesAgo, buildTicker,
+  STATUS_LABELS, MILESTONE_COPY, groupView, milestoneText, crossedMilestones, minutesAgo, buildTicker,
   loadSeen, markSeen, compactMoney,
 } from './eventLive.js';
 
@@ -71,7 +71,10 @@ describe('groupView', () => {
   test('web reads the web totals and today row', () => {
     const v = groupView(fixture(), 'web');
     expect(v.revenue).toBe(210);
-    expect(v.status).toBe('bajo_piso');
+    // 100 + 200×0.5 floor elapsed, 110 + 220×0.5 target elapsed
+    expect(v.floorElapsed).toBe(200);
+    expect(v.targetElapsed).toBe(220);
+    expect(v.status).toBe('entre');
     expect(v.projection).toBe(600);
     expect(v.today).toMatchObject({ date: '2026-10-30', revenue: 90, floor: 200, target: 220, pct: 81.8, status: 'bajo_piso' });
     // 2025 same day, inflation-adjusted (floor), up to the elapsed share of today.
@@ -86,21 +89,33 @@ describe('groupView', () => {
     });
     expect(v.today).toMatchObject({ revenue: 100, floor: 300, target: 325, pct: 60, status: 'bajo_piso' });
     expect(v.todayPrev).toBe(200 * 0.5 + 100 * 0.25);
-    // 250 < 450 floor to date
+    // each group with its own share: web 200/220, locales 50+25 / 55+26.25
+    expect(v.floorElapsed).toBe(275);
+    expect(v.targetElapsed).toBe(301.25);
     expect(v.status).toBe('bajo_piso');
   });
 
   test('total status is null when nothing to compare yet', () => {
     const d = fixture();
-    d.totals.web.targetToDate = 0;
-    d.totals.locales.targetToDate = 0;
+    d.days.forEach(day => { day.played = false; });
     expect(groupView(d, 'total').status).toBeNull();
+    expect(groupView(d, 'web').status).toBeNull();
   });
 
-  test('a null group status stays null (no green)', () => {
-    const d = fixture();
-    d.totals.web.status = null;
-    expect(groupView(d, 'web').status).toBeNull();
+  test('mid-day: 55% of the full-day target at half the day is not bajo_piso', () => {
+    const d = {
+      label: 'Cyber', today: '2026-11-02',
+      days: [{ date: '2026-11-02', played: true, web: cell({ floor: 100, target: 110, revenue: 60.5, orders: 2 }), locales: cell({ floor: 50, target: 52.5, revenue: 28.875, orders: 1 }) }],
+      totals: {
+        web: { floor: 100, floorToDate: 100, target: 110, targetToDate: 110, revenue: 60.5, orders: 2, status: 'bajo_piso' },
+        locales: { floor: 50, floorToDate: 50, target: 52.5, targetToDate: 52.5, revenue: 28.875, orders: 1, status: 'bajo_piso' },
+      },
+      live: { todayShare: { web: 0.5, locales: 0.5 } },
+    };
+    expect(groupView(d, 'web').status).not.toBe('bajo_piso');
+    expect(groupView(d, 'web').status).toBe('sobre');
+    expect(groupView(d, 'locales').status).not.toBe('bajo_piso');
+    expect(groupView(d, 'total').status).not.toBe('bajo_piso');
   });
 
   test('outside the window today has no revenue and no status', () => {
@@ -139,6 +154,14 @@ describe('crossedMilestones', () => {
     const prev = view({ today: { date: '2026-10-29', revenue: 500, floor: 100, target: 110 } });
     const next = view({ today: { date: '2026-10-30', revenue: 105, floor: 100, target: 110 } });
     expect(crossedMilestones(prev, next)).toEqual(['piso_dia']);
+  });
+});
+
+describe('milestoneText', () => {
+  test('names the view outside Total', () => {
+    expect(milestoneText('piso_dia', 'Cyber')).toBe('¡Pasamos el piso de HOY!');
+    expect(milestoneText('piso_dia', 'Cyber', 'total')).toBe('¡Pasamos el piso de HOY!');
+    expect(milestoneText('objetivo_evento', 'Black', 'locales')).toBe('¡OBJETIVO del Black cumplido! (locales)');
   });
 });
 
@@ -183,8 +206,10 @@ describe('buildTicker', () => {
     const d = fixture();
     d.totals.web.revenue = 520; // web floor 500 passed, target 550 not
     const items = buildTicker(d, 'web');
-    expect(items).toContain('⚡ ¡Pasamos el PISO del Cyber!');
-    expect(items).toContain('🎯 Faltan $30 para el objetivo del Cyber');
+    expect(items).toContain('⚡ ¡Pasamos el PISO del Cyber! (web)');
+    expect(items).toContain('🎯 Faltan $30 para el objetivo del Cyber (web)');
+    // view-independent lines carry no suffix
+    expect(items).toContain('🔥 Silla Tube: 12 vendidas hoy');
   });
 
   test('skips everything that has no data', () => {

@@ -20,7 +20,9 @@ function sales(day, groups) {
 
 // One row per event day: Meta and Google spend/ROAS (always web-level; 2025
 // spend inflation-adjusted), then sales for the selected view.
-export default function DayByDayTable({ days, group, today, todayStatus, totalStatus, realGrowth }) {
+// `elapsed` = floor/target of the time played so far (today pro-rated by the
+// hourly curve), so "Total a hoy" compares like with like mid-day.
+export default function DayByDayTable({ days, group, today, todayStatus, totalStatus, elapsed, realGrowth }) {
   const groups = GROUPS[group] || GROUPS.total;
   const played = days.filter(d => d.played);
   const adsPrevAdj = sumAds(played, d => d.ads?.prevAdj);
@@ -65,8 +67,8 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
             <tr className="tot">
               <td>Total a hoy</td>
               {adCells(adsPrevAdj, adsPrev, adsActual, null, false)}
-              <td className="sepL">{compactMoney(tot.floor)}</td>
-              <td>{compactMoney(tot.target)}</td>
+              <td className="sepL">{compactMoney(elapsed?.floor ?? tot.floor)}</td>
+              <td>{compactMoney(elapsed?.target ?? tot.target)}</td>
               <td>{compactMoney(tot.revenue)}</td>
               <td className="st">{totalStatus ? <Chip status={totalStatus} /> : <Chip status={null} />}</td>
             </tr>

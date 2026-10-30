@@ -53,7 +53,8 @@
 .event-live .ev-flap .d { width: 52px; height: 78px; background: #0d1222; border: 1px solid #232c46; color: #fff; border-radius: 7px; font: 800 50px/78px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; text-align: center; position: relative; text-shadow: 0 0 18px rgba(124,196,255,.35); flex: none; }
 .event-live .ev-flap .d::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.6); }
 .event-live .ev-flap .s { width: 18px; font: 800 50px/78px ui-monospace, Menlo, Consolas, monospace; text-align: center; color: var(--sky); flex: none; }
-.event-live .ev-flap .d.flip { animation: ev-flip .3s ease; }
+/* One animation for the whole 1.4 s roll (5 × .28 s), no remounts. */
+.event-live .ev-flap .d.rolling { animation: ev-flip .28s ease 5; }
 @keyframes ev-flip { 50% { transform: rotateX(90deg) } }
 .event-live .ev-countdown { font-size: 64px; font-weight: 900; letter-spacing: -.03em; margin: 10px 0 4px; }
 .event-live .ev-countdown em { font-style: normal; color: var(--orange); }
@@ -180,6 +181,16 @@
   .event-live .ev-cat .r1 { text-align: left; }
   .event-live .ev-ads { grid-template-columns: 1fr; }
   .event-live .ev-paper { padding: 4px 12px 12px; }
+}
+
+/* Size the flap cells to the panel width (container query units), so even
+   $1.156.457.237 (13 cells) fits at 390 px. --units comes from FlapCounter.
+   Browsers without cqi keep the fixed sizes above. */
+.event-live .ev-flapbox { container-type: inline-size; }
+@supports (width: 1cqi) {
+  .event-live .ev-flap { --w: min(52px, calc(100cqi / var(--units, 12))); gap: calc(var(--w) * .1); }
+  .event-live .ev-flap .d { width: var(--w); height: calc(var(--w) * 1.5); font-size: calc(var(--w) * .96); line-height: calc(var(--w) * 1.5); border-radius: calc(var(--w) * .13); }
+  .event-live .ev-flap .s { width: calc(var(--w) * .35); font-size: calc(var(--w) * .96); line-height: calc(var(--w) * 1.5); }
 }
 
 @media (prefers-reduced-motion: reduce) {

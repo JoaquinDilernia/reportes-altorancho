@@ -34,11 +34,6 @@ export function groupView(data, view) {
     targetToDate: sumTotals('targetToDate'),
     prevRevenue: sumTotals('prevRevenue'),
   };
-  if (view === 'total') {
-    v.status = v.targetToDate ? statusOf(v.revenue, v.floorToDate, v.targetToDate) : null;
-  } else {
-    v.status = data.totals?.[view]?.status ?? null;
-  }
   v.projection = data.live?.projection?.[view] ?? null;
 
   const share = data.live?.todayShare || {};
@@ -58,11 +53,17 @@ export function groupView(data, view) {
   // Same day of last year, inflation-adjusted (the floor), up to the share of
   // the day already elapsed — so "hoy vs 2025" compares like with like.
   v.todayPrev = day ? groups.reduce((s, g) => s + (day[g]?.floor || 0) * (share[g] || 0), 0) : 0;
-  // Floor of the time elapsed so far (played days, today pro-rated).
-  v.floorElapsed = (data.days || []).filter(d => d.played).reduce(
-    (s, d) => s + groups.reduce((t, g) => t + (d[g]?.floor || 0) * (d.date === data.today ? (share[g] || 0) : 1), 0),
+  // Floor and target of the time elapsed so far: played days in full, today
+  // only for the share already elapsed (each group with its own share).
+  // totals.floorToDate/targetToDate count today's whole day, which would make
+  // every afternoon look "bajo piso".
+  const elapsed = (k) => (data.days || []).filter(d => d.played).reduce(
+    (s, d) => s + groups.reduce((t, g) => t + (d[g]?.[k] || 0) * (d.date === data.today ? (share[g] || 0) : 1), 0),
     0,
   );
+  v.floorElapsed = elapsed('floor');
+  v.targetElapsed = elapsed('target');
+  v.status = v.targetElapsed ? statusOf(v.revenue, v.floorElapsed, v.targetElapsed) : null;
   return v;
 }
 
@@ -85,8 +86,13 @@ export function crossedMilestones(prev, next) {
   }).map(([id]) => id);
 }
 
-export function milestoneText(id, label) {
-  return MILESTONE_COPY[id].replace('{label}', label);
+// " (web)" / " (locales)" so a toast or ticker line says which view it is about.
+export function viewSuffix(view) {
+  return view && view !== 'total' ? ` (${view})` : '';
+}
+
+export function milestoneText(id, label, view = 'total') {
+  return MILESTONE_COPY[id].replace('{label}', () => label) + viewSuffix(view);
 }
 
 export function minutesAgo(iso, nowMs) {
@@ -111,7 +117,7 @@ export function buildTicker(data, view) {
   const items = [];
   const v = groupView(data, view);
   const label = data.label;
-  for (const id of crossedMilestones(null, v)) items.push(`⚡ ${milestoneText(id, label)}`);
+  for (const id of crossedMilestones(null, v)) items.push(`⚡ ${milestoneText(id, label, view)}`);
 
   const top = data.live?.topProductToday;
   if (top?.name && top.units > 0) {
@@ -125,9 +131,9 @@ export function buildTicker(data, view) {
     if (c.cantMatch && c.id !== 'otros') items.push(`⚠ ${c.label}: quedan ${formatNumber(c.stock)} en stock`);
   }
   if (v.floor > 0 && v.revenue < v.floor) {
-    items.push(`🎯 Faltan ${compactMoney(v.floor - v.revenue)} para el piso del ${label}`);
+    items.push(`🎯 Faltan ${compactMoney(v.floor - v.revenue)} para el piso del ${label}${viewSuffix(view)}`);
   } else if (v.target > 0 && v.revenue < v.target) {
-    items.push(`🎯 Faltan ${compactMoney(v.target - v.revenue)} para el objetivo del ${label}`);
+    items.push(`🎯 Faltan ${compactMoney(v.target - v.revenue)} para el objetivo del ${label}${viewSuffix(view)}`);
   }
   return items;
 }

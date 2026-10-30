@@ -19,12 +19,19 @@ function ago(item, now) {
 // Latest real orders. New ones mount (keyed by time + amount) and slide in.
 export default function SalesFeed({ items, now }) {
   if (!items?.length) return <div className="ev-empty">Todavía no hay ventas en esta vista.</div>;
+  // Key = time + amount + channel + how many identical ones came before it:
+  // unique even for twin orders, and stable when a new sale is prepended
+  // (a plain list index would remount and re-animate every row each poll).
+  const seen = new Map();
   return (
     <div className="ev-feed">
       {items.map((it) => {
+        const base = `${it.date}-${it.total}-${it.channel}`;
+        const nth = seen.get(base) || 0;
+        seen.set(base, nth + 1);
         const name = it.itemCount > 1 && it.label ? `${it.label} y ${it.itemCount - 1} más` : (it.label || `${it.itemCount} productos`);
         return (
-          <div className="ev-sale" key={`${it.date}-${it.total}-${it.channel}`}>
+          <div className="ev-sale" key={`${base}-${nth}`}>
             <div title={name}>{name}<small>{where(it)} · {ago(it, now)}</small></div>
             <div className="amt num">{formatCurrency(it.total)}</div>
           </div>
