@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import admin from 'firebase-admin';
+import { parseSourceDate } from './normalize.mjs';
 
 let db;
 
@@ -35,7 +36,7 @@ export async function saveSalesDocs(docs) {
     for (const doc of docs.slice(i, i + BATCH_SIZE)) {
       batch.set(firestore.collection(SALES_COL).doc(doc.id), {
         ...doc,
-        date: admin.firestore.Timestamp.fromDate(new Date(doc.date)),
+        date: admin.firestore.Timestamp.fromDate(parseSourceDate(doc.date)),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     }

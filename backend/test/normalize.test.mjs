@@ -7,6 +7,7 @@ import {
   normalizeOdooEcommerceOrder,
   extractSkuFromDisplayName,
   stripSkuFromDisplayName,
+  parseSourceDate,
 } from '../normalize.mjs';
 
 const categoryBySku = new Map([
@@ -216,4 +217,12 @@ test('normalizeOdooEcommerceOrder strips the country-code suffix from the provin
   };
   assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, 'Santa Fe (AR)').shippingProvince, 'Santa Fe');
   assert.equal(normalizeOdooEcommerceOrder(order, [], categoryBySku, null).shippingProvince, null);
+});
+
+test('parseSourceDate trata el datetime naive de Odoo como UTC sin importar la zona del proceso', () => {
+  assert.equal(parseSourceDate('2026-10-30 13:21:35').toISOString(), '2026-10-30T13:21:35.000Z');
+});
+
+test('parseSourceDate respeta el offset de las fechas ISO de Tiendanube', () => {
+  assert.equal(parseSourceDate('2026-07-01T10:00:00-03:00').toISOString(), '2026-07-01T13:00:00.000Z');
 });

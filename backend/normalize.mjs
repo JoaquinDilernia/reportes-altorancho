@@ -143,3 +143,12 @@ export function normalizeOdooEcommerceOrder(order, lines, categoryBySku, provinc
     }),
   };
 }
+
+// Odoo devuelve datetimes naive en UTC ('YYYY-MM-DD HH:MM:SS'); new Date() los
+// leería en la zona del proceso. Acá la zona del proceso no debe importar.
+export function parseSourceDate(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return new Date(value.replace(' ', 'T') + 'Z');
+  }
+  return new Date(value);
+}
