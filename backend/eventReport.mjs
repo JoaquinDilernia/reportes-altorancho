@@ -196,7 +196,13 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
   projection.total = projection.web != null && projection.locales != null ? projection.web + projection.locales : null;
 
   const refDates = new Set(result.days.filter(d => d.played).map(d => d.refDate));
-  const factorByRefDate = new Map(result.days.map(d => [d.refDate, d.inflationFactor]));
+  const dayFactors = new Map(result.days.map(d => [d.refDate, d.inflationFactor]));
+  // 2025 window days that aren't a refDate fall back to the month-based factor
+  // (2025 month -> the matching month of this year's event).
+  const factorByRefDate = {
+    get: (day) => dayFactors.get(day)
+      ?? inflationFactor(indexByMonth, day.slice(0, 7), `${current.year}${day.slice(4, 7)}`).factor,
+  };
   const categories = summarizeCategories({
     prevDocs: prevSales.filter(inPrevWindow),
     prevToDateDocs: prevSales.filter(s => refDates.has(argDay(s.date))),

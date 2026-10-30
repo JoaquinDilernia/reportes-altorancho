@@ -294,6 +294,8 @@ test('dayStatusSoFar: compares revenue with floor/target scaled by expected shar
   assert.equal(r.status, 'entre');
   assert.equal(r.pct, 90.9);
   assert.deepEqual(dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0), { pct: null, status: null });
+  assert.deepEqual(dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0.019), { pct: null, status: null });
+  assert.equal(dayStatusSoFar({ revenue: 0.5, floor: 1, target: 1.1 }, 0.5).pct, 90.9);
 });
 
 test('projectClose: pace so far applied to the rest of the window', () => {

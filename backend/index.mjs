@@ -205,9 +205,6 @@ async function runFullSync() {
   }
 }
 
-cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
-console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
-
 // While an event is running, sales and ads refresh far more often than the
 // 4-hourly full sync so the live tab is current.
 const LIVE_SYNC_MINUTES = parseInt(process.env.LIVE_SYNC_MINUTES || '5', 10);
@@ -249,9 +246,12 @@ async function runLiveSalesSync() {
   ]);
 }
 
-cron.schedule(`*/${LIVE_SYNC_MINUTES} * * * *`, runLiveSalesSync);
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // Crons only when run as the server: importing { app } from a script must never sync.
+  cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
+  console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
+  // Offset to minute 2 so it never fires in the same second as the `0 */N` full sync.
+  cron.schedule(`2-59/${LIVE_SYNC_MINUTES} * * * *`, runLiveSalesSync);
   startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));

@@ -535,7 +535,12 @@ export function expectedShare(curve, nowIso) {
 }
 
 // Today's status against the part of floor/target expected so far.
+// Before this share of the day has elapsed the expected amount is so small that
+// pct/status swing wildly on a single sale, so report nothing yet.
+export const MIN_SHARE_FOR_STATUS = 0.02;
+
 export function dayStatusSoFar(cell, share) {
+  if (share < MIN_SHARE_FOR_STATUS) return { pct: null, status: null };
   const denom = cell.target * share;
   return {
     pct: denom ? Math.round((cell.revenue / denom) * 1000) / 10 : null,

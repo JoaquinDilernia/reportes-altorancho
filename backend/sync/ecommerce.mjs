@@ -43,6 +43,9 @@ async function fetchProvinceByPartnerId(partnerIds) {
 
 export async function syncEcommerce(categoryBySku, sinceOverride) {
   await authenticate();
+  // Cursor taken before querying Odoo, minus a 2-min overlap: orders written in
+  // Odoo while this run is in flight would otherwise fall before the next cursor.
+  const cursor = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
   const meta = await getSyncMetadata('ecommerce');
   const since = sinceOverride || meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') || '2000-01-01 00:00:00';
@@ -77,7 +80,7 @@ export async function syncEcommerce(categoryBySku, sinceOverride) {
   ));
 
   await saveSalesDocs(docs);
-  await setSyncMetadata('ecommerce', { lastSyncedAt: new Date().toISOString(), count: docs.length });
+  await setSyncMetadata('ecommerce', { lastSyncedAt: cursor, count: docs.length });
 
   console.log(`[sync:ecommerce] ${docs.length} órdenes sincronizadas`);
   return { count: docs.length };

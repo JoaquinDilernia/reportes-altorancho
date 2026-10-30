@@ -7,9 +7,9 @@ const PASSWORD = process.env.ODOO_PASSWORD;
 
 let sessionCookie = '';
 
-async function rpc(endpoint, params) {
+async function rpc(endpoint, params, { withCookie = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
-  if (sessionCookie) headers['Cookie'] = sessionCookie;
+  if (withCookie && sessionCookie) headers['Cookie'] = sessionCookie;
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method:  'POST',
@@ -32,8 +32,9 @@ async function rpc(endpoint, params) {
 }
 
 export async function authenticate() {
-  sessionCookie = '';
-  const result = await rpc('/web/session/authenticate', { db: DB, login: LOGIN, password: PASSWORD });
+  // Don't clear the shared cookie first: concurrent calls keep using the old
+  // session until the new Set-Cookie replaces it.
+  const result = await rpc('/web/session/authenticate', { db: DB, login: LOGIN, password: PASSWORD }, { withCookie: false });
   if (!result?.uid) throw new Error('Odoo authentication failed — check credentials');
   console.log(`[odoo] authenticated uid=${result.uid}`);
 }

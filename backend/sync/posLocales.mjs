@@ -24,6 +24,9 @@ export async function syncPosLocales(categoryBySku, sinceOverride) {
   const results = {};
   for (const store of POS_STORES) {
     const metaKey = `${store.channel}_pos`;
+    // Cursor taken before querying Odoo, minus a 2-min overlap: orders written in
+    // Odoo while this run is in flight would otherwise fall before the next cursor.
+    const cursor = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const meta = await getSyncMetadata(metaKey);
     const since = sinceOverride || meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') || '2000-01-01 00:00:00';
     const orders = await fetchAll('sale.order', [
@@ -41,7 +44,7 @@ export async function syncPosLocales(categoryBySku, sinceOverride) {
     }
     const docs = orders.map((o) => toPosDoc(o, linesByOrderId.get(o.id) || [], store.channel, categoryBySku));
     await saveSalesDocs(docs);
-    await setSyncMetadata(metaKey, { lastSyncedAt: new Date().toISOString(), count: docs.length });
+    await setSyncMetadata(metaKey, { lastSyncedAt: cursor, count: docs.length });
     results[store.channel] = docs.length;
     console.log(`[sync:posLocales] ${store.channel}: ${docs.length} pedidos`);
   }

@@ -52,6 +52,9 @@ export async function syncLocales(categoryBySku, sinceOverride) {
   const results = {};
 
   for (const store of STORES) {
+    // Cursor taken before querying Odoo, minus a 2-min overlap: orders written in
+    // Odoo while this run is in flight would otherwise fall before the next cursor.
+    const cursor = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const meta = await getSyncMetadata(store.channel);
     const since = sinceOverride || meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') || '2000-01-01 00:00:00';
 
@@ -75,7 +78,7 @@ export async function syncLocales(categoryBySku, sinceOverride) {
     ));
 
     await saveSalesDocs(docs);
-    await setSyncMetadata(store.channel, { lastSyncedAt: new Date().toISOString(), count: docs.length });
+    await setSyncMetadata(store.channel, { lastSyncedAt: cursor, count: docs.length });
     results[store.channel] = docs.length;
     console.log(`[sync:locales] ${store.channel}: ${docs.length} órdenes`);
   }
