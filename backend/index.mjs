@@ -4,10 +4,10 @@ import cors from 'cors';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { requireAuth, generateToken } from './auth.mjs';
-import { getProductBySku } from './firestore.mjs';
+import { getProductBySku, getProductsBySku } from './firestore.mjs';
 import { buildFullReport } from './report.mjs';
 import { getEventReport } from './eventReport.mjs';
-import { EVENTS } from './events.mjs';
+import { EVENTS, activeEvent, argDay } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
 import posRoutes from './posRoutes.mjs';
@@ -164,12 +164,23 @@ const PORT = process.env.PORT || 3000;
 
 const SYNC_HOURS = parseInt(process.env.SYNC_INTERVAL_HOURS || '4', 10);
 let syncRunning = false;
+let categoryBySkuCache = null;
+
+// Set by the full sync; before the first one finishes (fresh boot) it is
+// rebuilt once from the products already stored in Firestore.
+async function getCategoryBySku() {
+  if (categoryBySkuCache) return categoryBySkuCache;
+  const products = await getProductsBySku();
+  categoryBySkuCache = new Map([...products.values()].map(p => [p.sku, p.category]));
+  return categoryBySkuCache;
+}
 
 async function runFullSync() {
   if (syncRunning) { console.log('[cron] sync already running, skipping'); return; }
   syncRunning = true;
   try {
     const { categoryBySku } = await syncProducts();
+    categoryBySkuCache = categoryBySku;
     await syncEcommerce(categoryBySku);
     await syncLocales(categoryBySku);
     try {
@@ -196,6 +207,46 @@ async function runFullSync() {
 
 cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
 console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
+
+// While an event is running, sales and ads refresh far more often than the
+// 4-hourly full sync so the live tab is current.
+const LIVE_SYNC_MINUTES = parseInt(process.env.LIVE_SYNC_MINUTES || '5', 10);
+const eventIsActive = () => !!activeEvent(argDay(new Date().toISOString()));
+
+async function runLive(name, steps) {
+  if (!eventIsActive()) return;
+  if (syncRunning) { console.log(`[cron:live] ${name}: sync already running, skipping`); return; }
+  syncRunning = true;
+  try {
+    for (const [label, fn] of steps) {
+      try {
+        await fn();
+      } catch (err) {
+        console.error(`[cron:live] ${label} error:`, err.message);
+      }
+    }
+  } finally {
+    syncRunning = false;
+  }
+}
+
+async function runLiveSalesSync() {
+  await runLive('ventas', [
+    ['ecommerce', async () => syncEcommerce(await getCategoryBySku())],
+    ['locales', async () => syncLocales(await getCategoryBySku())],
+    ['posLocales', async () => syncPosLocales(await getCategoryBySku())],
+  ]);
+}
+
+async function runLiveAdsSync() {
+  await runLive('pauta', [
+    ['metaAds', () => syncMetaAds({ daysBack: 2, includeAdLevel: false })],
+    ['googleAds', () => syncGoogleAds({ daysBack: 2 })],
+  ]);
+}
+
+cron.schedule(`*/${LIVE_SYNC_MINUTES} * * * *`, runLiveSalesSync);
+cron.schedule('*/30 * * * *', runLiveAdsSync);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startPosAutoRetry();
