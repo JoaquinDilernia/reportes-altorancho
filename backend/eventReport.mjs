@@ -1,12 +1,15 @@
 import {
   querySalesByRange, getProductsBySku, getInflationIndexByMonth, queryMetaAdsDailyByRange, queryGoogleAdsDailyByRange,
+  getSyncMetadata,
 } from './firestore.mjs';
 import { computeTopProducts } from './aggregate.mjs';
 import {
   EVENTS, EVENT_GROUPS, TARGET_REAL_GROWTH, addDays, argDay, dailyByChannel, buildEventDays,
   summarizePastEvent, baselineRange, projectInflationIndex, inflationFactor, channelsWithoutHistory,
   adsByDate, attributionShares, buildInvestmentPlan, AD_PLATFORMS,
+  hourlyShareCurve, expectedShare, dayStatusSoFar, projectClose, recentSales, argHour,
 } from './events.mjs';
+import { summarizeCategories } from './eventCategories.mjs';
 
 const ALL_EVENT_CHANNELS = Object.values(EVENT_GROUPS).flat();
 // "A normal day" for last year's lift: the two weeks right before the event.
@@ -69,7 +72,9 @@ function inflationAssumptions(indexByMonth, current, previous) {
   };
 }
 
-export async function buildEventReport(eventId) {
+// Everything that doesn't depend on this year's sales/ads so far. Cached for
+// a long time: last year's windows and the weeks before the event don't move.
+async function loadStaticInputs(eventId) {
   const event = EVENTS[eventId];
   if (!event) throw new Error(`Unknown event: ${eventId}`);
   const { current, previous } = event;
@@ -94,22 +99,143 @@ export async function buildEventReport(eventId) {
   const sharesEnd = [addDays(current.start, -1), addDays(today, -1)].sort()[0];
   const sharesStart = addDays(sharesEnd, -SHARES_DAYS + 1);
   const [
-    indexByMonth, productsBySku, prevSales, currentSales, baselineSales, recapBaselineSales,
-    prevAds, currentAds, sharesAds, sharesWebSales, brandPrev, brandRecent,
+    indexByMonth, productsBySku, prevSales, baselineSales, recapBaselineSales,
+    prevAds, sharesAds, sharesWebSales, brandPrev, brandRecent,
   ] = await Promise.all([
     getInflationIndexByMonth(),
     getProductsBySku(),
     prevSalesPromise,
-    querySalesByRange(ALL_EVENT_CHANNELS, current.start, current.end),
     baselinePromise,
     querySalesByRange(ALL_EVENT_CHANNELS, recapBaselineStart, recapBaselineEnd),
     queryAds([recapBaselineStart, prevQueryStart].sort()[0], prevQueryEnd),
-    queryAds(current.start, current.end),
     queryAds(sharesStart, sharesEnd),
     querySalesByRange(EVENT_GROUPS.web, sharesStart, sharesEnd),
     googleBrandShare(previous.start, previous.end),
     googleBrandShare(sharesStart, sharesEnd),
   ]);
+  return {
+    indexByMonth, productsBySku, prevSales, baselineSales, recapBaselineSales,
+    prevAds, sharesAds, sharesWebSales, brandPrev, brandRecent,
+    sharesStart, sharesEnd, recapBaselineStart, recapBaselineEnd,
+  };
+}
+
+const STATIC_TTL_MS = 60 * 60 * 1000;
+const staticCache = new Map();
+
+function getStaticInputs(eventId) {
+  const hit = staticCache.get(eventId);
+  if (hit && Date.now() - hit.at < STATIC_TTL_MS) return hit.promise;
+  const promise = loadStaticInputs(eventId);
+  staticCache.set(eventId, { at: Date.now(), promise });
+  promise.catch(() => staticCache.delete(eventId));
+  return promise;
+}
+
+// Top-selling product (by units) among completed sales of one ART day.
+export function topProductOfDay(salesDocs, day) {
+  const units = new Map();
+  for (const s of salesDocs) {
+    if (s.status !== 'completed' || argDay(s.date) !== day) continue;
+    for (const i of s.items || []) {
+      if (!(i.unitPrice >= 0)) continue;
+      units.set(i.name, (units.get(i.name) || 0) + i.qty);
+    }
+  }
+  let best = null;
+  for (const [name, u] of units) if (!best || u > best.units) best = { name, units: u };
+  return best;
+}
+
+// ART hour with the most completed revenue on one day (null if no sales).
+export function peakHourOfDay(salesDocs, day) {
+  const byHour = new Map();
+  for (const s of salesDocs) {
+    if (s.status !== 'completed' || argDay(s.date) !== day) continue;
+    const h = argHour(s.date);
+    byHour.set(h, (byHour.get(h) || 0) + s.total);
+  }
+  let best = null;
+  for (const [hour, revenue] of byHour) if (!best || revenue > best.revenue) best = { hour, revenue };
+  return best;
+}
+
+// Share of the day already elapsed, per group: the typical hourly curve when
+// today is an event day, 1 once the event is over, 0 before it starts.
+function todayShareFor(curve, current, today, nowIso) {
+  if (today > current.end) return 1;
+  if (today < current.start) return 0;
+  return expectedShare(curve, nowIso);
+}
+
+// Live block: pace of today against the typical hourly curve, projected
+// close, recent orders and per-category progress.
+export function buildLive({ event, result, currentSales, prevSales, productsBySku, today, ecommerceMeta, nowIso = new Date().toISOString() }) {
+  const { current, previous } = event;
+  const inPrevWindow = (s) => {
+    const d = argDay(s.date);
+    return d >= previous.start && d <= previous.end;
+  };
+  const curves = {};
+  const todayShare = {};
+  for (const [group, channels] of Object.entries(EVENT_GROUPS)) {
+    curves[group] = hourlyShareCurve(prevSales.filter(s => channels.includes(s.channel) && inPrevWindow(s)));
+    todayShare[group] = todayShareFor(curves[group], current, today, nowIso);
+  }
+
+  const todayDay = result.days.find(d => d.date === today && d.played);
+  const todayStatus = { web: null, locales: null, total: null };
+  if (todayDay) {
+    for (const group of Object.keys(EVENT_GROUPS)) todayStatus[group] = dayStatusSoFar(todayDay[group], todayShare[group]);
+    const sum = (k) => todayDay.web[k] + todayDay.locales[k];
+    todayStatus.total = dayStatusSoFar({ revenue: sum('revenue'), floor: sum('floor'), target: sum('target') }, todayShare.web);
+  }
+
+  const projection = {};
+  for (const group of Object.keys(EVENT_GROUPS)) projection[group] = projectClose(result.days, group, todayShare[group]);
+  projection.total = projection.web != null && projection.locales != null ? projection.web + projection.locales : null;
+
+  const refDates = new Set(result.days.filter(d => d.played).map(d => d.refDate));
+  const factorByRefDate = new Map(result.days.map(d => [d.refDate, d.inflationFactor]));
+  const categories = summarizeCategories({
+    prevDocs: prevSales.filter(inPrevWindow),
+    prevToDateDocs: prevSales.filter(s => refDates.has(argDay(s.date))),
+    currentDocs: currentSales,
+    productsBySku,
+    factorByRefDate,
+  });
+
+  return {
+    updatedAt: ecommerceMeta?.lastSyncedAt ?? null,
+    now: nowIso,
+    todayShare,
+    todayStatus,
+    projection,
+    feed: recentSales(currentSales, 12),
+    topProductToday: topProductOfDay(currentSales, today),
+    peakHourYesterday: peakHourOfDay(currentSales, addDays(today, -1)),
+    categories,
+    curves,
+  };
+}
+
+export async function buildEventReport(eventId) {
+  const event = EVENTS[eventId];
+  if (!event) throw new Error(`Unknown event: ${eventId}`);
+  const { current, previous } = event;
+  const today = todayART();
+
+  const [st, currentSales, currentAds, ecommerceMeta] = await Promise.all([
+    getStaticInputs(eventId),
+    querySalesByRange(ALL_EVENT_CHANNELS, current.start, current.end),
+    queryAds(current.start, current.end),
+    getSyncMetadata('ecommerce'),
+  ]);
+  const {
+    indexByMonth, productsBySku, prevSales, baselineSales, recapBaselineSales,
+    prevAds, sharesAds, sharesWebSales, brandPrev, brandRecent,
+    sharesStart, sharesEnd, recapBaselineStart, recapBaselineEnd,
+  } = st;
 
   const result = buildEventDays({
     current,
@@ -136,6 +262,18 @@ export async function buildEventReport(eventId) {
     prevBaselineRange: { start: recapBaselineStart, end: recapBaselineEnd },
     googleBrand: { previous: brandPrev, recent: brandRecent },
   };
+  const inWindow = (s) => {
+    const d = argDay(s.date);
+    return d >= previous.start && d <= previous.end;
+  };
+  // Last year's ads in today's pesos, and the planned spend of each day.
+  for (const [i, day] of result.days.entries()) {
+    day.ads.prevAdj = Object.fromEntries(AD_PLATFORMS.map(p => [p, {
+      spend: day.ads.prev[p].spend * day.inflationFactor,
+      value: day.ads.prev[p].value * day.inflationFactor,
+    }]));
+    day.ads.plan = Object.fromEntries(AD_PLATFORMS.map(p => [p, investment.days[i]?.[p] ?? null]));
+  }
   // Last year's full promo window, day by day (not the aligned days).
   const prevWindowAds = [];
   for (let d = previous.start; d <= previous.end; d = addDays(d, 1)) {
@@ -143,10 +281,6 @@ export async function buildEventReport(eventId) {
     prevWindowAds.push({ date: d, ...Object.fromEntries(AD_PLATFORMS.map(p => [p, a[p]])) });
   }
 
-  const inWindow = (s) => {
-    const d = argDay(s.date);
-    return d >= previous.start && d <= previous.end;
-  };
   const recap = {};
   for (const [group, channels] of Object.entries(EVENT_GROUPS)) {
     const docs = prevSales.filter(s => channels.includes(s.channel) && inWindow(s));
@@ -161,6 +295,8 @@ export async function buildEventReport(eventId) {
       topProductsByUnits: computeTopProducts(withoutDiscountLines(docs), productsBySku, { by: 'units', limit: 10 }),
     };
   }
+
+  const { curves, ...live } = buildLive({ event, result, currentSales, prevSales, productsBySku, today, ecommerceMeta });
 
   return {
     event: eventId,
@@ -179,13 +315,14 @@ export async function buildEventReport(eventId) {
     previousRecap: recap,
     investment,
     previousAds: prevWindowAds,
+    live,
+    curves,
   };
 }
 
-// Sales only sync every few hours and this report reads ~a year's worth of
-// windows, so a short in-memory cache keeps the tab snappy when the meeting
-// flips between Cyber/Black and Web/Locales.
-const CACHE_TTL_MS = 10 * 60 * 1000;
+// Cheap to rebuild from the static bundle: only this year's sales/ads and the
+// sync metadata are fetched, so a short TTL keeps the live tab fresh.
+const CACHE_TTL_MS = 2 * 60 * 1000;
 const cache = new Map();
 
 export async function getEventReport(eventId) {
