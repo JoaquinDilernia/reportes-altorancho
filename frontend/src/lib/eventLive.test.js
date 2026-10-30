@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import {
-  STATUS_LABELS, MILESTONE_COPY, groupView, milestoneText, crossedMilestones, minutesAgo, buildTicker,
+  STATUS_LABELS, MILESTONE_COPY, groupView, milestoneText, crossedMilestones, minutesAgo,
   loadSeen, markSeen, compactMoney,
 } from './eventLive.js';
 
@@ -181,43 +181,6 @@ describe('compactMoney', () => {
     expect(compactMoney(321_400)).toBe('$321K');
     expect(compactMoney(950)).toBe('$950');
     expect(compactMoney(1_156_457_237)).toBe('$1.156M');
-  });
-});
-
-describe('buildTicker', () => {
-  test('omits the top product line when there is none and adds one ⚠ per cantMatch (not otros)', () => {
-    const d = fixture();
-    d.live.topProductToday = null;
-    const items = buildTicker(d, 'total');
-    expect(items.some(s => s.startsWith('🔥'))).toBe(false);
-    const warns = items.filter(s => s.startsWith('⚠'));
-    expect(warns).toEqual(['⚠ Sillas: quedan 60 en stock', '⚠ Escritorios: quedan 8 en stock']);
-  });
-
-  test('builds the lines from real data', () => {
-    const items = buildTicker(fixture(), 'total');
-    expect(items).toContain('🔥 Silla Tube: 12 vendidas hoy');
-    expect(items).toContain('📈 Hora pico de ayer: 21 a 22 h, $14M');
-    // total revenue 250 vs floor 750 -> next unmet milestone is the floor
-    expect(items).toContain('🎯 Faltan $500 para el piso del Cyber');
-  });
-
-  test('lists reached milestones and then points at the target', () => {
-    const d = fixture();
-    d.totals.web.revenue = 520; // web floor 500 passed, target 550 not
-    const items = buildTicker(d, 'web');
-    expect(items).toContain('⚡ ¡Pasamos el PISO del Cyber! (web)');
-    expect(items).toContain('🎯 Faltan $30 para el objetivo del Cyber (web)');
-    // view-independent lines carry no suffix
-    expect(items).toContain('🔥 Silla Tube: 12 vendidas hoy');
-  });
-
-  test('skips everything that has no data', () => {
-    const d = fixture();
-    d.live = { categories: [] };
-    d.totals.web.floor = 0;
-    d.totals.web.target = 0;
-    expect(buildTicker(d, 'web')).toEqual([]);
   });
 });
 

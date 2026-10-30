@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEventReport } from '../../api/client.js';
 import { formatNumber } from '../../lib/format.js';
 import {
-  groupView, crossedMilestones, milestoneText, minutesAgo, buildTicker, loadSeen, markSeen, compactMoney,
+  groupView, crossedMilestones, milestoneText, minutesAgo, loadSeen, markSeen, compactMoney,
 } from '../../lib/eventLive.js';
 import {
   weekday, shortDate, ratio, roasText, pctText, statusClass, statusLabel, sumAds, VIEW_LABELS,
@@ -11,7 +11,6 @@ import FlapCounter from './FlapCounter.jsx';
 import GoalTrack from './GoalTrack.jsx';
 import TodayRing from './TodayRing.jsx';
 import SalesFeed from './SalesFeed.jsx';
-import Ticker from './Ticker.jsx';
 import CelebrationToast from './CelebrationToast.jsx';
 import CategoryRace from './CategoryRace.jsx';
 import AdsPacing from './AdsPacing.jsx';
@@ -306,7 +305,6 @@ export default function EventLive({ onLogout }) {
   }, []);
 
   const v = useMemo(() => (data ? groupView(data, view) : null), [data, view]);
-  const ticker = useMemo(() => (data ? buildTicker(data, view) : []), [data, view]);
   const phase = data ? phaseOf(data) : null;
 
   // Celebrations: milestones crossed since the last fetch (or already crossed
@@ -334,7 +332,6 @@ export default function EventLive({ onLogout }) {
 
   return (
     <div className="event-live">
-      {data && <Ticker items={ticker} />}
       {toasts[0] && <CelebrationToast key={toasts[0].id} message={toasts[0].text} onDone={nextToast} />}
       <div className="ev-wrap">
         <Topbar data={data} eventId={eventId} onEvent={changeEvent} view={view} onView={setView} now={now} stale={stale} />

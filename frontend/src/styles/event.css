@@ -24,11 +24,6 @@
 .event-live .ev-status { padding: 40px 0; color: var(--mute); }
 .event-live .ev-status.err { color: #ff8b9b; }
 
-/* Ticker */
-.event-live .ev-ticker { background: var(--lime); color: #0b0f05; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; padding: 8px 0; }
-.event-live .ev-ticker > div { display: inline-block; padding-left: 100%; animation: ev-tick 34s linear infinite; }
-.event-live .ev-ticker span { margin-right: 48px; }
-@keyframes ev-tick { to { transform: translateX(-100%); } }
 
 /* Top bar */
 .event-live .ev-topbar { display: flex; align-items: center; gap: 16px; padding: 18px 0; flex-wrap: wrap; }
@@ -195,6 +190,4 @@
 
 @media (prefers-reduced-motion: reduce) {
   .event-live *, .event-live *::before, .event-live *::after { animation: none !important; transition: none !important; }
-  .event-live .ev-ticker { white-space: normal; padding: 8px 16px; }
-  .event-live .ev-ticker > div { padding-left: 0; }
 }

@@ -1,5 +1,5 @@
 // Pure helpers for the live Cyber/Black page: the per-view numbers (total =
-// web + locales), the milestones to celebrate and the news-ticker lines.
+// web + locales) and the milestones to celebrate.
 // Everything here derives from the /api/event payload; nothing is invented.
 import { formatCurrency, formatNumber } from './format.js';
 
@@ -86,7 +86,7 @@ export function crossedMilestones(prev, next) {
   }).map(([id]) => id);
 }
 
-// " (web)" / " (locales)" so a toast or ticker line says which view it is about.
+// " (web)" / " (locales)" so a toast says which view it is about.
 export function viewSuffix(view) {
   return view && view !== 'total' ? ` (${view})` : '';
 }
@@ -102,7 +102,7 @@ export function minutesAgo(iso, nowMs) {
   return Math.max(0, Math.floor((nowMs - t) / 60000));
 }
 
-// "$14M", "$6,7M", "$321K": short amounts for the ticker, tiles and table.
+// "$14M", "$6,7M", "$321K": short amounts for the tiles and table.
 export function compactMoney(v) {
   if (v == null) return '—';
   const a = Math.abs(v);
@@ -111,31 +111,6 @@ export function compactMoney(v) {
   if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1).replace('.', ',')}M`;
   if (a >= 1e3) return `${sign}$${Math.round(a / 1e3)}K`;
   return formatCurrency(v).replace(/\s/g, '');
-}
-
-export function buildTicker(data, view) {
-  const items = [];
-  const v = groupView(data, view);
-  const label = data.label;
-  for (const id of crossedMilestones(null, v)) items.push(`⚡ ${milestoneText(id, label, view)}`);
-
-  const top = data.live?.topProductToday;
-  if (top?.name && top.units > 0) {
-    items.push(`🔥 ${top.name}: ${formatNumber(top.units)} ${top.units === 1 ? 'vendida' : 'vendidas'} hoy`);
-  }
-  const peak = data.live?.peakHourYesterday;
-  if (peak && peak.revenue > 0) {
-    items.push(`📈 Hora pico de ayer: ${peak.hour} a ${peak.hour + 1} h, ${compactMoney(peak.revenue)}`);
-  }
-  for (const c of data.live?.categories || []) {
-    if (c.cantMatch && c.id !== 'otros') items.push(`⚠ ${c.label}: quedan ${formatNumber(c.stock)} en stock`);
-  }
-  if (v.floor > 0 && v.revenue < v.floor) {
-    items.push(`🎯 Faltan ${compactMoney(v.floor - v.revenue)} para el piso del ${label}${viewSuffix(view)}`);
-  } else if (v.target > 0 && v.revenue < v.target) {
-    items.push(`🎯 Faltan ${compactMoney(v.target - v.revenue)} para el objetivo del ${label}${viewSuffix(view)}`);
-  }
-  return items;
 }
 
 const seenKey = (eventId) => `eventLive.seen.${eventId}`;
