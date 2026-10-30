@@ -176,7 +176,7 @@ export function baselineRange(current, today) {
 }
 
 function emptyCell() {
-  return { prevRevenue: 0, prevOrders: 0, target: 0, revenue: 0, orders: 0 };
+  return { prevRevenue: 0, prevOrders: 0, floor: 0, target: 0, revenue: 0, orders: 0 };
 }
 
 // Channels that sold nothing during last year's promo window — they can't
@@ -188,6 +188,14 @@ export function channelsWithoutHistory(prevDaily, previous) {
     }
     return true;
   });
+}
+
+// Below the floor = worse than last year in real terms; at/above target =
+// the stretch goal is met; anything in between is "entre".
+export function statusOf(revenue, floor, target) {
+  if (revenue >= target) return 'sobre';
+  if (revenue >= floor) return 'entre';
+  return 'bajo_piso';
 }
 
 // Builds the day-by-day rows (per group: last year's aligned day, target,
@@ -220,9 +228,17 @@ export function buildEventDays({
         const actual = currentDaily[c]?.get(day.date);
         cell.prevRevenue += prev?.revenue || 0;
         cell.prevOrders += prev?.orders || 0;
-        cell.target += hasHistory[c]
-          ? (prev?.revenue || 0) * factor * (1 + growth[group])
-          : baselineByChannel[c][weekdayOf(day.date)];
+        // Floor = last year's day in today's pesos (no real growth); a
+        // channel with no history only has its run rate, so floor = target.
+        if (hasHistory[c]) {
+          const floor = (prev?.revenue || 0) * factor;
+          cell.floor += floor;
+          cell.target += floor * (1 + growth[group]);
+        } else {
+          const base = baselineByChannel[c][weekdayOf(day.date)];
+          cell.floor += base;
+          cell.target += base;
+        }
         cell.revenue += actual?.revenue || 0;
         cell.orders += actual?.orders || 0;
       }
@@ -234,13 +250,15 @@ export function buildEventDays({
 
   const totals = {};
   for (const group of Object.keys(EVENT_GROUPS)) {
-    const t = { prevRevenue: 0, prevOrders: 0, target: 0, targetToDate: 0, revenue: 0, orders: 0 };
+    const t = { prevRevenue: 0, prevOrders: 0, floor: 0, floorToDate: 0, target: 0, targetToDate: 0, revenue: 0, orders: 0 };
     for (const d of days) {
       const cell = d[group];
       t.prevRevenue += cell.prevRevenue;
       t.prevOrders += cell.prevOrders;
       t.target += cell.target;
+      t.floor += cell.floor;
       if (d.played) {
+        t.floorToDate += cell.floor;
         t.targetToDate += cell.target;
         t.revenue += cell.revenue;
         t.orders += cell.orders;
@@ -248,6 +266,7 @@ export function buildEventDays({
     }
     t.progressPct = t.target ? Math.round((t.revenue / t.target) * 1000) / 10 : null;
     t.vsTargetToDatePct = t.targetToDate ? Math.round((t.revenue / t.targetToDate) * 1000) / 10 : null;
+    t.status = statusOf(t.revenue, t.floorToDate, t.targetToDate);
     totals[group] = t;
   }
 
@@ -486,4 +505,84 @@ export function buildInvestmentPlan({ days, current, prevAds, prevBaselineDates,
 
   const total = planDays.reduce((s, d) => s + d.spend, 0);
   return { dailyBudget: daily, total, shares, phases, days: planDays };
+}
+
+// ---- Live event helpers ----
+
+// Cumulative share (0..1) of completed revenue by the end of each ART hour,
+// over all days of the docs — how a typical event day fills up. With no
+// sales at all it falls back to an even spread.
+export function hourlyShareCurve(salesDocs) {
+  const byHour = Array(24).fill(0);
+  for (const s of salesDocs) {
+    if (s.status !== 'completed') continue;
+    byHour[argHour(s.date)] += s.total;
+  }
+  const total = byHour.reduce((a, b) => a + b, 0);
+  if (!total) return Array.from({ length: 24 }, (_, h) => (h + 1) / 24);
+  let acc = 0;
+  return byHour.map((v) => { acc += v; return acc / total; });
+}
+
+// Share of the day's revenue expected by `nowIso`, interpolating inside the
+// current ART hour so the pace check doesn't jump on the hour.
+export function expectedShare(curve, nowIso) {
+  const h = argHour(nowIso);
+  const minutes = new Date(new Date(nowIso).getTime() - 3 * 3600 * 1000).getUTCMinutes();
+  const before = h > 0 ? curve[h - 1] : 0;
+  return before + (minutes / 60) * (curve[h] - before);
+}
+
+// Today's status against the part of floor/target expected so far.
+export function dayStatusSoFar(cell, share) {
+  const denom = cell.target * share;
+  return {
+    pct: denom ? Math.round((cell.revenue / denom) * 1000) / 10 : null,
+    status: statusOf(cell.revenue, cell.floor * share, denom),
+  };
+}
+
+// Pace so far (revenue ÷ target of the time elapsed) applied to what's left
+// of the window. Today counts only for the share of it already elapsed.
+export function projectClose(days, group, todayShare) {
+  const played = days.filter(d => d.played);
+  if (!played.length) return null;
+  const today = played[played.length - 1];
+  const revenueToDate = played.reduce((s, d) => s + d[group].revenue, 0);
+  const elapsedTarget = played.reduce((s, d) => s + d[group].target * (d === today ? todayShare : 1), 0);
+  if (!elapsedTarget) return null;
+  const pace = revenueToDate / elapsedTarget;
+  const remaining = today[group].target * (1 - todayShare)
+    + days.filter(d => !d.played).reduce((s, d) => s + d[group].target, 0);
+  return revenueToDate + pace * remaining;
+}
+
+// Latest completed sales for the live feed. Only these six fields go out —
+// never anything about the customer.
+export function recentSales(salesDocs, limit = 12) {
+  return salesDocs
+    .filter(s => s.status === 'completed')
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, limit)
+    .map((s) => {
+      // Negative-price lines are discounts, not products.
+      const items = (s.items || []).filter(i => i.unitPrice >= 0);
+      const top = items.reduce((best, i) => (!best || i.qty * i.unitPrice > best.qty * best.unitPrice ? i : best), null);
+      return {
+        date: s.date,
+        channel: s.channel,
+        province: s.shippingProvince ?? null,
+        label: top?.name ?? '',
+        itemCount: items.length,
+        total: s.total,
+      };
+    });
+}
+
+// Id of the event whose run window contains `today` (ART date), if any.
+export function activeEvent(today) {
+  for (const [id, e] of Object.entries(EVENTS)) {
+    if (e.current.start <= today && today <= e.current.end) return id;
+  }
+  return null;
 }

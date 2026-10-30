@@ -82,6 +82,27 @@ test('buildEventDays: target = last year aligned day × inflation × growth; no-
   assert.deepEqual(res.channelsWithoutHistory, ['local_belgrano', 'local_alcorta']);
   assert.equal(res.totals.web.revenue, 1500);
   assert.ok(Math.abs(res.totals.web.targetToDate - 1430) < 1e-6);
+  // floor = last year × inflation (no growth); channels without history: floor = target
+  assert.ok(Math.abs(mon.web.floor - 1000 * 1.3) < 1e-6);
+  assert.ok(Math.abs(mon.web.target - mon.web.floor * 1.1) < 1e-6);
+  assert.ok(Math.abs(mon.locales.floor - (200 * 1.3 + 80)) < 1e-6);
+  assert.ok(Math.abs(res.totals.web.floorToDate - 1300) < 1e-6);
+  assert.equal(res.totals.web.status, 'sobre');
+});
+
+test('buildEventDays: channel without history has floor === target', () => {
+  const current = { start: '2026-11-02', end: '2026-11-02', officialStart: '2026-11-02', officialEnd: '2026-11-02' };
+  const previous = { start: '2025-11-03', end: '2025-11-03', officialStart: '2025-11-03', officialEnd: '2025-11-03' };
+  const baselineDocs = [];
+  for (let i = 1; i <= 8; i++) baselineDocs.push(sale('local_alcorta', new Date(Date.UTC(2026, 10, 2 - 7 * i, 15)).toISOString(), 80));
+  const res = buildEventDays({
+    current, previous, prevDaily: {}, currentDaily: {},
+    baselineDaily: dailyByChannel(baselineDocs),
+    indexByMonth: new Map([['2025-11', 100], ['2026-11', 130]]),
+    growth: { web: 0.1, locales: 0.05 }, today: '2026-11-02',
+  });
+  assert.equal(res.days[0].locales.floor, res.days[0].locales.target);
+  assert.equal(res.days[0].locales.floor, 80);
 });
 
 test('summarizePastEvent: peak day, lift vs normal days, official share and hourly in ART', () => {
@@ -228,4 +249,76 @@ test('buildInvestmentPlan: a split set in the event config wins over the suggest
   const p = plan.phases.find(x => x.phase === 'oficial');
   assert.equal(p.splitFromConfig, true);
   assert.equal(p.suggestedMetaShare, 0.5);
+});
+
+import {
+  statusOf, hourlyShareCurve, expectedShare, dayStatusSoFar, projectClose, recentSales, activeEvent,
+} from '../events.mjs';
+
+test('statusOf: below floor, between, above target', () => {
+  assert.equal(statusOf(90, 100, 110), 'bajo_piso');
+  assert.equal(statusOf(100, 100, 110), 'entre');
+  assert.equal(statusOf(110, 100, 110), 'sobre');
+  assert.equal(statusOf(0, 0, 0), 'sobre');
+});
+
+test('hourlyShareCurve: cumulative share by ART hour; empty falls back to linear', () => {
+  const curve = hourlyShareCurve([
+    sale('ecommerce', '2026-11-02T13:00:00Z', 100), // 10:00 ART
+    sale('ecommerce', '2026-11-03T23:00:00Z', 300), // 20:00 ART
+    sale('ecommerce', '2026-11-03T23:00:00Z', 999, 'cancelled'),
+  ]);
+  assert.equal(curve.length, 24);
+  assert.equal(curve[9], 0);
+  assert.equal(curve[10], 0.25);
+  assert.equal(curve[20], 1);
+  assert.equal(curve[23], 1);
+  assert.equal(hourlyShareCurve([])[11], 0.5);
+});
+
+test('expectedShare: interpolates inside the current ART hour', () => {
+  const linear = Array.from({ length: 24 }, (_, h) => (h + 1) / 24);
+  assert.ok(Math.abs(expectedShare(linear, '2026-11-02T15:30:00Z') - 12.5 / 24) < 1e-9);
+  assert.equal(expectedShare(linear, '2026-11-02T03:00:00Z'), 0); // 00:00 ART
+});
+
+test('dayStatusSoFar: compares revenue with floor/target scaled by expected share', () => {
+  const r = dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0.5);
+  assert.equal(r.status, 'entre');
+  assert.equal(r.pct, 90.9);
+  assert.equal(dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0).pct, null);
+});
+
+test('projectClose: pace so far applied to the rest of the window', () => {
+  const days = [
+    { date: '2026-11-01', played: true, web: { target: 100, revenue: 120 } },
+    { date: '2026-11-02', played: true, web: { target: 100, revenue: 30 } },
+    { date: '2026-11-03', played: false, web: { target: 100, revenue: null } },
+  ];
+  // today = last played day
+  assert.ok(Math.abs(projectClose(days, 'web', 0.25) - 360) < 1e-9);
+  const none = days.map(d => ({ ...d, played: false, web: { ...d.web, revenue: null } }));
+  assert.equal(projectClose(none, 'web', 0.25), null);
+});
+
+test('recentSales: completed only, newest first, discount lines ignored, no customer data', () => {
+  const mk = (id, iso, status, items, extra = {}) => ({ id, channel: 'ecommerce', date: iso, status, total: 100, shippingProvince: 'Salta', items, customerName: 'X', email: 'a@b', ...extra });
+  const out = recentSales([
+    mk('a', '2026-11-02T10:00:00Z', 'completed', [{ name: 'Silla', qty: 2, unitPrice: 50 }, { name: 'Mesa', qty: 1, unitPrice: 10 }, { name: 'Dto', qty: 1, unitPrice: -30 }]),
+    mk('b', '2026-11-02T12:00:00Z', 'pending', [{ name: 'P', qty: 1, unitPrice: 1 }]),
+    mk('c', '2026-11-02T11:00:00Z', 'completed', [{ name: 'Lampara', qty: 1, unitPrice: 80 }], { shippingProvince: undefined }),
+  ], 12);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].label, 'Lampara');
+  assert.equal(out[0].province, null);
+  assert.equal(out[1].label, 'Silla');
+  assert.equal(out[1].itemCount, 2);
+  assert.deepEqual(Object.keys(out[0]).sort(), ['channel', 'date', 'itemCount', 'label', 'province', 'total']);
+  assert.equal(recentSales([mk('a', '2026-11-02T10:00:00Z', 'completed', []), mk('c', '2026-11-02T11:00:00Z', 'completed', [])], 1).length, 1);
+});
+
+test('activeEvent: id of the event whose window contains today', () => {
+  assert.equal(activeEvent('2026-10-30'), 'cyber');
+  assert.equal(activeEvent('2026-11-20'), null);
+  assert.equal(activeEvent('2026-11-27'), 'black');
 });
