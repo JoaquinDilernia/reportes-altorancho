@@ -103,6 +103,13 @@ test('buildEventDays: channel without history has floor === target', () => {
   });
   assert.equal(res.days[0].locales.floor, res.days[0].locales.target);
   assert.equal(res.days[0].locales.floor, 80);
+  // nothing played yet -> no target to date -> no status
+  const future = buildEventDays({
+    current, previous, prevDaily: {}, currentDaily: {}, baselineDaily: {},
+    indexByMonth: new Map([['2025-11', 100], ['2026-11', 130]]),
+    growth: { web: 0.1, locales: 0.05 }, today: '2026-10-01',
+  });
+  assert.equal(future.totals.web.status, null);
 });
 
 test('summarizePastEvent: peak day, lift vs normal days, official share and hourly in ART', () => {
@@ -286,7 +293,7 @@ test('dayStatusSoFar: compares revenue with floor/target scaled by expected shar
   const r = dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0.5);
   assert.equal(r.status, 'entre');
   assert.equal(r.pct, 90.9);
-  assert.equal(dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0).pct, null);
+  assert.deepEqual(dayStatusSoFar({ revenue: 50, floor: 100, target: 110 }, 0), { pct: null, status: null });
 });
 
 test('projectClose: pace so far applied to the rest of the window', () => {

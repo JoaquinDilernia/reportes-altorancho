@@ -90,7 +90,7 @@ export function summarizeCategories({ prevDocs, prevToDateDocs, currentDocs, pro
   // product in the category, sold or not.
   for (const product of productsBySku.values()) {
     const c = byId.get(eventCategoryOf(product));
-    for (const n of Object.values(product.stockByLocation || {})) c.stock += n || 0;
+    for (const n of Object.values(product.stockByLocation || {})) c.stock += Math.max(0, n || 0);
   }
 
   return EVENT_CATEGORIES

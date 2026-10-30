@@ -34,10 +34,11 @@ const it = (sku, qty, unitPrice, name = sku) => ({ sku, name, qty, unitPrice });
 test('summarizeCategories: units, revenue (2025 inflation-adjusted), stock and cantMatch', () => {
   const productsBySku = new Map([
     ['S1', { sku: 'S1', name: 'Silla 1', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: { local_lomas: 2, deposito: 3 } }],
-    ['S2', { sku: 'S2', name: 'Silla 2', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: { local_lomas: 1 } }],
+    ['S2', { sku: 'S2', name: 'Silla 2', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: { local_lomas: 1, deposito: -5 } }],
   ]);
   const prevDocs = [
-    sale('2025-11-03T15:00:00Z', 'completed', [it('S1', 10, 100), it('S2', 5, 200), it('ZZ', 1, 50), it('S1', 1, -40)]),
+    sale('2025-11-03T15:00:00Z', 'completed', [it('S1', 10, 100), it('ZZ', 1, 50), it('S1', 1, -40)]),
+    sale('2025-11-04T15:00:00Z', 'completed', [it('S2', 5, 200)]),
     sale('2025-11-03T16:00:00Z', 'pending', [it('S1', 99, 100)]),
   ];
   const currentDocs = [
@@ -46,15 +47,15 @@ test('summarizeCategories: units, revenue (2025 inflation-adjusted), stock and c
   ];
   const out = summarizeCategories({
     prevDocs, prevToDateDocs: prevDocs.slice(0, 1), currentDocs, productsBySku,
-    factorByRefDate: new Map([['2025-11-03', 2]]),
+    factorByRefDate: new Map([['2025-11-03', 2], ['2025-11-04', 2]]),
   });
   assert.deepEqual(out.map(c => c.id), ['sillas', 'otros']);
   const sillas = out[0];
   assert.equal(sillas.label, 'Sillas');
   assert.equal(sillas.prevUnits, 15);
   assert.equal(sillas.prevRevenueAdj, (1000 + 1000) * 2);
-  assert.equal(sillas.prevUnitsToDate, 15);
-  assert.equal(sillas.prevRevenueToDateAdj, 4000);
+  assert.equal(sillas.prevUnitsToDate, 10);
+  assert.equal(sillas.prevRevenueToDateAdj, 2000);
   assert.equal(sillas.units, 4);
   assert.equal(sillas.revenue, 1200);
   assert.equal(sillas.stock, 6);

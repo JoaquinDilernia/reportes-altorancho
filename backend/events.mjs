@@ -266,7 +266,8 @@ export function buildEventDays({
     }
     t.progressPct = t.target ? Math.round((t.revenue / t.target) * 1000) / 10 : null;
     t.vsTargetToDatePct = t.targetToDate ? Math.round((t.revenue / t.targetToDate) * 1000) / 10 : null;
-    t.status = statusOf(t.revenue, t.floorToDate, t.targetToDate);
+    // No target yet (event hasn't started) -> no status, not a green one.
+    t.status = t.targetToDate ? statusOf(t.revenue, t.floorToDate, t.targetToDate) : null;
     totals[group] = t;
   }
 
@@ -538,7 +539,7 @@ export function dayStatusSoFar(cell, share) {
   const denom = cell.target * share;
   return {
     pct: denom ? Math.round((cell.revenue / denom) * 1000) / 10 : null,
-    status: statusOf(cell.revenue, cell.floor * share, denom),
+    status: denom ? statusOf(cell.revenue, cell.floor * share, denom) : null,
   };
 }
 
