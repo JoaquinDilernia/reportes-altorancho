@@ -73,10 +73,12 @@ export function computeTotals({ lines, payments, methodsById, extraDiscount = nu
   return { products, paymentPct, paymentDiscount, subtotal, extraDiscount: extra, shipping, homeService, total, lineDiscountPct };
 }
 
-// Cambio: lo nuevo se factura completo y la NC de lo que vuelve se aplica a
-// esa factura. Los descuentos por medio de pago y el extra van solo sobre la
-// diferencia que paga el cliente; se traducen a un único % de línea para
-// Odoo, así factura nueva − NC = lo que paga.
+// Cambio: NC por lo que vuelve y la factura nueva solo por lo que paga el
+// cliente (la NC no se aplica a esa factura). Los descuentos por medio de
+// pago y el extra van solo sobre la diferencia. En Odoo cada línea nueva va a
+// su precio × odooGoodsFactor, así el pedido y la factura suman lo cobrado
+// (invoicedGoods + envío + subida). lineDiscountPct sigue siendo el
+// descuento real de lo que se lleva (estadísticas y devoluciones futuras).
 export function computeExchangeTotals({
   lines, payments, methodsById, extraDiscount = null, shippingAmount = 0, homeServiceAmount = 0, returnValue = 0,
 }) {
@@ -98,10 +100,12 @@ export function computeExchangeTotals({
   const goods = round2(products * (1 - lineDiscountPct / 100));
   const total = round2(goods + shipping + homeService);
   const net = round2(total - back);
+  const collect = Math.max(0, net);
+  const invoicedGoods = round2(Math.max(0, collect - shipping - homeService));
   return {
     products, returnValue: back, paymentPct, paymentDiscount, subtotal: round2(products - paymentDiscount),
     extraDiscount: round2(products - paymentDiscount - goods), shipping, homeService, total, lineDiscountPct,
-    net, collect: Math.max(0, net),
+    net, collect, invoicedGoods, odooGoodsFactor: products > 0 ? invoicedGoods / products : 0,
   };
 }
 
