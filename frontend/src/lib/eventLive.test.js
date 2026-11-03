@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import {
   STATUS_LABELS, MILESTONE_COPY, groupView, milestoneText, crossedMilestones, minutesAgo,
-  loadSeen, markSeen, compactMoney,
+  loadSeen, markSeen, compactMoney, daySales, salesCompare,
 } from './eventLive.js';
 
 function cell(over = {}) {
@@ -204,5 +204,55 @@ describe('seen milestones', () => {
     globalThis.sessionStorage = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
     expect(loadSeen('cyber').size).toBe(0);
     expect(() => markSeen('cyber', 'x')).not.toThrow();
+  });
+});
+
+describe('ventas y ticket promedio vs año pasado', () => {
+  function salesFixture() {
+    return {
+      today: '2026-10-30',
+      days: [
+        {
+          date: '2026-10-29', played: true, inflationFactor: 2,
+          web: cell({ prevRevenue: 100, prevOrders: 10, revenue: 360, orders: 12 }),
+          locales: cell({ prevRevenue: 50, prevOrders: 5, revenue: 100, orders: 4 }),
+        },
+        {
+          date: '2026-10-30', played: true, inflationFactor: 2,
+          web: cell({ prevRevenue: 200, prevOrders: 20, revenue: 120, orders: 5 }),
+          locales: cell({ prevRevenue: 0, prevOrders: 0, revenue: 0, orders: 0 }),
+        },
+        {
+          date: '2026-10-31', played: false, inflationFactor: 2,
+          web: cell({ prevRevenue: 300, prevOrders: 30 }),
+          locales: cell({ prevRevenue: 0, prevOrders: 0 }),
+        },
+      ],
+      live: { todayShare: { web: 0.5, locales: 0.5 } },
+    };
+  }
+
+  test('daySales: ticket 2025 en pesos de hoy, día sin jugar sin ventas 2026', () => {
+    const [d1, , d3] = salesFixture().days;
+    expect(daySales(d1, 'web')).toEqual({ prevOrders: 10, orders: 12, prevTicket: 20, ticket: 30 });
+    expect(daySales(d1, 'total')).toEqual({ prevOrders: 15, orders: 16, prevTicket: 20, ticket: 460 / 16 });
+    expect(daySales(d3, 'web')).toEqual({ prevOrders: 30, orders: null, prevTicket: 20, ticket: null });
+  });
+
+  test('salesCompare prorratea las ventas 2025 de hoy', () => {
+    const c = salesCompare(salesFixture(), 'web');
+    // 10 enteras + 20 * 0,5 de hoy; el 31 no cuenta
+    expect(c.prevOrders).toBe(20);
+    expect(c.orders).toBe(17);
+    expect(c.ordersPct).toBeCloseTo(-15);
+    expect(c.prevTicket).toBe(20);
+    expect(c.ticket).toBeCloseTo(480 / 17);
+  });
+
+  test('salesCompare sin ventas no inventa porcentajes', () => {
+    const data = salesFixture();
+    data.days = data.days.map(d => ({ ...d, played: false }));
+    const c = salesCompare(data, 'total');
+    expect(c).toMatchObject({ orders: 0, prevOrders: 0, ordersPct: null, ticket: null, ticketPct: null });
   });
 });

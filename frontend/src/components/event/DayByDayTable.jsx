@@ -1,4 +1,5 @@
-import { compactMoney } from '../../lib/eventLive.js';
+import { compactMoney, daySales } from '../../lib/eventLive.js';
+import { formatNumber } from '../../lib/format.js';
 import { dayLabel, ratio, roasText, statusClass, statusLabel, sumAds } from './shared.js';
 
 const GROUPS = { total: ['web', 'locales'], web: ['web'], locales: ['locales'] };
@@ -18,11 +19,14 @@ function sales(day, groups) {
   return { floor: sum('floor'), target: sum('target'), revenue: day.played ? sum('revenue') : null };
 }
 
+const count = (n) => (n == null ? '—' : formatNumber(Math.round(n)));
+
 // One row per event day: Meta and Google spend/ROAS (always web-level; 2025
-// spend inflation-adjusted), then sales for the selected view.
+// spend inflation-adjusted), then sales and order count/ticket for the view.
 // `elapsed` = floor/target of the time played so far (today pro-rated by the
-// hourly curve), so "Total a hoy" compares like with like mid-day.
-export default function DayByDayTable({ days, group, today, todayStatus, totalStatus, elapsed, realGrowth }) {
+// hourly curve), so "Total a hoy" compares like with like mid-day; same for
+// `salesToDate` (salesCompare).
+export default function DayByDayTable({ days, group, today, todayStatus, totalStatus, elapsed, realGrowth, salesToDate }) {
   const groups = GROUPS[group] || GROUPS.total;
   const played = days.filter(d => d.played);
   const adsPrevAdj = sumAds(played, d => d.ads?.prevAdj);
@@ -59,12 +63,14 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
             <th colSpan={4} className="grp" style={{ borderColor: 'var(--meta)', color: 'var(--meta)' }}>Meta</th>
             <th colSpan={4} className="grp" style={{ borderColor: 'var(--google)', color: 'var(--google)' }}>Google</th>
             <th colSpan={4} className="grp" style={{ borderColor: 'var(--lime)', color: 'var(--lime)' }}>Facturación</th>
+            <th colSpan={4} className="grp" style={{ borderColor: 'var(--mint)', color: 'var(--mint)' }}>Ventas</th>
           </tr>
           <tr>
             <th>Día</th>
             <th>Inv. 25</th><th>Inv. 26</th><th>ROAS 25</th><th>ROAS 26</th>
             <th className="sepL">Inv. 25</th><th>Inv. 26</th><th>ROAS 25</th><th>ROAS 26</th>
             <th className="sepL">2025 ajust.</th><th>Objetivo</th><th>Real 2026</th><th>Estado</th>
+            <th className="sepL">Cant. 25</th><th>Cant. 26</th><th>Ticket 25 ajust.</th><th>Ticket 26</th>
           </tr>
         </thead>
         <tbody>
@@ -76,12 +82,17 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
               <td>{compactMoney(elapsed?.target ?? tot.target)}</td>
               <td>{compactMoney(tot.revenue)}</td>
               <td className="st">{totalStatus ? <Chip status={totalStatus} /> : <Chip status={null} />}</td>
+              <td className="sepL">{count(salesToDate?.prevOrders)}</td>
+              <td>{count(salesToDate?.orders)}</td>
+              <td>{compactMoney(salesToDate?.prevTicket)}</td>
+              <td>{compactMoney(salesToDate?.ticket)}</td>
             </tr>
           )}
           {days.map((d) => {
             const isToday = d.date === today;
             const future = !d.played;
             const s = sales(d, groups);
+            const o = daySales(d, group);
             const tags = [
               d.isLaunch && 'lanz.',
               d.phase === 'oficial' && 'oficial',
@@ -106,6 +117,10 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
                   {future ? '—' : isToday ? <><b>{compactMoney(s.revenue)}</b> ⏳</> : compactMoney(s.revenue)}
                 </td>
                 <td className="st">{state}</td>
+                <td className="sepL">{count(o.prevOrders)}</td>
+                <td className={future ? 'pend' : undefined}>{isToday ? <><b>{count(o.orders)}</b> ⏳</> : count(o.orders)}</td>
+                <td>{compactMoney(o.prevTicket)}</td>
+                <td className={future ? 'pend' : undefined}>{compactMoney(o.ticket)}</td>
               </tr>
             );
           })}
@@ -115,7 +130,8 @@ export default function DayByDayTable({ days, group, today, todayStatus, totalSt
         "2025 ajust." es el piso: lo que facturamos el mismo día de 2025 ajustado por inflación. El objetivo le suma el
         crecimiento real (web +{Math.round((realGrowth?.web ?? 0) * 100)}%, locales +{Math.round((realGrowth?.locales ?? 0) * 100)}%).
         La inversión 2025 también está ajustada por inflación, con el mismo factor del día (el ROAS no cambia). Google se
-        mide con GA4 (google / cpc) e incluye la búsqueda de marca. La pauta es siempre de la web.
+        mide con GA4 (google / cpc) e incluye la búsqueda de marca. La pauta es siempre de la web. El ticket 2025
+        también está ajustado por inflación; en "Total a hoy" las ventas 2025 de hoy cuentan solo hasta esta hora.
         <br />
         * Google: GA4 tarda 24–48 h en cargar la facturación; el ROAS de hoy y ayer todavía es parcial.
       </div>

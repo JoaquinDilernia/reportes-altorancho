@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEventReport } from '../../api/client.js';
 import { formatNumber } from '../../lib/format.js';
 import {
-  groupView, crossedMilestones, milestoneText, minutesAgo, loadSeen, markSeen, compactMoney,
+  groupView, crossedMilestones, milestoneText, minutesAgo, loadSeen, markSeen, compactMoney, salesCompare,
 } from '../../lib/eventLive.js';
 import {
   weekday, shortDate, ratio, roasText, pctText, statusClass, statusLabel, sumAds, VIEW_LABELS,
@@ -129,24 +129,30 @@ function todayChip(v, phase) {
   return v.today.pct != null ? `${Math.round(v.today.pct)}% del obj. a esta hora` : 'todavía sin datos';
 }
 
+// "+12% vs 1.234 en 2025": the chip for a this-year-vs-last-year tile.
+function vsPrevChip(pct, prevText, year) {
+  if (pct == null) return [`${year}: ${prevText}`, ''];
+  return [`${pctText(pct, { sign: true })} vs ${prevText} en ${year}`, pct >= 0 ? 'g' : 'r'];
+}
+
 function LiveHero({ data, v, view, phase }) {
   const ads = adsSummary(data.days);
   const realPct = v.floorElapsed ? (v.revenue / v.floorElapsed - 1) * 100 : null;
-  const avgTicket = v.orders ? v.revenue / v.orders : null;
+  const sales = salesCompare(data, view);
+  const [ordersChip, ordersClass] = vsPrevChip(sales.ordersPct, formatNumber(Math.round(sales.prevOrders)), data.previous.year);
+  const [ticketChip, ticketClass] = vsPrevChip(sales.ticketPct, compactMoney(sales.prevTicket), data.previous.year);
   const [projText, projClass] = projectionChip(v.projection, v);
   return (
     <div className="ev-panel">
       <div className="ev-l">Facturado {data.label} {data.current.year} · {VIEW_LABELS[view]}</div>
       <FlapCounter value={v.revenue} />
       <div className="ev-sub">
-        {formatNumber(v.orders)} ventas
-        {avgTicket != null && <> · ticket promedio {compactMoney(avgTicket)}</>}
         {realPct != null && (
-          <> · <span className={realPct >= 0 ? 'pos' : 'neg'}>{pctText(realPct, { sign: true })} real vs mismos días {data.previous.year}</span></>
+          <span className={realPct >= 0 ? 'pos' : 'neg'}>{pctText(realPct, { sign: true })} real vs mismos días {data.previous.year}</span>
         )}
       </div>
       <GoalTrack value={v.revenue} floor={v.floor} target={v.target} />
-      <div className="ev-tiles">
+      <div className="ev-tiles six">
         <Tile
           label="Hoy"
           value={v.today.revenue == null ? '—' : compactMoney(v.today.revenue)}
@@ -154,6 +160,8 @@ function LiveHero({ data, v, view, phase }) {
           chipClass={statusClass(v.today.status)}
         />
         <Tile label="Si seguimos así" value={v.projection == null ? '—' : compactMoney(v.projection)} chip={projText} chipClass={projClass} />
+        <Tile label="Ventas" value={formatNumber(sales.orders)} chip={ordersChip} chipClass={ordersClass} note="mismos días, hoy a esta hora" />
+        <Tile label="Ticket promedio" value={compactMoney(sales.ticket)} chip={ticketChip} chipClass={ticketClass} note={`${data.previous.year} ajustado por inflación`} />
         <Tile label="Pauta invertida" value={compactMoney(ads.spent)} chip={`de ${compactMoney(ads.plan)} del plan`} />
         <Tile
           label="ROAS Meta · Google"
@@ -395,6 +403,7 @@ export default function EventLive({ onLogout }) {
               totalStatus={v.status}
               elapsed={{ floor: v.floorElapsed, target: v.targetElapsed }}
               realGrowth={data.assumptions?.realGrowth}
+              salesToDate={salesCompare(data, view)}
             />
 
             <EventDetails data={data} view={view} />

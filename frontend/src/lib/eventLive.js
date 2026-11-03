@@ -67,6 +67,53 @@ export function groupView(data, view) {
   return v;
 }
 
+const pctChange = (now, before) => (before ? (now / before - 1) * 100 : null);
+
+// One day's sales count and average ticket for a view. Last year's ticket is
+// in today's pesos (same inflation factor as the floor) so the two compare.
+export function daySales(day, view) {
+  const groups = groupsOf(view);
+  const sum = (k) => groups.reduce((s, g) => s + (day?.[g]?.[k] || 0), 0);
+  const prevOrders = sum('prevOrders');
+  const orders = day?.played ? sum('orders') : null;
+  return {
+    prevOrders,
+    orders,
+    prevTicket: prevOrders ? (sum('prevRevenue') * (day.inflationFactor || 1)) / prevOrders : null,
+    ticket: orders ? sum('revenue') / orders : null,
+  };
+}
+
+// Sales count and average ticket so far vs the same days of last year:
+// played days in full, today only for the share already elapsed.
+export function salesCompare(data, view) {
+  const groups = groupsOf(view);
+  const share = data.live?.todayShare || {};
+  let prevOrders = 0;
+  let prevRevenueAdj = 0;
+  let orders = 0;
+  let revenue = 0;
+  for (const d of (data.days || []).filter(x => x.played)) {
+    for (const g of groups) {
+      const w = d.date === data.today ? (share[g] || 0) : 1;
+      prevOrders += (d[g]?.prevOrders || 0) * w;
+      prevRevenueAdj += (d[g]?.prevRevenue || 0) * (d.inflationFactor || 1) * w;
+      orders += d[g]?.orders || 0;
+      revenue += d[g]?.revenue || 0;
+    }
+  }
+  const ticket = orders ? revenue / orders : null;
+  const prevTicket = prevOrders ? prevRevenueAdj / prevOrders : null;
+  return {
+    orders,
+    prevOrders,
+    ordersPct: pctChange(orders, prevOrders),
+    ticket,
+    prevTicket,
+    ticketPct: ticket != null ? pctChange(ticket, prevTicket) : null,
+  };
+}
+
 const MILESTONES = [
   ['piso_dia', (v) => v.today?.revenue ?? 0, (v) => v.today?.floor ?? 0],
   ['objetivo_dia', (v) => v.today?.revenue ?? 0, (v) => v.today?.target ?? 0],
