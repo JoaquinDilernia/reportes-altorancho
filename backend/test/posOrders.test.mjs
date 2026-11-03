@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   orderKeys, validateCustomer, validatePayments, assertPaymentsMatchTotal, priceOrder, assertCartEditable, assertDraftEditable,
-  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors, invoiceModeOf,
+  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors, invoiceModeOf, noInvoicePaymentError,
 } from '../posOrders.mjs';
 
 const methodsById = new Map([
@@ -261,4 +261,12 @@ test('invoiceModeOf: fiscal si pide factura; interna si no (y siempre en Directo
   assert.equal(invoiceModeOf({ priceList: 'directorio', wantsInvoice: false, lines }), 'internal');
   assert.equal(invoiceModeOf({ wantsInvoice: false, lines, returnLines: [{ rlId: 'R1' }] }), 'none');
   assert.equal(invoiceModeOf({ wantsInvoice: false, lines: [], returnLines: [{ rlId: 'R1' }] }), 'none');
+});
+
+test('noInvoicePaymentError: sin factura solo efectivo; con factura o sin cobro, cualquiera', () => {
+  assert.equal(noInvoicePaymentError([{ methodId: 'efectivo' }], false), null);
+  assert.equal(noInvoicePaymentError([], false), null);
+  assert.equal(noInvoicePaymentError([{ methodId: 'transferencia' }], true), null);
+  assert.match(noInvoicePaymentError([{ methodId: 'efectivo' }, { methodId: 'credito' }], false), /solo en efectivo/);
+  assert.match(noInvoicePaymentError([{ methodId: 'saldo' }], false), /solo en efectivo/);
 });

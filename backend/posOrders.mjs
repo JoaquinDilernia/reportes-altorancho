@@ -158,6 +158,13 @@ export function invoiceModeOf(order) {
   return activeLines(order.lines).length ? 'internal' : 'none';
 }
 
+// Sin factura (venta interna o cambio sin factura) se cobra solo en efectivo.
+export const NO_INVOICE_METHODS = ['efectivo'];
+export function noInvoicePaymentError(payments, wantsInvoice) {
+  if (wantsInvoice || !(payments ?? []).some((p) => !NO_INVOICE_METHODS.includes(p.methodId))) return null;
+  return 'Sin factura se cobra solo en efectivo: cambiá el medio de pago o confirmá con factura';
+}
+
 // Decoradora y Directorio: solo ventas (sin lo que vuelve) y para clientes con su etiqueta.
 export function priceListErrors(order, settings) {
   const priceList = order.priceList ?? 'normal';
@@ -632,6 +639,8 @@ export async function claimOrderForConfirm(orderId, user) {
     }
     if (errors.length) throw new Error(errors.join('; '));
     const { payments, extraDiscount, totals } = claimPricing(order, { methodsById, promotions, now: Date.now() });
+    const cashOnly = order.odooOrderId ? null : noInvoicePaymentError(payments, wantsInvoice);
+    if (cashOnly) throw new Error(cashOnly);
     let refund = null;
     let creditCommit = null;
     let creditAllocation = order.creditAllocation ?? null;
