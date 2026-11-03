@@ -148,6 +148,16 @@ export function returnCtx(locale, settings) {
   };
 }
 
+// Comprobante de la venta: 'fiscal' (factura ARCA), 'internal' (factura interna
+// en VINTE, precio con IVA y sin impuestos) o 'none'. Directorio siempre interna
+// (queda a cobrar). Un cambio sin factura todavía no lleva comprobante interno.
+export function invoiceModeOf(order) {
+  if (isDirectorio(order)) return 'internal';
+  if (order.wantsInvoice) return 'fiscal';
+  if ((order.returnLines ?? []).length) return 'none';
+  return activeLines(order.lines).length ? 'internal' : 'none';
+}
+
 // Decoradora y Directorio: solo ventas (sin lo que vuelve) y para clientes con su etiqueta.
 export function priceListErrors(order, settings) {
   const priceList = order.priceList ?? 'normal';
@@ -642,6 +652,8 @@ export async function claimOrderForConfirm(orderId, user) {
     const update = {
       confirmingSince: new Date(), cashSessionId, payments, extraDiscount, totals, refund, creditAllocation,
       kind: orderKind(order), wantsInvoice, priceList: order.priceList ?? 'normal', lateReturn: hasLateReturn(order.returnLines),
+      // Ya en Odoo (reintento): el modo no cambia; los de antes no tenían venta interna.
+      invoiceMode: order.odooOrderId ? (order.invoiceMode ?? (wantsInvoice ? 'fiscal' : 'none')) : invoiceModeOf({ ...order, wantsInvoice }),
       updatedAt: new Date(),
     };
     tx.update(ref, update);

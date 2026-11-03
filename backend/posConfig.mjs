@@ -12,9 +12,9 @@ const CACHE_MS = 30 * 1000;
 // internas" de cada almacén. Los destinos de devolución por defecto se arman
 // con defaultReturnDestinations si el local no tiene los suyos.
 export const DEFAULT_LOCALES = [
-  { id: 'LL', name: 'Las Lomas', warehouseId: 1, stockLocationId: 8, exhibicionLocationId: 324, teamId: 6, invoiceJournalId: 32, cashJournalId: 54, address: '', active: true, returnPickingTypeId: 6, internalPickingTypeId: 5 },
-  { id: 'BL', name: 'Belgrano', warehouseId: 40, stockLocationId: 372, exhibicionLocationId: 379, teamId: 18, invoiceJournalId: 65, cashJournalId: 67, address: '', active: true, returnPickingTypeId: 308, internalPickingTypeId: 307 },
-  { id: 'AL', name: 'Alcorta', warehouseId: 41, stockLocationId: 397, exhibicionLocationId: 415, teamId: 25, invoiceJournalId: 78, cashJournalId: 79, address: '', active: true, returnPickingTypeId: 352, internalPickingTypeId: 351 },
+  { id: 'LL', name: 'Las Lomas', warehouseId: 1, stockLocationId: 8, exhibicionLocationId: 324, teamId: 6, invoiceJournalId: 32, cashJournalId: 54, internalCashJournalId: 33, address: '', active: true, returnPickingTypeId: 6, internalPickingTypeId: 5 },
+  { id: 'BL', name: 'Belgrano', warehouseId: 40, stockLocationId: 372, exhibicionLocationId: 379, teamId: 18, invoiceJournalId: 65, cashJournalId: 67, internalCashJournalId: 66, address: '', active: true, returnPickingTypeId: 308, internalPickingTypeId: 307 },
+  { id: 'AL', name: 'Alcorta', warehouseId: 41, stockLocationId: 397, exhibicionLocationId: 415, teamId: 25, invoiceJournalId: 78, cashJournalId: 79, internalCashJournalId: 80, address: '', active: true, returnPickingTypeId: 352, internalPickingTypeId: 351 },
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -34,6 +34,9 @@ export const DEFAULT_SETTINGS = {
   decoradoraDiscountPct: 5,
   directorioPricelistId: 255,
   directorioTagId: 33,
+  // Venta sin factura fiscal: factura interna en "Ventas Internas" (VINTE),
+  // que no va a ARCA; el cobro va a la Caja Interna del local.
+  internalInvoiceJournalId: 28,
   homeServiceSku: 'SERVIDOM',
   homeServiceDefaultAmount: 5000,
   creditValidityDays: null, // null = el saldo a favor no vence
@@ -91,6 +94,7 @@ export function validateLocale(input) {
   if (!isId(input.teamId)) errors.push('Equipo de ventas inválido');
   if (input.invoiceJournalId != null && !isId(input.invoiceJournalId)) errors.push('Diario de facturas inválido');
   if (input.cashJournalId != null && !isId(input.cashJournalId)) errors.push('Diario de caja inválido');
+  if (input.internalCashJournalId != null && !isId(input.internalCashJournalId)) errors.push('Caja interna inválida');
   if (input.returnPickingTypeId != null && !isId(input.returnPickingTypeId)) errors.push('Tipo de remito de devolución inválido');
   if (input.internalPickingTypeId != null && !isId(input.internalPickingTypeId)) errors.push('Tipo de transferencia interna inválido');
   errors.push(...validateDestinations(input.returnDestinations));
@@ -121,6 +125,7 @@ export function validateSettings(input) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
   }
   if (input.directorioTagId != null && !isId(input.directorioTagId)) errors.push('Etiqueta de Directorio inválida');
+  if (input.internalInvoiceJournalId != null && !isId(input.internalInvoiceJournalId)) errors.push('Diario de ventas internas inválido');
   const decoPct = input.decoradoraDiscountPct;
   if (decoPct != null && !(typeof decoPct === 'number' && decoPct >= 0 && decoPct < 100)) errors.push('Descuento de la lista Decoradora: entre 0 y 99');
   if (!String(input.shippingProductSku ?? '').trim()) errors.push('Falta el SKU del producto de envío');
@@ -204,6 +209,7 @@ function withLocaleDefaults(locale) {
     returnPickingTypeId: locale.returnPickingTypeId ?? base.returnPickingTypeId ?? null,
     internalPickingTypeId: locale.internalPickingTypeId ?? base.internalPickingTypeId ?? null,
     cashJournalId: locale.cashJournalId ?? base.cashJournalId ?? null,
+    internalCashJournalId: locale.internalCashJournalId ?? base.internalCashJournalId ?? null,
   };
 }
 

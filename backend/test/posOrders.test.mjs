@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   orderKeys, validateCustomer, validatePayments, assertPaymentsMatchTotal, priceOrder, assertCartEditable, assertDraftEditable,
-  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors,
+  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors, invoiceModeOf,
 } from '../posOrders.mjs';
 
 const methodsById = new Map([
@@ -252,4 +252,13 @@ test('priceListErrors: etiqueta del cliente y sin cambios', () => {
     'Los cambios y devoluciones van con lista Normal',
     'La lista Decoradora es solo para clientes con la etiqueta Decorador/Arquitecto en Odoo',
   ]);
+});
+
+test('invoiceModeOf: fiscal si pide factura; interna si no (y siempre en Directorio); cambio sin factura sin comprobante', () => {
+  const lines = [{ status: 'activo' }];
+  assert.equal(invoiceModeOf({ wantsInvoice: true, lines }), 'fiscal');
+  assert.equal(invoiceModeOf({ wantsInvoice: false, lines }), 'internal');
+  assert.equal(invoiceModeOf({ priceList: 'directorio', wantsInvoice: false, lines }), 'internal');
+  assert.equal(invoiceModeOf({ wantsInvoice: false, lines, returnLines: [{ rlId: 'R1' }] }), 'none');
+  assert.equal(invoiceModeOf({ wantsInvoice: false, lines: [], returnLines: [{ rlId: 'R1' }] }), 'none');
 });

@@ -15,7 +15,7 @@ import { listPromotions, listActivePromotions, savePromotion } from './posPromot
 import { searchCatalog, fetchFreeStock, groupStock, stockLocationIds } from './posCatalog.mjs';
 import { readReservationsFor, appReservedFor } from './posStock.mjs';
 import * as orders from './posOrders.mjs';
-import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor, payInvoiceAfterRetry } from './posConfirm.mjs';
+import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor, payInvoiceAfterRetry, isInternal } from './posConfirm.mjs';
 import { findPartnerForLookup, listOdooOptions } from './posOdoo.mjs';
 import { lookupArca } from './posArca.mjs';
 import * as cash from './posCash.mjs';
@@ -323,10 +323,13 @@ router.post('/orders/:id/confirm', ...cajas, handle(async (req) => {
 router.post('/orders/:id/invoice', ...cajas, handle(async (req) => {
   const order = await orderFor(req);
   const locale = (await getLocales()).find((l) => l.id === order.localId);
-  if (order.status !== 'confirmado' || !order.wantsInvoice) throw new Error('Este pedido no lleva factura');
+  const internal = isInternal(order);
+  if (order.status !== 'confirmado' || !(order.wantsInvoice || internal)) throw new Error('Este pedido no lleva factura');
   if (order.invoiceName) throw new Error(`Ya tiene la factura ${order.invoiceName}`);
-  if (!invoicingEnabledFor(locale)) throw new Error('La facturación de este local no está habilitada');
-  const result = await invoicePosOrder(order, locale);
+  if (!internal && !invoicingEnabledFor(locale)) throw new Error('La facturación de este local no está habilitada');
+  const settings = await getSettings();
+  if (internal && !settings.internalInvoiceJournalId) throw new Error('Configurá el diario de ventas internas en Admin → Ajustes');
+  const result = await invoicePosOrder(order, locale, undefined, internal ? { journalId: settings.internalInvoiceJournalId } : undefined);
   if (result.status === 'error') throw httpError(result.error, 502);
   return payInvoiceAfterRetry(order.id);
 }));

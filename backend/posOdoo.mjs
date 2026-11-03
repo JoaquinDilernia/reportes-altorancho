@@ -128,12 +128,17 @@ export function pickupLabelFor(line, locale, locales) {
   return null;
 }
 
-export function buildOdooOrderLines(lines, totals, shippingProductId) {
+// Venta interna (sin factura fiscal, diario VINTE): precio con IVA incluido y
+// sin impuestos, como las facturas internas de administración.
+const priceOf = (gross, internal) => round2(internal ? gross : netOfIva(gross));
+const noTaxes = (internal) => (internal ? { taxIds: [] } : {});
+
+export function buildOdooOrderLines(lines, totals, shippingProductId, { internal = false } = {}) {
   const result = activeLines(lines).map((l) => ({
-    productId: l.productId, qty: l.qty, unitPrice: round2(netOfIva(l.basePrice)), discountPct: round2(totals.lineDiscountPct),
+    productId: l.productId, qty: l.qty, unitPrice: priceOf(l.basePrice, internal), discountPct: round2(totals.lineDiscountPct), ...noTaxes(internal),
   }));
   if (shippingProductId && totals.shipping > 0) {
-    result.push({ productId: shippingProductId, qty: 1, unitPrice: round2(netOfIva(totals.shipping)), discountPct: 0 });
+    result.push({ productId: shippingProductId, qty: 1, unitPrice: priceOf(totals.shipping, internal), discountPct: 0, ...noTaxes(internal) });
   }
   return result;
 }
@@ -147,20 +152,20 @@ export function splitByOrigin(lines) {
 // después el de Rolón; los grupos vacíos no van. El costo de envío va como
 // última línea del primer grupo que tiene una línea con envío (si ninguna lo
 // tiene, del primer grupo). Puro.
-export function planOdooOrders({ lines, totals, locale, settings, shippingProductId, homeServiceProductId = null }) {
+export function planOdooOrders({ lines, totals, locale, settings, shippingProductId, homeServiceProductId = null, internal = false }) {
   const { local, rolon } = splitByOrigin(lines);
   const groups = [
     { group: 'local', warehouseId: locale.warehouseId, lines: local },
     { group: 'rolon', warehouseId: settings.rolon.warehouseId, lines: rolon },
   ].filter((g) => g.lines.length)
-    .map((g) => ({ ...g, odooLines: buildOdooOrderLines(g.lines, totals, null) }));
+    .map((g) => ({ ...g, odooLines: buildOdooOrderLines(g.lines, totals, null, { internal }) }));
   const target = groups.find((g) => g.lines.some((l) => l.delivery === 'envio')) ?? groups[0];
   if (shippingProductId && totals.shipping > 0 && target) {
-    target.odooLines.push({ productId: shippingProductId, qty: 1, unitPrice: netOfIva(totals.shipping), discountPct: 0 });
+    target.odooLines.push({ productId: shippingProductId, qty: 1, unitPrice: priceOf(totals.shipping, internal), discountPct: 0, ...noTaxes(internal) });
   }
   // Subida al domicilio: línea extra justo después del envío, mismo pedido.
   if (homeServiceProductId && totals.homeService > 0 && target) {
-    target.odooLines.push({ productId: homeServiceProductId, qty: 1, unitPrice: netOfIva(totals.homeService), discountPct: 0 });
+    target.odooLines.push({ productId: homeServiceProductId, qty: 1, unitPrice: priceOf(totals.homeService, internal), discountPct: 0, ...noTaxes(internal) });
   }
   return groups;
 }

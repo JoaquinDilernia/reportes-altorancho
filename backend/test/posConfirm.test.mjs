@@ -525,3 +525,35 @@ test('payInvoiceStep: sin diario o con error de Odoo → aviso, nunca tira', asy
   assert.match((await payInvoiceStep(order, 1, ctxNoJournal, deps))[0], /no tiene diario de cobro/);
   assert.match((await payInvoiceStep(order, 1, payCtx(), deps))[0], /No se pudo registrar el cobro en Odoo \(AFIP\)/);
 });
+
+test('runPostConfirmSteps: venta interna → factura en VINTE (sin depender de ARCA) y cobro en la Caja Interna', async () => {
+  const prev = process.env.POS_INVOICING_ENABLED;
+  delete process.env.POS_INVOICING_ENABLED;
+  try {
+    const calls = [];
+    const { deps } = fakeDeps({
+      invoice: async (order, locale, options) => { calls.push(['invoice', options]); return { status: 'invoiced', invoiceId: 500 }; },
+      creditNoteIdsOf: async () => [],
+      readInvoiceResidual: async () => 2420,
+      registerInvoicePayment: async (id, vals) => { calls.push(['pay', id, vals.journalId, vals.amount]); },
+      saveOdooPayments: async () => {},
+    });
+    const order = {
+      ...baseOrder(), status: 'confirmado', wantsInvoice: false, invoiceMode: 'internal', totals: { total: 2420, lineDiscountPct: 0 },
+      odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: 'S9000' }],
+      lines: [{ lineId: 'L1', productId: 10, sku: 'A', qty: 2, basePrice: 1210, origin: 'stock', delivery: 'retira_local', status: 'activo', odooLineId: 71 }],
+    };
+    await runPostConfirmSteps(order, 'Caja', { ...ctx, methodsById: payCtx().methodsById }, deps);
+    assert.deepEqual(calls, [['invoice', { journalId: 28 }], ['pay', 500, 33, 2420]]);
+    // Directorio: interna y sin pagos → factura a cobrar, sin cobro registrado.
+    calls.length = 0;
+    await runPostConfirmSteps({ ...order, priceList: 'directorio', payments: [] }, 'Caja', { ...ctx, methodsById: payCtx().methodsById }, deps);
+    assert.deepEqual(calls, [['invoice', { journalId: 28 }]]);
+    // Sin factura y sin modo interno (cambio): no factura.
+    calls.length = 0;
+    await runPostConfirmSteps({ ...order, invoiceMode: 'none' }, 'Caja', { ...ctx, methodsById: payCtx().methodsById }, deps);
+    assert.equal(calls.length, 0);
+  } finally {
+    if (prev !== undefined) process.env.POS_INVOICING_ENABLED = prev;
+  }
+});
