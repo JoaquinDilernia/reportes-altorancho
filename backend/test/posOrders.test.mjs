@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   orderKeys, validateCustomer, validatePayments, assertPaymentsMatchTotal, priceOrder, assertCartEditable, assertDraftEditable,
-  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds,
+  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors,
 } from '../posOrders.mjs';
 
 const methodsById = new Map([
@@ -214,4 +214,42 @@ test('postedCreditNoteIds: el saldo solo guarda NC publicadas', () => {
   const steps = { creditNotes: { 'nc:1': { id: 10, state: 'posted' }, 'nc:manual': { id: 11, state: 'draft' }, 'nc:2': { id: null, state: 'posted' } } };
   assert.deepEqual(postedCreditNoteIds(steps), [10]);
   assert.deepEqual(postedCreditNoteIds(undefined), []);
+});
+
+const listLines = [{ lineId: 'L1', qty: 2, basePrice: 1000, status: 'activo', delivery: 'ahora' }];
+
+test('priceOrder: Directorio no lleva pago ni descuentos y no se cobra', () => {
+  const order = { priceList: 'directorio', lines: listLines, payments: [{ methodId: 'efectivo' }], discountChoice: { promotionId: 'p1' } };
+  const promotions = [{ id: 'p1', name: 'Amigo', kind: 'motivo', type: 'pct', value: 10, active: true }];
+  const { extraDiscount, totals } = priceOrder(order, { methodsById, promotions, now: Date.now() });
+  assert.equal(extraDiscount, null);
+  assert.equal(totals.paymentPct, 0);
+  assert.equal(totals.total, 2000);
+  assert.equal(totals.collect, 0);
+});
+
+test('priceOrder: Decoradora suma el medio de pago pero no promos automáticas', () => {
+  const auto = { id: 'deco', name: 'Decorador', kind: 'auto', type: 'pct', value: 5, active: true, requiresCustomerTagId: 1 };
+  const order = { priceList: 'decoradora', lines: listLines, payments: [{ methodId: 'efectivo' }], customer: { tagIds: [1] } };
+  const { extraDiscount, totals } = priceOrder(order, { methodsById, promotions: [auto], now: Date.now() });
+  assert.equal(extraDiscount, null);
+  assert.equal(totals.total, 1700);
+  assert.equal(priceOrder({ ...order, priceList: 'normal' }, { methodsById, promotions: [auto], now: Date.now() }).extraDiscount.name, 'Decorador');
+});
+
+test('claimPricing: Directorio confirma sin medio de pago', () => {
+  const order = { priceList: 'directorio', lines: listLines, payments: [] };
+  const { payments, totals } = claimPricing(order, { methodsById, promotions: [], now: Date.now() });
+  assert.deepEqual(payments, []);
+  assert.equal(totals.collect, 0);
+});
+
+test('priceListErrors: etiqueta del cliente y sin cambios', () => {
+  const settings = { decoradorTagId: 1, directorioTagId: 33 };
+  assert.deepEqual(priceListErrors({ priceList: 'normal', customer }, settings), []);
+  assert.deepEqual(priceListErrors({ priceList: 'directorio', customer: { ...customer, tagIds: [33] } }, settings), []);
+  assert.deepEqual(priceListErrors({ priceList: 'decoradora', customer: { ...customer, tagIds: [] }, returnLines: [{ rlId: 'R1' }] }, settings), [
+    'Los cambios y devoluciones van con lista Normal',
+    'La lista Decoradora es solo para clientes con la etiqueta Decorador/Arquitecto en Odoo',
+  ]);
 });

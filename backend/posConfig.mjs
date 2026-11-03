@@ -27,6 +27,13 @@ export const DEFAULT_SETTINGS = {
   promoPricelistId: 313,
   shippingProductSku: 'ENV002EX',
   decoradorTagId: 1,
+  // Lista Decoradora (pedido en Odoo con la lista "[DESC5-DEC] Lista
+  // Decoradora", que cambia de id cada mes) y Directorio ("Venta Interna
+  // Directorio 2026", al costo; etiqueta de cliente creada el 2026-11-03).
+  decoradoraPricelistId: 333,
+  decoradoraDiscountPct: 5,
+  directorioPricelistId: 255,
+  directorioTagId: 33,
   homeServiceSku: 'SERVIDOM',
   homeServiceDefaultAmount: 5000,
   creditValidityDays: null, // null = el saldo a favor no vence
@@ -107,9 +114,12 @@ export function validateSettings(input) {
   if (input.rolon?.outPickingTypeId != null && !isId(input.rolon.outPickingTypeId)) errors.push('Rolón: tipo de operación inválido');
   if (!isId(input.web?.locationId)) errors.push('Web: ubicación obligatoria');
   if (input.webTransferPickingTypeId != null && !isId(input.webTransferPickingTypeId)) errors.push('Web: tipo de transferencia inválido');
-  for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId']) {
+  for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId', 'decoradoraPricelistId', 'directorioPricelistId']) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
   }
+  if (input.directorioTagId != null && !isId(input.directorioTagId)) errors.push('Etiqueta de Directorio inválida');
+  const decoPct = input.decoradoraDiscountPct;
+  if (decoPct != null && !(typeof decoPct === 'number' && decoPct >= 0 && decoPct < 100)) errors.push('Descuento de la lista Decoradora: entre 0 y 99');
   if (!String(input.shippingProductSku ?? '').trim()) errors.push('Falta el SKU del producto de envío');
   if (input.homeServiceSku !== undefined && !String(input.homeServiceSku ?? '').trim()) errors.push('Falta el SKU de la subida al domicilio');
   const homeAmount = input.homeServiceDefaultAmount;

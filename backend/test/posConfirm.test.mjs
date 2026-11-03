@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps,
+  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps, odooPricelistId,
 } from '../posConfirm.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS } from '../posConfig.mjs';
 
@@ -468,4 +468,21 @@ test('confirmPosOrder: sin subida al domicilio no se busca el producto SERVIDOM'
   const { deps, calls } = fakeDeps();
   await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
   assert.equal(named(calls, 'productBySku').length, 0);
+});
+
+test('confirmPosOrder: Directorio → lista 255 y sin medio de pago', async () => {
+  const { deps, calls } = fakeDeps();
+  await confirmPosOrder({ ...baseOrder(), priceList: 'directorio', payments: [], totals: { lineDiscountPct: 0, shipping: 0, total: 2420 } }, 'Caja Lomas', ctx, deps);
+  const payloads = named(calls, 'createSaleOrder').map((c) => c[1]);
+  assert.deepEqual(payloads.map((p) => p.pricelist_id), [255, 255]);
+  assert.deepEqual(payloads.map((p) => p.payment_method_ids), [undefined, undefined]);
+  assert.equal(named(calls, 'paymentMethod').length, 0);
+  assert.equal(payloads[0].order_line[0][2].discount, 0);
+});
+
+test('odooPricelistId: Decoradora y Directorio usan su lista; normal, la de pedidos', () => {
+  assert.equal(odooPricelistId({ priceList: 'decoradora' }, DEFAULT_SETTINGS), 333);
+  assert.equal(odooPricelistId({ priceList: 'directorio' }, DEFAULT_SETTINGS), 255);
+  assert.equal(odooPricelistId({}, DEFAULT_SETTINGS), 314);
+  assert.equal(odooPricelistId({ priceList: 'decoradora' }, { ...DEFAULT_SETTINGS, decoradoraPricelistId: null }), 314);
 });

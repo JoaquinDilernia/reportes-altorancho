@@ -136,7 +136,10 @@ router.get('/config', ...auth, handle(async () => {
     paymentMethods: paymentMethods.filter((m) => m.active !== false),
     promotions: promotions.filter((p) => p.kind !== 'cupon').map(({ id, name, kind, type, value, requiresPaymentMethodId }) => ({ id, name, kind, type, value, requiresPaymentMethodId })),
     creditMethod: SALDO_METHOD,
-    settings: { decoradorTagId: settings.decoradorTagId, homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons },
+    settings: {
+      decoradorTagId: settings.decoradorTagId, directorioTagId: settings.directorioTagId, decoradoraDiscountPct: settings.decoradoraDiscountPct,
+      homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons,
+    },
   };
 }));
 
@@ -202,7 +205,7 @@ router.post('/carts', ...sellers, handle(async (req) => {
     localId = req.body?.localId;
     if (!(await getLocales()).some((l) => l.id === localId)) throw new Error('Elegí un local válido');
   }
-  return orders.createCart(actingUser(req, localId), req.body?.line ?? {});
+  return orders.createCart(actingUser(req, localId), req.body?.line ?? {}, req.body?.priceList ?? 'normal');
 }));
 router.post('/carts/:id/lines', ...sellers, handle(async (req) => {
   await orderFor(req);
@@ -215,6 +218,13 @@ router.delete('/carts/:id', ...sellers, handle(async (req) => {
 router.post('/carts/:id/submit', ...sellers, handle(async (req) => {
   await orderFor(req);
   return orders.submitCart(req.params.id, req.posUser, req.body ?? {});
+}));
+
+// ---- Lista de precios (carrito propio o pedido en caja) ----
+router.put('/orders/:id/price-list', ...sellers, handle(async (req) => {
+  const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
+  return orders.setPriceList(req.params.id, actingUser(req, order.localId), req.body?.priceList);
 }));
 
 // ---- Líneas (carrito propio o pedido en caja) ----

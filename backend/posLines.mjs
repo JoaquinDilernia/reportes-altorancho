@@ -1,6 +1,7 @@
 // Modelo de línea del POS: de dónde sale (origen) y cómo se entrega. Todo
 // puro; la E/S vive en posOrders / posStock / posOdoo.
 import { ORIGINS } from './posConfig.mjs';
+import { listPriceOf } from './posPricing.mjs';
 export { isConfirming, shouldAutoRetry, CONFIRMING_MESSAGE, CONFIRM_CLAIM_MS } from './feriaLines.mjs';
 
 export const DELIVERIES = ['ahora', 'retira_local', 'envio', 'retira_rolon', 'retira_otro_local'];
@@ -63,10 +64,19 @@ export function pickWebLots(quants) {
   return result;
 }
 
-export function buildLine(product, { qty = 1, origin = 'stock', delivery = 'ahora', pickupLocalId = null }, lines, ctx) {
+// Precios de la línea según la lista del pedido (`pricing`: { priceList,
+// decoradoraDiscountPct }). basePrice es lo que se cobra por unidad, con IVA.
+export function priceFields(product, pricing = {}) {
+  return {
+    fullPrice: product.fullPrice, promoPrice: product.promoPrice, costPrice: product.costPrice ?? null,
+    basePrice: listPriceOf(product, pricing.priceList, pricing),
+  };
+}
+
+export function buildLine(product, { qty = 1, origin = 'stock', delivery = 'ahora', pickupLocalId = null }, lines, ctx, pricing = {}) {
   const line = {
     lineId: nextLineId(lines), productId: product.productId, sku: product.sku, name: product.name, qty,
-    fullPrice: product.fullPrice, promoPrice: product.promoPrice, basePrice: product.basePrice,
+    ...priceFields(product, pricing),
     origin, delivery, pickupLocalId: delivery === 'retira_otro_local' ? pickupLocalId : null, status: 'activo',
   };
   const errors = validateLine(line, ctx);

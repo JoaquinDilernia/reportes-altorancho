@@ -12,6 +12,41 @@ export function basePriceOf({ fullPrice, promoPrice }) {
   return fullPrice;
 }
 
+// Lista de precios del pedido. Decoradora: el precio de siempre menos un %
+// (lista "[DESC5-DEC] Lista Decoradora" de Odoo); suma los descuentos por
+// medio de pago. Directorio: al costo del producto + IVA, no se cobra en el
+// momento ni se factura. Las dos son solo para clientes con su etiqueta.
+export const PRICE_LISTS = ['normal', 'decoradora', 'directorio'];
+export const isDirectorio = (order) => order?.priceList === 'directorio';
+
+export function assertPriceList(priceList) {
+  if (!PRICE_LISTS.includes(priceList)) throw new Error(`Lista de precios inválida: ${priceList}`);
+}
+
+// Precio con IVA de un producto (o línea) según la lista del pedido.
+export function listPriceOf(product, priceList, { decoradoraDiscountPct = 5 } = {}) {
+  const base = basePriceOf(product);
+  if (!priceList || priceList === 'normal') return base;
+  if (priceList === 'decoradora') return round2(base * (1 - decoradoraDiscountPct / 100));
+  if (priceList === 'directorio') {
+    if (!(product.costPrice > 0)) throw new Error(`${product.sku || 'El producto'} no tiene costo cargado en Odoo: no se puede vender a Directorio`);
+    return product.costPrice;
+  }
+  throw new Error(`Lista de precios inválida: ${priceList}`);
+}
+
+// La lista exige la etiqueta del cliente en Odoo (Decorador/Arquitecto o Directorio).
+export function priceListTagError(priceList, customer, settings) {
+  const tagIds = (customer?.tagIds ?? []).map(Number);
+  if (priceList === 'decoradora' && !tagIds.includes(Number(settings.decoradorTagId))) {
+    return 'La lista Decoradora es solo para clientes con la etiqueta Decorador/Arquitecto en Odoo';
+  }
+  if (priceList === 'directorio' && !tagIds.includes(Number(settings.directorioTagId))) {
+    return 'La lista Directorio es solo para clientes con la etiqueta Directorio en Odoo';
+  }
+  return null;
+}
+
 function methodOf(methodsById, methodId) {
   const method = methodsById.get(methodId);
   if (!method) throw new Error(`Medio de pago inválido: ${methodId}`);

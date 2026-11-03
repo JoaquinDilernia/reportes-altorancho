@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   basePriceOf, paymentDiscountPct, principalPayment, computeTotals, netOfIva, withIva, extraDiscountAmount, round2,
-  computeExchangeTotals, collectOf,
+  computeExchangeTotals, collectOf, listPriceOf, priceListTagError,
 } from '../posPricing.mjs';
 
 const methodsById = new Map([
@@ -186,4 +186,23 @@ test('collectOf: venta usa total; cambio usa collect', () => {
   assert.equal(collectOf({ total: 100 }), 100);
   assert.equal(collectOf({ total: 100, collect: 0 }), 0);
   assert.equal(collectOf(null), 0);
+});
+
+test('listPriceOf: normal = base, decoradora = base − %, directorio = costo', () => {
+  const p = { sku: 'TPI002GR', fullPrice: 90990, promoPrice: 62990, costPrice: 39917.9 };
+  assert.equal(listPriceOf(p, 'normal'), 62990);
+  assert.equal(listPriceOf(p, undefined), 62990);
+  assert.equal(listPriceOf(p, 'decoradora', { decoradoraDiscountPct: 5 }), 59840.5);
+  assert.equal(listPriceOf(p, 'directorio'), 39917.9);
+  assert.throws(() => listPriceOf({ ...p, costPrice: null }, 'directorio'), /TPI002GR no tiene costo cargado/);
+  assert.throws(() => listPriceOf(p, 'mayorista'), /Lista de precios inválida/);
+});
+
+test('priceListTagError: cada lista pide su etiqueta de Odoo', () => {
+  const settings = { decoradorTagId: 1, directorioTagId: 33 };
+  assert.equal(priceListTagError('normal', { tagIds: [] }, settings), null);
+  assert.equal(priceListTagError('decoradora', { tagIds: [1] }, settings), null);
+  assert.match(priceListTagError('decoradora', { tagIds: [33] }, settings), /Decorador\/Arquitecto/);
+  assert.equal(priceListTagError('directorio', { tagIds: ['33'] }, settings), null);
+  assert.match(priceListTagError('directorio', null, settings), /etiqueta Directorio/);
 });

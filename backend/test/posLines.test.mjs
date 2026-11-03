@@ -41,6 +41,15 @@ test('buildLine: toma precios del catálogo y numera después de la mayor', () =
   assert.throws(() => buildLine(product, { origin: 'rolon', delivery: 'ahora' }, [], ctx), /solo sale del local/);
 });
 
+test('buildLine: precio según la lista del pedido', () => {
+  const withCost = { ...product, costPrice: 605 };
+  assert.equal(buildLine(withCost, {}, [], ctx, { priceList: 'decoradora', decoradoraDiscountPct: 5 }).basePrice, 1149.5);
+  const dir = buildLine(withCost, {}, [], ctx, { priceList: 'directorio' });
+  assert.equal(dir.basePrice, 605);
+  assert.equal(dir.fullPrice, 1210);
+  assert.throws(() => buildLine(product, {}, [], ctx, { priceList: 'directorio' }), /no tiene costo cargado/);
+});
+
 test('editLine: cambia origen/entrega/cantidad y revalida; no edita entregadas', () => {
   const edited = editLine(line(), { origin: 'rolon', delivery: 'envio', qty: 3 }, ctx);
   assert.equal(edited.origin, 'rolon');

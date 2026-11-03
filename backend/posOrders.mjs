@@ -9,7 +9,9 @@ import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, localeIdsOf, resolveOdooPaymentName,
   returnDestinationsOf,
 } from './posConfig.mjs';
-import { computeTotals, computeExchangeTotals, collectOf, round2 } from './posPricing.mjs';
+import {
+  computeTotals, computeExchangeTotals, collectOf, round2, assertPriceList, isDirectorio, priceListTagError,
+} from './posPricing.mjs';
 import {
   buildReturnLine, editReturnLine, validateReturnLine, returnTotal, orderKind, validateRefund,
 } from './posReturns.mjs';
@@ -18,7 +20,7 @@ import { resolveExtraDiscount, listActivePromotions } from './posPromotions.mjs'
 import { getCatalogProducts, fetchFreeStock, stockLocationIds } from './posCatalog.mjs';
 import {
   buildLine, editLine, reservationDeltas, needsShipping, validateShipping, formatOrderNumber, isConfirming,
-  CONFIRMING_MESSAGE, activeLines, shipsFromRolon,
+  CONFIRMING_MESSAGE, activeLines, shipsFromRolon, priceFields,
 } from './posLines.mjs';
 import { readReservations, checkAvailability, writeReservations } from './posStock.mjs';
 import { isValidCuit } from './feriaOdoo.mjs';
@@ -93,22 +95,27 @@ export function assertPaymentsMatchTotal(payments, total) {
   }
 }
 
+// Directorio: sin medio de pago ni descuentos, y no se cobra (collect 0).
+// Con lista Decoradora no corren las promos automáticas: el % ya está en el precio.
 export function priceOrder(order, { methodsById, promotions, now }) {
+  const directorio = isDirectorio(order);
+  const payments = directorio ? [] : order.payments ?? [];
   const ctx = {
-    paymentMethodIds: (order.payments ?? []).map((p) => p.methodId),
+    paymentMethodIds: payments.map((p) => p.methodId),
     customerTagIds: order.customer?.tagIds ?? [],
     now,
   };
-  const extraDiscount = resolveExtraDiscount(promotions, order.discountChoice ?? {}, ctx);
+  const eligible = (order.priceList ?? 'normal') === 'normal' ? promotions : promotions.filter((p) => p.kind !== 'auto');
+  const extraDiscount = directorio ? null : resolveExtraDiscount(eligible, order.discountChoice ?? {}, ctx);
   const args = {
-    lines: order.lines, payments: order.payments ?? [], methodsById, extraDiscount,
+    lines: order.lines, payments, methodsById, extraDiscount,
     shippingAmount: needsShipping(order.lines) ? (order.shipping?.amount ?? 0) : 0,
     homeServiceAmount: needsShipping(order.lines) ? (order.shipping?.homeServiceAmount ?? 0) : 0,
   };
   const totals = order.returnLines?.length
     ? computeExchangeTotals({ ...args, returnValue: returnTotal(order.returnLines) })
     : computeTotals(args);
-  return { extraDiscount, totals };
+  return { extraDiscount, totals: directorio ? { ...totals, collect: 0 } : totals };
 }
 
 // Pedido que ya existe en Odoo: los precios quedaron fijos, no se recalculan.
@@ -117,6 +124,11 @@ export function claimPricing(order, { methodsById, promotions, now }) {
     return { payments: order.payments, extraDiscount: order.extraDiscount ?? null, totals: order.totals };
   }
   const exchange = Boolean(order.returnLines?.length);
+  // Directorio no se cobra en el momento: no lleva medio de pago.
+  if (isDirectorio(order)) {
+    const { extraDiscount, totals } = priceOrder(order, { methodsById, promotions, now });
+    return { payments: [], extraDiscount, totals };
+  }
   // Cambio/devolución sin nada para cobrar: no lleva medio de pago.
   if (exchange) {
     const draft = priceOrder({ ...order, payments: [] }, { methodsById, promotions, now });
@@ -130,6 +142,17 @@ export function claimPricing(order, { methodsById, promotions, now }) {
 
 export function returnCtx(locale, settings) {
   return { destinationIds: returnDestinationsOf(locale, settings).map((d) => d.id), reasons: settings.returnReasons };
+}
+
+// Decoradora y Directorio: solo ventas (sin lo que vuelve) y para clientes con su etiqueta.
+export function priceListErrors(order, settings) {
+  const priceList = order.priceList ?? 'normal';
+  if (priceList === 'normal') return [];
+  const errors = [];
+  if ((order.returnLines ?? []).length) errors.push('Los cambios y devoluciones van con lista Normal');
+  const tagError = priceListTagError(priceList, order.customer, settings);
+  if (tagError) errors.push(tagError);
+  return errors;
 }
 
 // La NC y el saldo son del cliente de la compra original (spec §5.3).
@@ -241,15 +264,18 @@ async function productFor(productId, ctx) {
   return product;
 }
 
-export async function createCart(user, lineInput) {
+const pricingOf = (order, settings) => ({ priceList: order.priceList ?? 'normal', decoradoraDiscountPct: settings.decoradoraDiscountPct });
+
+export async function createCart(user, lineInput, priceList = 'normal') {
+  assertPriceList(priceList);
   const ctx = await lineCtx(user.localId);
-  const line = buildLine(await productFor(lineInput.productId, ctx), lineInput, [], ctx.validation);
+  const line = buildLine(await productFor(lineInput.productId, ctx), lineInput, [], ctx.validation, pricingOf({ priceList }, ctx.settings));
   const freeStock = await stockFor([line], ctx);
   const db = getDb();
   const ref = db.collection(COLLECTION).doc();
   const now = new Date();
   const order = {
-    localId: user.localId, sellerId: user.id, sellerName: user.name, status: 'carrito', lines: [line],
+    localId: user.localId, sellerId: user.id, sellerName: user.name, status: 'carrito', lines: [line], priceList,
     kind: 'venta', returnLines: [], refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
     customer: null, shipping: null, payments: [], discountChoice: null, extraDiscount: null, totals: null,
     wantsInvoice: false, notes: '', odooOrders: [], odooOrderId: null, createdAt: now, updatedAt: now,
@@ -301,8 +327,47 @@ export async function addCartLine(orderId, user, lineInput) {
   const order = await getOrder(orderId);
   const ctx = await lineCtx(order.localId);
   const product = await productFor(lineInput.productId, ctx);
-  const probe = buildLine(product, lineInput, [], ctx.validation);
-  return changeLines(orderId, user, (lines, c) => [...lines, buildLine(product, lineInput, lines, c.validation)], [probe]);
+  const probe = buildLine(product, lineInput, [], ctx.validation, pricingOf(order, ctx.settings));
+  return changeLines(orderId, user, (lines, c, current) => [
+    ...lines, buildLine(product, lineInput, lines, c.validation, pricingOf(current, c.settings)),
+  ], [probe]);
+}
+
+// Cambia la lista de precios de un carrito o de un pedido en caja: vuelve a
+// leer los precios de Odoo y recalcula todas las líneas. Directorio no lleva
+// pago, descuento elegido ni factura.
+export async function setPriceList(orderId, user, priceList) {
+  assertPriceList(priceList);
+  const first = await getOrder(orderId);
+  const ctx = await lineCtx(first.localId);
+  const products = await getCatalogProducts(activeLines(first.lines).map((l) => l.productId), ctx.settings);
+  const db = getDb();
+  const ref = db.collection(COLLECTION).doc(orderId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error('Pedido no encontrado');
+    const order = withId(snap);
+    if (order.status === 'carrito') assertCartEditable(order, user);
+    else {
+      if (order.localId !== user.localId) throw forbidden();
+      assertDraftEditable(order);
+    }
+    if (priceList !== 'normal' && (order.returnLines ?? []).length) throw new Error('Los cambios y devoluciones van con lista Normal');
+    const pricing = pricingOf({ priceList }, ctx.settings);
+    const lines = order.lines.map((l) => {
+      if (l.status === 'eliminado') return l;
+      const product = products.get(l.productId);
+      if (!product) throw new Error(`${l.sku}: no se encontró el precio en Odoo, volvé a intentar`);
+      return { ...l, ...priceFields(product, pricing) };
+    });
+    const update = { priceList, lines, updatedAt: new Date() };
+    if (priceList === 'directorio') {
+      assertPaymentsEditable(order, { payments: [] });
+      Object.assign(update, { payments: [], discountChoice: null, wantsInvoice: false });
+    }
+    tx.update(ref, update);
+    return { ...order, ...update };
+  });
 }
 
 export async function updateLine(orderId, user, lineId, changes) {
@@ -358,7 +423,7 @@ export async function createReturnCart(user, purchaseLine, input) {
   const now = new Date();
   const order = {
     localId: user.localId, sellerId: user.id, sellerName: user.name, status: 'carrito', lines: [], returnLines: [returnLine],
-    kind: 'devolucion', refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
+    priceList: 'normal', kind: 'devolucion', refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
     customer: null, shipping: null, payments: [], discountChoice: null, extraDiscount: null, totals: null,
     wantsInvoice: false, notes: '', odooOrders: [], odooOrderId: null, createdAt: now, updatedAt: now,
   };
@@ -388,6 +453,7 @@ async function changeReturnLines(orderId, user, change) {
       assertDraftEditable(order);
     }
     assertReturnLinesEditable(order);
+    if ((order.priceList ?? 'normal') !== 'normal') throw new Error('Los cambios y devoluciones van con lista Normal: cambiá la lista antes');
     const returnLines = change(order.returnLines ?? [], ctx, order);
     const update = { returnLines, kind: orderKind({ lines: order.lines, returnLines }), updatedAt: new Date() };
     tx.update(ref, update);
@@ -417,7 +483,8 @@ export async function searchAppPurchases({ doc = null, number = null }) {
   const col = getDb().collection(COLLECTION);
   const snap = number ? await col.where('number', '==', number).get() : await col.where('customer.docNumber', '==', doc).get();
   return snap.docs.map(withId)
-    .filter((o) => o.status === 'confirmado' && activeLines(o.lines).length && o.odooOrders?.length)
+    // Directorio (al costo, sin factura) no se cambia ni se devuelve desde la app.
+    .filter((o) => o.status === 'confirmado' && activeLines(o.lines).length && o.odooOrders?.length && !isDirectorio(o))
     .sort((a, b) => toDate(b.createdAt) - toDate(a.createdAt)).slice(0, 30);
 }
 
@@ -441,12 +508,14 @@ export function cleanHolderReason(reason, returnLines) {
 }
 
 export async function submitCart(orderId, user, { customer, shipping, holderChangeReason }) {
+  const settings = await getSettings();
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
   return db.runTransaction(async (tx) => {
     const order = withId(await tx.get(ref));
     assertCartEditable(order, user);
     const errors = validateCustomer(customer, { wantsInvoice: false });
+    errors.push(...priceListErrors({ ...order, customer }, settings));
     const withShipping = needsShipping(order.lines);
     if (withShipping) errors.push(...validateShipping(shipping));
     if (!activeLines(order.lines).length && !(order.returnLines ?? []).length) errors.push('El pedido no tiene productos');
@@ -502,7 +571,10 @@ export async function updateDraft(orderId, user, patch) {
     if (patch.shipping !== undefined) update.shipping = patch.shipping;
     if (patch.payments !== undefined) update.payments = validatePayments(patch.payments, methodsById);
     if (patch.discountChoice !== undefined) update.discountChoice = patch.discountChoice;
-    if (patch.wantsInvoice !== undefined) update.wantsInvoice = Boolean(patch.wantsInvoice);
+    if (patch.wantsInvoice !== undefined) {
+      if (patch.wantsInvoice && isDirectorio(order)) throw new Error('Las ventas a Directorio no se facturan');
+      update.wantsInvoice = Boolean(patch.wantsInvoice);
+    }
     if (patch.notes !== undefined) update.notes = String(patch.notes).slice(0, 1000);
     if (patch.refund !== undefined) update.refund = patch.refund === null ? null : {
       cashBack: Array.isArray(patch.refund.cashBack) ? patch.refund.cashBack.map(({ methodId, amount }) => ({ methodId: String(methodId), amount: Number(amount) })) : [],
@@ -533,7 +605,10 @@ export async function claimOrderForConfirm(orderId, user) {
     const pointer = await tx.get(cashPointerRef(db, order.localId));
     const cashSessionId = pointer.data()?.openSessionId;
     if (!cashSessionId) throw new Error(CASH_CLOSED_MESSAGE);
-    const errors = validateCustomer(order.customer, { wantsInvoice: order.wantsInvoice });
+    const directorio = isDirectorio(order);
+    const wantsInvoice = directorio ? false : Boolean(order.wantsInvoice);
+    const errors = validateCustomer(order.customer, { wantsInvoice });
+    errors.push(...priceListErrors(order, settings));
     if (needsShipping(order.lines)) errors.push(...validateShipping(order.shipping));
     const exchange = Boolean(order.returnLines?.length);
     if (!activeLines(order.lines).length && !exchange) errors.push('El pedido no tiene productos');
@@ -562,7 +637,7 @@ export async function claimOrderForConfirm(orderId, user) {
     if (creditCommit) creditCommit();
     const update = {
       confirmingSince: new Date(), cashSessionId, payments, extraDiscount, totals, refund, creditAllocation,
-      kind: orderKind(order), updatedAt: new Date(),
+      kind: orderKind(order), wantsInvoice, priceList: order.priceList ?? 'normal', updatedAt: new Date(),
     };
     tx.update(ref, update);
     return { order: { ...order, ...update }, alreadyConfirmed: false };

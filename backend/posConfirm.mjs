@@ -7,7 +7,7 @@
 import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName,
 } from './posConfig.mjs';
-import { principalPayment } from './posPricing.mjs';
+import { principalPayment, isDirectorio } from './posPricing.mjs';
 import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE, webTransferItems } from './posLines.mjs';
 import * as orders from './posOrders.mjs';
 import * as odoo from './posOdoo.mjs';
@@ -135,6 +135,13 @@ async function shippingPartnerFor(groupLines, order, partnerId, ctx, deps) {
   return childPartnerFor(odoo.buildPickupPartnerVals(partnerId, order.customer.name, label, address), ['name', 'street'], deps);
 }
 
+// Lista de precios del sale.order según la del pedido (los precios de línea
+// van fijos desde la app; la lista queda para reportes en Odoo).
+export function odooPricelistId(order, settings) {
+  const byList = { decoradora: settings.decoradoraPricelistId, directorio: settings.directorioPricelistId };
+  return byList[order.priceList] || settings.orderPricelistId || undefined;
+}
+
 // El medio de Odoo nunca es "saldo": manda el principal de los pagos reales;
 // si se pagó todo con saldo, el medio configurado en Ajustes.
 async function paymentMethodIdFor(order, ctx, deps) {
@@ -198,7 +205,9 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   if (pending.length) {
     // Un cambio con neto <= 0 no tiene pagos: el pedido va sin medio de pago
     // (buildSaleOrderPayload omite payment_method_ids si es null).
-    paymentMethodId = order.payments.length || ctx.settings.creditOdooPaymentName ? await paymentMethodIdFor(order, ctx, deps) : null;
+    // Directorio tampoco: no se cobra en el momento.
+    paymentMethodId = !isDirectorio(order) && (order.payments.length || ctx.settings.creditOdooPaymentName)
+      ? await paymentMethodIdFor(order, ctx, deps) : null;
     if (order.totals.shipping > 0) {
       shippingProductId = await deps.findProductIdBySku(ctx.settings.shippingProductSku);
       if (!shippingProductId) throw new Error(`Producto de envío no encontrado en Odoo: ${ctx.settings.shippingProductSku}`);
@@ -224,7 +233,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
     if (!odooOrderId) {
       const partnerShippingId = await shippingPartnerFor(group.lines, order, partnerId, ctx, deps);
       const vals = odoo.buildSaleOrderPayload({
-        partnerId, pricelistId: ctx.settings.orderPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
+        partnerId, pricelistId: odooPricelistId(order, ctx.settings), teamId: ctx.locale.teamId, paymentMethodId,
         warehouseId: group.warehouseId, partnerShippingId: partnerShippingId ?? partnerId, clientOrderRef: order.number, lines: group.odooLines,
       });
       if (!vals.pricelist_id) delete vals.pricelist_id;
