@@ -582,6 +582,8 @@ export const markOrderInvoiced = (id, { invoiceId, invoiceName }) => patchOrder(
 export const setInvoiceError = (id, invoiceError) => patchOrder(id, { invoiceError });
 export const saveReturnSteps = (id, returnSteps) => patchOrder(id, { returnSteps });
 export const saveAppliedCreditNotes = (id, appliedCreditNoteIds) => patchOrder(id, { appliedCreditNoteIds });
+// Cobros ya registrados en la factura de Odoo, por medio (`methodId:detailId`).
+export const saveOdooPayments = (id, odooPayments) => patchOrder(id, { odooPayments });
 // Pasos después de confirmar (Exhibición, entrega en el acto, factura) terminados.
 export const clearPostConfirmPending = (id) => patchOrder(id, { postConfirmPending: false });
 

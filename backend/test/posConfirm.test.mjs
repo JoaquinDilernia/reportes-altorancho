@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps,
+  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps, planInvoicePayments, payInvoiceStep,
 } from '../posConfirm.mjs';
-import { DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS } from '../posConfig.mjs';
+import { DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS, DEFAULT_PAYMENT_JOURNALS } from '../posConfig.mjs';
 
 const ctx = {
   locale: DEFAULT_LOCALES[0], locales: DEFAULT_LOCALES, settings: DEFAULT_SETTINGS,
@@ -468,4 +468,43 @@ test('confirmPosOrder: sin subida al domicilio no se busca el producto SERVIDOM'
   const { deps, calls } = fakeDeps();
   await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
   assert.equal(named(calls, 'productBySku').length, 0);
+});
+
+const payCtx = () => ({
+  locale: DEFAULT_LOCALES[0],
+  methodsById: new Map([...DEFAULT_PAYMENT_METHODS.map((m) => [m.id, { ...m, odooJournal: DEFAULT_PAYMENT_JOURNALS[m.id] }]), ['saldo', { id: 'saldo', label: 'Saldo a favor' }]]),
+});
+
+test('planInvoicePayments: un cobro por medio real, con su diario; el saldo a favor no', () => {
+  const order = { totals: { total: 10000 }, payments: [
+    { methodId: 'efectivo', amount: 4000 }, { methodId: 'transferencia', amount: 3000 }, { methodId: 'saldo', amount: 3000 },
+  ] };
+  assert.deepEqual(planInvoicePayments(order, payCtx().methodsById, DEFAULT_LOCALES[0]).map((p) => [p.key, p.journalId, p.amount]), [
+    ['efectivo:', 54, 4000], ['transferencia:', 7, 3000],
+  ]);
+  const single = planInvoicePayments({ totals: { total: 1598.08 }, payments: [{ methodId: 'credito', detailId: '3', amount: null }] }, payCtx().methodsById, DEFAULT_LOCALES[1]);
+  assert.deepEqual(single, [{ key: 'credito:3', label: 'Tarjeta crédito', journalId: 35, amount: 1598.08 }]);
+});
+
+test('payInvoiceStep: registra lo cobrado hasta lo abierto, cubre centavos y no repite en un reintento', async () => {
+  const calls = [];
+  const deps = {
+    readInvoiceResidual: async () => 5595.75,
+    registerInvoicePayment: async (id, vals) => { calls.push(['pay', id, vals.journalId, vals.amount]); },
+    saveOdooPayments: async (id, done) => { calls.push(['save', Object.keys(done)]); },
+  };
+  const order = { id: 'o1', number: 'LL-0016', totals: { collect: 5595.76, total: 5595.76 }, payments: [{ methodId: 'transferencia', amount: null }] };
+  assert.deepEqual(await payInvoiceStep(order, 400, payCtx(), deps), []);
+  assert.deepEqual(calls.filter((c) => c[0] === 'pay'), [['pay', 400, 7, 5595.75]]);
+  calls.length = 0;
+  await payInvoiceStep({ ...order, odooPayments: { 'transferencia:': { amount: 5595.75 } } }, 400, payCtx(), deps);
+  assert.equal(calls.length, 0);
+});
+
+test('payInvoiceStep: sin diario o con error de Odoo → aviso, nunca tira', async () => {
+  const order = { id: 'o1', number: 'LL-1', totals: { total: 100 }, payments: [{ methodId: 'efectivo', amount: null }] };
+  const ctxNoJournal = { ...payCtx(), locale: { ...DEFAULT_LOCALES[0], cashJournalId: null } };
+  const deps = { readInvoiceResidual: async () => 100, registerInvoicePayment: async () => { throw new Error('AFIP'); }, saveOdooPayments: async () => {} };
+  assert.match((await payInvoiceStep(order, 1, ctxNoJournal, deps))[0], /no tiene diario de cobro/);
+  assert.match((await payInvoiceStep(order, 1, payCtx(), deps))[0], /No se pudo registrar el cobro en Odoo \(AFIP\)/);
 });

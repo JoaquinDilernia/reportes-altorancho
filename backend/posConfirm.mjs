@@ -5,9 +5,9 @@
 // existen. Lo que falla después de confirmar (Exhibición, entrega en el acto,
 // factura) no deshace la venta: queda un aviso para resolverlo.
 import {
-  getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName,
+  getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName, paymentJournalId,
 } from './posConfig.mjs';
-import { principalPayment } from './posPricing.mjs';
+import { principalPayment, round2 } from './posPricing.mjs';
 import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE, webTransferItems } from './posLines.mjs';
 import * as orders from './posOrders.mjs';
 import * as odoo from './posOdoo.mjs';
@@ -16,6 +16,8 @@ import { withOrderLock } from './feriaDelivery.mjs';
 import { getDb } from './firestore.mjs';
 import { confirmReturnOrder, defaultReturnDeps, applyCreditNotesStep } from './posReturnsConfirm.mjs';
 import { listCustomerCredits } from './posCredits.mjs';
+import { paymentsOf } from './posCash.mjs';
+import { todayArg } from './posReturnsOdoo.mjs';
 
 const RETRY_EVERY_MS = 3 * 60 * 1000;
 const RETRY_USER = 'Reintento automático';
@@ -108,6 +110,8 @@ function defaultDeps() {
     markLinesDelivered: orders.markLinesDelivered, setOrderWarning: orders.setOrderWarning,
     clearPostConfirmPending: orders.clearPostConfirmPending,
     invoice: (order, locale) => invoicePosOrder(order, locale),
+    readInvoiceResidual: odoo.readInvoiceResidual, registerInvoicePayment: odoo.registerInvoicePayment,
+    saveOdooPayments: orders.saveOdooPayments,
     claimOrderForConfirm: orders.claimOrderForConfirm, markOrderError: orders.markOrderError, loadCtx,
   };
 }
@@ -328,14 +332,77 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
       ncWarnings = [`No se pudieron aplicar las notas de crédito a la factura (${err.message}): aplicalas en Odoo`];
     }
     if (ncWarnings.length) {
+      warnings.push(...ncWarnings);
       try {
-        await deps.setOrderWarning(order.id, [...warnings, ...ncWarnings].join(' · '));
+        await deps.setOrderWarning(order.id, warnings.join(' · '));
       } catch (err) {
         console.error('[pos] no se pudo guardar el aviso de notas de crédito:', err.message);
       }
     }
   }
+  // 8. Cobro registrado en la factura (queda paga). Después de las NC: lo
+  // abierto ya es solo lo que se cobró.
+  if (invoiceId && deps.registerInvoicePayment) {
+    const payWarnings = await payInvoiceStep(order, invoiceId, ctx, deps);
+    if (payWarnings.length) {
+      try {
+        await deps.setOrderWarning(order.id, [...warnings, ...payWarnings].join(' · '));
+      } catch (err) {
+        console.error('[pos] no se pudo guardar el aviso del cobro:', err.message);
+      }
+    }
+  }
   await deps.clearPostConfirmPending(order.id);
+}
+
+// Cobros a registrar en la factura: uno por medio real (el saldo a favor ya
+// está en la NC aplicada), con el diario de Odoo del medio. Puro.
+export function planInvoicePayments(order, methodsById, locale) {
+  return paymentsOf(order).filter((p) => p.methodId !== 'saldo' && p.amount > 0).map((p) => {
+    const method = methodsById.get(p.methodId);
+    return {
+      key: `${p.methodId}:${p.detailId ?? ''}`, label: method?.label ?? p.methodId,
+      journalId: paymentJournalId(method, locale), amount: round2(p.amount),
+    };
+  });
+}
+
+// Registra los cobros que falten (`odooPayments` del pedido: un reintento no
+// los repite). Nunca pasa de lo abierto de la factura; el último cubre una
+// diferencia de redondeo de hasta $ 1. Nunca tira: devuelve avisos.
+export async function payInvoiceStep(order, invoiceId, ctx, deps) {
+  const warnings = [];
+  const done = { ...(order.odooPayments ?? {}) };
+  try {
+    const plan = planInvoicePayments(order, ctx.methodsById, ctx.locale).filter((p) => !done[p.key]);
+    if (!plan.length) return warnings;
+    let residual = round2(await deps.readInvoiceResidual(invoiceId));
+    for (const [i, p] of plan.entries()) {
+      if (residual < 0.01) break;
+      if (!p.journalId) {
+        warnings.push(`${p.label} no tiene diario de cobro en Admin → Medios de pago: registrá el cobro en Odoo`);
+        continue;
+      }
+      const last = i === plan.length - 1;
+      const amount = last && Math.abs(residual - p.amount) <= 1 ? residual : Math.min(p.amount, residual);
+      await deps.registerInvoicePayment(invoiceId, { journalId: p.journalId, amount, date: todayArg(), memo: `${order.number} · ${p.label}` });
+      done[p.key] = { journalId: p.journalId, amount };
+      await deps.saveOdooPayments(order.id, done);
+      residual = round2(residual - amount);
+    }
+  } catch (err) {
+    warnings.push(`No se pudo registrar el cobro en Odoo (${err.message}): registralo a mano en la factura`);
+  }
+  return warnings;
+}
+
+// "Reintentar factura" en caja: después de facturar, registra el cobro.
+export async function payInvoiceAfterRetry(orderId, deps = defaultDeps()) {
+  const order = await orders.getOrder(orderId);
+  if (!order.invoiceId) return order;
+  const warnings = await payInvoiceStep(order, order.invoiceId, await loadCtx(order.localId), deps);
+  if (warnings.length) await deps.setOrderWarning(order.id, [order.warning, ...warnings].filter(Boolean).join(' · '));
+  return orders.getOrder(orderId);
 }
 
 async function loadCtx(localId) {

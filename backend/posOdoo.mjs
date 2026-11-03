@@ -253,6 +253,23 @@ export function readOrderStates(odooOrderIds, odoo = defaultOdoo) {
   return odoo.read('sale.order', 'read', [odooOrderIds], { fields: ['id', 'name', 'state'] });
 }
 
+// Lo que falta cobrar de una factura publicada (amount_residual).
+export async function readInvoiceResidual(invoiceId) {
+  const [move] = await callKwReadWithRetry('account.move', 'read', [[invoiceId]], { fields: ['state', 'amount_residual'] });
+  return move?.state === 'posted' ? Number(move.amount_residual) || 0 : 0;
+}
+
+// Registra un cobro en la factura (asistente "Registrar pago" de Odoo): la
+// factura queda pagada o parcialmente pagada.
+export async function registerInvoicePayment(invoiceId, { journalId, amount, date, memo }) {
+  await ensureAuth();
+  const context = { active_model: 'account.move', active_ids: [invoiceId], active_id: invoiceId };
+  const [wizardId] = await callKw('account.payment.register', 'create', [[{
+    journal_id: journalId, amount, payment_date: date, communication: memo,
+  }]], { context });
+  await callKw('account.payment.register', 'action_create_payments', [[wizardId]], { context });
+}
+
 // Una sola factura para todos los pedidos de la venta (spike S1b): el
 // asistente con todos en sale_order_ids y en active_ids.
 export async function createInvoiceForOrders(odooOrderIds) {
@@ -282,7 +299,7 @@ export {
 // Opciones para los desplegables del Admin (solo lectura).
 export async function listOdooOptions() {
   const read = (model, domain, fields) => callKwReadWithRetry(model, 'search_read', [domain], { fields });
-  const [warehouses, locations, teams, journals, pricelists, pickingTypes, tags] = await Promise.all([
+  const [warehouses, locations, teams, journals, pricelists, pickingTypes, tags, paymentJournals] = await Promise.all([
     read('stock.warehouse', [], ['id', 'name', 'code']),
     read('stock.location', [['usage', '=', 'internal']], ['id', 'complete_name']),
     read('crm.team', [], ['id', 'name']),
@@ -290,6 +307,7 @@ export async function listOdooOptions() {
     read('product.pricelist', [], ['id', 'name']),
     read('stock.picking.type', [['code', '=', 'outgoing']], ['id', 'name', 'warehouse_id']),
     read('res.partner.category', [], ['id', 'name']),
+    read('account.journal', [['type', 'in', ['cash', 'bank']]], ['id', 'name']),
   ]);
-  return { warehouses, locations, teams, journals, pricelists, pickingTypes, tags };
+  return { warehouses, locations, teams, journals, pricelists, pickingTypes, tags, paymentJournals };
 }

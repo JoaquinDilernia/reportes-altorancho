@@ -15,7 +15,7 @@ import { listPromotions, listActivePromotions, savePromotion } from './posPromot
 import { searchCatalog, fetchFreeStock, groupStock, stockLocationIds } from './posCatalog.mjs';
 import { readReservationsFor, appReservedFor } from './posStock.mjs';
 import * as orders from './posOrders.mjs';
-import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor } from './posConfirm.mjs';
+import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor, payInvoiceAfterRetry } from './posConfirm.mjs';
 import { findPartnerForLookup, listOdooOptions } from './posOdoo.mjs';
 import { lookupArca } from './posArca.mjs';
 import * as cash from './posCash.mjs';
@@ -317,7 +317,7 @@ router.post('/orders/:id/invoice', ...cajas, handle(async (req) => {
   if (!invoicingEnabledFor(locale)) throw new Error('La facturación de este local no está habilitada');
   const result = await invoicePosOrder(order, locale);
   if (result.status === 'error') throw httpError(result.error, 502);
-  return orders.getOrder(order.id);
+  return payInvoiceAfterRetry(order.id);
 }));
 
 router.post('/orders/:id/annul', ...cajas, handle(async (req) => {
