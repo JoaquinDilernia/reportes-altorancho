@@ -16,6 +16,7 @@ import { withOrderLock } from './feriaDelivery.mjs';
 import { getDb } from './firestore.mjs';
 import { confirmReturnOrder, defaultReturnDeps, applyCreditNotesStep } from './posReturnsConfirm.mjs';
 import { listCustomerCredits } from './posCredits.mjs';
+import { returnInvoiceLines } from './posReturns.mjs';
 
 const RETRY_EVERY_MS = 3 * 60 * 1000;
 const RETRY_USER = 'Reintento automático';
@@ -44,6 +45,7 @@ const odooIdsOf = (order) => (order.odooOrders?.length
 const invoiceDeps = () => ({
   findOrderInvoices: odoo.findOrderInvoices, createInvoiceForOrders: odoo.createInvoiceForOrders,
   postInvoice: odoo.postInvoice, markOrderInvoiced: orders.markOrderInvoiced, setInvoiceError: orders.setInvoiceError,
+  addReturnLinesToInvoice: odoo.addReturnLinesToInvoice,
 });
 
 // Facturas de venta de cualquiera de los pedidos (sin repetir): una factura
@@ -66,6 +68,10 @@ export function invoicePosOrder(order, locale, deps = invoiceDeps()) {
         await deps.createInvoiceForOrders(orderIds);
         step = odoo.planInvoiceStep(await invoicesOf(orderIds, deps));
         if (step.action === 'create') throw new Error('Odoo no creó la factura');
+      }
+      // Cambio facturado en una sola factura: lo que vuelve, en negativo (idempotente).
+      if (step.action === 'post' && order.returnSteps?.returnsOnInvoice) {
+        await deps.addReturnLinesToInvoice(step.invoiceId, returnInvoiceLines(order.returnLines));
       }
       const invoice = step.action === 'done' ? step.invoice : await deps.postInvoice(step.invoiceId, locale.invoiceJournalId);
       const saved = { invoiceId: invoice.id, invoiceName: invoice.name };

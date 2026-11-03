@@ -1,7 +1,7 @@
 // Lo que vuelve en un cambio o devolución. Todo puro: la E/S vive en
 // posReturnsService / posReturnsOdoo / posOrders. Una línea que vuelve se arma
 // SIEMPRE desde la compra leída en el servidor (nunca con valores del cliente).
-import { round2 } from './posPricing.mjs';
+import { round2, netOfIva } from './posPricing.mjs';
 import { activeLines } from './posLines.mjs';
 
 export const RETURN_SOURCES = ['app', 'tpv', 'web', 'manual'];
@@ -88,6 +88,24 @@ export function validateRefund(refund, net, methodsById) {
   const sum = round2(cashBack.reduce((s, c) => s + c.amount, 0) + credit);
   if (Math.abs(sum - due) >= 0.01) throw new Error(`El reintegro suma ${pesos(sum)} y hay que devolver ${pesos(due)}: corregí los montos`);
   return { cashBack, credit };
+}
+
+// Cambio que se factura y en el que el cliente paga (o queda en cero): todo va
+// en UNA factura, como en el TPV. Lo nuevo a precio completo con el descuento
+// del medio de pago en la columna Desc. %, y lo que vuelve como línea en
+// negativo; sin NC. Si queda a favor del cliente la factura daría negativa:
+// NC por lo que vuelve, como antes. `invoicing`: facturación del local habilitada.
+export function returnsOnInvoice(order, invoicing) {
+  return Boolean(invoicing) && Boolean(order.wantsInvoice) && activeLines(order.lines).length > 0
+    && (order.returnLines ?? []).length > 0 && (order.totals?.net ?? -1) >= 0;
+}
+
+// Líneas en negativo de la factura (sin IVA, como el resto de las líneas).
+export function returnInvoiceLines(returnLines) {
+  return (returnLines ?? []).map((l) => ({
+    productId: l.productId, qty: -l.qty, unitPrice: netOfIva(l.unitValue),
+    name: `Devolución ${l.sku ? `[${l.sku}] ` : ''}${l.name}${l.purchaseLabel ? ` (${l.purchaseLabel})` : ''}`,
+  }));
 }
 
 export function invoiceGroups(returnLines) {
