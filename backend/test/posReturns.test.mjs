@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   maxReturnable, validateReturnLine, buildReturnLine, editReturnLine, returnTotal, orderKind,
-  appUnitValue, tpvUnitValue, webUnitValue, validateRefund, invoiceGroups, returnsOnInvoice, returnInvoiceLines,
+  appUnitValue, tpvUnitValue, webUnitValue, validateRefund, invoiceGroups,
 } from '../posReturns.mjs';
 
 const ctx = { destinationIds: ['stock', 'exhibicion'], reasons: ['Talle o medida', 'Otro'] };
@@ -96,14 +96,4 @@ test('invoiceGroups: agrupa por factura original y saca las que no tienen', () =
     { rlId: 'R3', invoiceId: 1, invoiceName: 'FA-B 1' }, { rlId: 'R4', invoiceId: 2, invoiceName: 'FA-B 2' },
   ];
   assert.deepEqual(invoiceGroups(lines).map((g) => [g.invoiceId, g.lines.map((l) => l.rlId)]), [[1, ['R1', 'R3']], [2, ['R4']]]);
-});
-
-test('returnsOnInvoice / returnInvoiceLines: una factura solo si factura, se lleva algo y paga (o cero)', () => {
-  const base = { wantsInvoice: true, lines: [{ status: 'activo' }], returnLines: [{ qty: 1 }], totals: { net: 0 } };
-  assert.equal(returnsOnInvoice(base, true), true);
-  assert.equal(returnsOnInvoice(base, false), false);
-  assert.equal(returnsOnInvoice({ ...base, wantsInvoice: false }, true), false);
-  assert.equal(returnsOnInvoice({ ...base, lines: [] }, true), false);
-  assert.equal(returnsOnInvoice({ ...base, totals: { net: -1 } }, true), false);
-  assert.deepEqual(returnInvoiceLines([{ productId: 7, sku: 'S', name: 'N', qty: 2, unitValue: 1210 }]), [{ productId: 7, qty: -2, unitPrice: 1000, name: 'Devolución [S] N' }]);
 });

@@ -264,28 +264,6 @@ export async function createInvoiceForOrders(odooOrderIds) {
   await callKw('sale.advance.payment.inv', 'create_invoices', [[wizardId]], { context });
 }
 
-// Líneas en negativo de lo que vuelve que todavía no están en la factura
-// (mismo producto, cantidad y precio): un reintento no las duplica. Llevan
-// los impuestos de las líneas de producto de la misma factura (IVA 21 %).
-export function planReturnInvoiceLines(existing, items) {
-  const key = (productId, qty, price) => `${productId}|${qty}|${round2(price)}`;
-  const have = new Set(existing.filter((l) => l.quantity < 0).map((l) => key(l.product_id?.[0], l.quantity, l.price_unit)));
-  const taxIds = existing.find((l) => l.quantity > 0 && l.product_id && l.tax_ids?.length)?.tax_ids ?? [];
-  return items.filter((i) => !have.has(key(i.productId, i.qty, i.unitPrice))).map((i) => [0, 0, {
-    product_id: i.productId, quantity: i.qty, price_unit: i.unitPrice, discount: 0, name: i.name, tax_ids: [[6, 0, taxIds]],
-  }]);
-}
-
-export async function addReturnLinesToInvoice(invoiceId, items) {
-  await ensureAuth();
-  const [invoice] = await callKw('account.move', 'read', [[invoiceId]], { fields: ['state', 'invoice_line_ids'] });
-  if (invoice?.state !== 'draft') return 0;
-  const existing = await callKw('account.move.line', 'read', [invoice.invoice_line_ids], { fields: ['product_id', 'quantity', 'price_unit', 'tax_ids'] });
-  const commands = planReturnInvoiceLines(existing, items);
-  if (commands.length) await callKw('account.move', 'write', [[invoiceId], { invoice_line_ids: commands }]);
-  return commands.length;
-}
-
 // ¿Se validó algún remito del pedido (PICK u OUT)? hasDeliveredMoves solo ve
 // los moves con sale_line_id (los del OUT); un PICK hecho ya movió stock.
 export async function hasDoneTransfers(odooOrderId) {
