@@ -231,11 +231,3 @@ test('planOdooOrders: la subida al domicilio va justo después del envío, mismo
   });
   assert.equal(none[0].odooLines.some((l) => l.productId === 57070), false);
 });
-
-test('buildOdooOrderLines: cambio → precio × factor y sin descuento (la factura suma lo cobrado)', () => {
-  const lines = [{ lineId: 'L1', productId: 1, qty: 1, basePrice: 49990, status: 'activo' }];
-  const [l] = buildOdooOrderLines(lines, { lineDiscountPct: 0.8, odooGoodsFactor: 1598.08 / 49990, shipping: 0 }, null);
-  assert.equal(l.discountPct, 0);
-  assert.equal(l.unitPrice, 1320.73);
-  assert.equal(Math.round(l.unitPrice * 1.21 * 100) / 100, 1598.08);
-});

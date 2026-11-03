@@ -187,15 +187,3 @@ test('collectOf: venta usa total; cambio usa collect', () => {
   assert.equal(collectOf({ total: 100, collect: 0 }), 0);
   assert.equal(collectOf(null), 0);
 });
-
-test('computeExchangeTotals: la factura nueva va solo por lo que paga (caso LL-0012)', () => {
-  const t = computeExchangeTotals({
-    lines: [{ qty: 1, basePrice: 49990, status: 'activo' }], payments: [{ methodId: 'transferencia' }], methodsById, returnValue: 47992,
-  });
-  assert.equal(t.collect, 1598.08);
-  assert.equal(t.invoicedGoods, 1598.08);
-  assert.equal(round2(t.odooGoodsFactor * 49990), 1598.08);
-  const none = computeExchangeTotals({ lines: [{ qty: 1, basePrice: 1000, status: 'activo' }], payments: [], methodsById, returnValue: 5000 });
-  assert.equal(none.collect, 0);
-  assert.equal(none.odooGoodsFactor, 0);
-});

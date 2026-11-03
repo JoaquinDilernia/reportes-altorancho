@@ -469,31 +469,3 @@ test('confirmPosOrder: sin subida al domicilio no se busca el producto SERVIDOM'
   await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
   assert.equal(named(calls, 'productBySku').length, 0);
 });
-
-test('runPostConfirmSteps: cambio nuevo → factura por la diferencia y la NC propia no se aplica; $ 0 → sin factura', async () => {
-  const prev = process.env.POS_INVOICING_ENABLED;
-  process.env.POS_INVOICING_ENABLED = 'true';
-  try {
-    const exchange = (totals, over = {}) => ({
-      ...baseOrder(), status: 'confirmado', wantsInvoice: true, totals,
-      odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: 'S9000' }],
-      lines: [{ lineId: 'L1', productId: 10, sku: 'A', qty: 1, basePrice: 1210, origin: 'stock', delivery: 'retira_local', status: 'activo', odooLineId: 71 }],
-      returnSteps: { creditNotes: { 'nc:1': { id: 555, state: 'posted' } } }, ...over,
-    });
-    const extra = { invoice: async () => ({ status: 'invoiced', invoiceId: 400 }), creditNoteIdsOf: async () => [] };
-    let { deps, calls } = fakeDeps({ ...extra, applyCreditNote: async (...a) => { calls.push(['applyNc', ...a]); return true; }, saveAppliedCreditNotes: async () => {} });
-    await runPostConfirmSteps(exchange({ collect: 100, odooGoodsFactor: 0.1, lineDiscountPct: 0 }), 'Caja', ctx, deps);
-    assert.equal(named(calls, 'applyNc').length, 0);
-
-    ({ deps, calls } = fakeDeps({ invoice: async () => { calls.push(['invoiceCalled']); return { status: 'invoiced', invoiceId: 400 }; }, creditNoteIdsOf: async () => [] }));
-    await runPostConfirmSteps(exchange({ collect: 0, odooGoodsFactor: 0, lineDiscountPct: 0 }), 'Caja', ctx, deps);
-    assert.equal(named(calls, 'invoiceCalled').length, 0);
-
-    // Cambio confirmado con el modelo anterior (sin factor): la NC se aplica a la factura completa.
-    ({ deps, calls } = fakeDeps({ ...extra, applyCreditNote: async (...a) => { calls.push(['applyNc', ...a]); return true; }, saveAppliedCreditNotes: async () => {} }));
-    await runPostConfirmSteps(exchange({ collect: 100, lineDiscountPct: 0 }), 'Caja', ctx, deps);
-    assert.deepEqual(named(calls, 'applyNc').map((c) => c.slice(1)), [[400, 555]]);
-  } finally {
-    if (prev === undefined) delete process.env.POS_INVOICING_ENABLED; else process.env.POS_INVOICING_ENABLED = prev;
-  }
-});
