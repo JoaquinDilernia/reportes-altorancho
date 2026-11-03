@@ -486,16 +486,3 @@ test('odooPricelistId: Decoradora y Directorio usan su lista; normal, la de pedi
   assert.equal(odooPricelistId({}, DEFAULT_SETTINGS), 314);
   assert.equal(odooPricelistId({ priceList: 'decoradora' }, { ...DEFAULT_SETTINGS, decoradoraPricelistId: null }), 314);
 });
-
-test('invoicePosOrder: cambio en una factura → agrega lo que vuelve en negativo antes de publicar', async () => {
-  const { deps, calls } = invoiceDeps({ addReturnLinesToInvoice: async (id, items) => { calls.push(['addReturn', id, items]); return items.length; } });
-  const order = {
-    ...invoicedOrder, returnSteps: { returnsOnInvoice: true },
-    returnLines: [{ productId: 7, sku: 'IME060AZ', name: 'Lámpara', qty: 1, unitValue: 47992, purchaseLabel: 'LL-0011' }],
-  };
-  await invoicePosOrder(order, DEFAULT_LOCALES[0], deps);
-  assert.deepEqual(calls.find((c) => c[0] === 'addReturn'), ['addReturn', 366, [{ productId: 7, qty: -1, unitPrice: 39662.81, name: 'Devolución [IME060AZ] Lámpara (LL-0011)' }]]);
-  assert.ok(calls.findIndex((c) => c[0] === 'addReturn') < calls.findIndex((c) => c[0] === 'post'));
-  const plain = invoiceDeps({ addReturnLinesToInvoice: async () => { throw new Error('no debería'); } });
-  assert.equal((await invoicePosOrder(invoicedOrder, DEFAULT_LOCALES[0], plain.deps)).status, 'invoiced');
-});

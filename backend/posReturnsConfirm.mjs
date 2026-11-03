@@ -6,7 +6,7 @@
 // (búsqueda por origen / referencia) en vez de duplicar.
 import { returnDestinationsOf } from './posConfig.mjs';
 import { activeLines } from './posLines.mjs';
-import { invoiceGroups, returnsOnInvoice } from './posReturns.mjs';
+import { invoiceGroups } from './posReturns.mjs';
 import * as rOdoo from './posReturnsOdoo.mjs';
 import * as orders from './posOrders.mjs';
 import { postInvoice } from './feriaOdoo.mjs';
@@ -91,7 +91,6 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
   const steps = {
     pickings: { ...(order.returnSteps?.pickings ?? {}) }, transfers: { ...(order.returnSteps?.transfers ?? {}) },
     creditNotes: { ...(order.returnSteps?.creditNotes ?? {}) }, creditNotesSkipped: false,
-    returnsOnInvoice: Boolean(order.returnSteps?.returnsOnInvoice),
   };
   const save = () => deps.saveReturnSteps(order.id, structuredClone(steps));
   const origin = (key) => `${order.number} · ${key}`;
@@ -170,14 +169,6 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
   // 4. Notas de crédito (solo con la facturación del local habilitada).
   if (!deps.invoicingEnabled(ctx.locale)) {
     steps.creditNotesSkipped = true;
-    await save();
-    return steps;
-  }
-  // Cambio en el que el cliente paga: lo que vuelve va en negativo en la
-  // factura nueva (invoicePosOrder lee esta marca), sin NC. Un intento
-  // anterior que ya creó alguna NC sigue con NC.
-  if (steps.returnsOnInvoice || (!Object.keys(steps.creditNotes).length && returnsOnInvoice(order, true))) {
-    steps.returnsOnInvoice = true;
     await save();
     return steps;
   }

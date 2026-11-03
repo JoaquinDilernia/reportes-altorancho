@@ -275,19 +275,3 @@ test('applyCreditNotesStep: las NC propias de la operación se aplican sin leer 
   assert.deepEqual(calls.filter((c) => c[0] === 'apply'), [['apply', 400, 368705]]);
   assert.equal(calls.filter((c) => c[0] === 'residuals').length, 0);
 });
-
-test('runReturnSteps: cambio facturado en el que el cliente paga → remito sí, NC no (va en la factura)', async () => {
-  const { deps, calls } = fakeDeps();
-  const exchange = order({
-    lines: [{ lineId: 'L1', productId: 1, qty: 1, basePrice: 49990, status: 'activo' }], wantsInvoice: true, totals: { net: 1598.08 }, refund: null,
-  });
-  const steps = await runReturnSteps(exchange, ctx, deps);
-  assert.equal(steps.pickings['pick:tpv:48870:192311:exhibicion'].state, 'done');
-  assert.equal(steps.returnsOnInvoice, true);
-  assert.deepEqual(steps.creditNotes, {});
-  assert.equal(named(calls, 'createNc').length, 0);
-  // Queda a favor del cliente: NC como siempre.
-  const favor = await runReturnSteps({ ...exchange, totals: { net: -100 } }, ctx, fakeDeps().deps);
-  assert.equal(favor.returnsOnInvoice, false);
-  assert.equal(favor.creditNotes['nc:368292'].state, 'posted');
-});
