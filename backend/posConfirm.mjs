@@ -323,7 +323,9 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
 
   // 6. Factura (nunca tira) y 7. aplicación de NC de lo que vuelve / saldos usados.
   let invoiceId = order.invoiceId ?? null;
-  if (order.wantsInvoice && !order.invoiceName && invoicingEnabledFor(ctx.locale)) {
+  // Cambio que no paga nada: la factura nueva quedaría en $ 0, no se hace.
+  const nothingToInvoice = order.totals?.odooGoodsFactor != null && !(order.totals.collect > 0);
+  if (order.wantsInvoice && !order.invoiceName && !nothingToInvoice && invoicingEnabledFor(ctx.locale)) {
     const result = await deps.invoice(order, ctx.locale);
     if (result?.status === 'invoiced') invoiceId = result.invoiceId;
   }
@@ -331,7 +333,11 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
     // Nunca tira: cualquier error queda como aviso y igual se cierra el pendiente.
     let ncWarnings;
     try {
-      const own = Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
+      // La NC de lo que vuelve ya no se aplica a la factura nueva (que es solo
+      // por la diferencia). Cambios confirmados antes (sin odooGoodsFactor)
+      // facturaron lo nuevo completo: ahí sí se aplica.
+      const own = order.totals?.odooGoodsFactor != null ? []
+        : Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
       ncWarnings = await applyCreditNotesStep(order, invoiceId, { own, saldo: await deps.creditNoteIdsOf(order) }, deps);
     } catch (err) {
       ncWarnings = [`No se pudieron aplicar las notas de crédito a la factura (${err.message}): aplicalas en Odoo`];

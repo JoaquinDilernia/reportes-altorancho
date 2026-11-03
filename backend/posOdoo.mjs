@@ -128,10 +128,14 @@ export function pickupLabelFor(line, locale, locales) {
   return null;
 }
 
+// Cambio (odooGoodsFactor): cada línea a su precio × el factor y sin
+// descuento, así la factura suma solo lo que paga el cliente (ver
+// computeExchangeTotals). Venta: precio de lista y el % de la cascada.
 export function buildOdooOrderLines(lines, totals, shippingProductId) {
-  const result = activeLines(lines).map((l) => ({
-    productId: l.productId, qty: l.qty, unitPrice: round2(netOfIva(l.basePrice)), discountPct: round2(totals.lineDiscountPct),
-  }));
+  const factor = totals.odooGoodsFactor;
+  const result = activeLines(lines).map((l) => (factor != null
+    ? { productId: l.productId, qty: l.qty, unitPrice: round2(netOfIva(l.basePrice) * factor), discountPct: 0 }
+    : { productId: l.productId, qty: l.qty, unitPrice: round2(netOfIva(l.basePrice)), discountPct: round2(totals.lineDiscountPct) }));
   if (shippingProductId && totals.shipping > 0) {
     result.push({ productId: shippingProductId, qty: 1, unitPrice: round2(netOfIva(totals.shipping)), discountPct: 0 });
   }
