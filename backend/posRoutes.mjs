@@ -139,6 +139,7 @@ router.get('/config', ...auth, handle(async () => {
     settings: {
       decoradorTagId: settings.decoradorTagId, directorioTagId: settings.directorioTagId, decoradoraDiscountPct: settings.decoradoraDiscountPct,
       homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons,
+      returnWindowDays: settings.returnWindowDays,
     },
   };
 }));

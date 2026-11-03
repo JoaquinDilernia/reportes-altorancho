@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   maxReturnable, validateReturnLine, buildReturnLine, editReturnLine, returnTotal, orderKind,
-  appUnitValue, tpvUnitValue, webUnitValue, validateRefund, invoiceGroups,
+  appUnitValue, tpvUnitValue, webUnitValue, validateRefund, invoiceGroups, lateInfo, hasLateReturn,
 } from '../posReturns.mjs';
 
 const ctx = { destinationIds: ['stock', 'exhibicion'], reasons: ['Talle o medida', 'Otro'] };
@@ -96,4 +96,23 @@ test('invoiceGroups: agrupa por factura original y saca las que no tienen', () =
     { rlId: 'R3', invoiceId: 1, invoiceName: 'FA-B 1' }, { rlId: 'R4', invoiceId: 2, invoiceName: 'FA-B 2' },
   ];
   assert.deepEqual(invoiceGroups(lines).map((g) => [g.invoiceId, g.lines.map((l) => l.rlId)]), [[1, ['R1', 'R3']], [2, ['R4']]]);
+});
+
+test('lateInfo: más de 30 días desde la compra → fuera de plazo (fecha de Odoo en UTC o ISO)', () => {
+  const nowMs = new Date('2026-11-03T12:00:00Z').getTime();
+  assert.deepEqual(lateInfo('2026-10-04 12:00:00', { nowMs }), { late: false, daysSincePurchase: 30 });
+  assert.deepEqual(lateInfo('2026-10-03T11:00:00.000Z', { nowMs }), { late: true, daysSincePurchase: 31 });
+  assert.deepEqual(lateInfo('2026-10-20 10:00:00', { nowMs, windowDays: 10 }), { late: true, daysSincePurchase: 14 });
+  assert.deepEqual(lateInfo(null, { nowMs }), { late: false, daysSincePurchase: null });
+});
+
+test('buildReturnLine: guarda la fecha de compra y si está fuera de plazo; se puede devolver igual', () => {
+  const nowMs = new Date('2026-11-03T12:00:00Z').getTime();
+  const rl = buildReturnLine(purchaseLine({ purchaseDate: '2026-09-01 15:00:00' }), input, [], { ...ctx, nowMs, windowDays: 30 });
+  assert.equal(rl.late, true);
+  assert.equal(rl.daysSincePurchase, 62);
+  assert.equal(rl.purchaseDate, '2026-09-01 15:00:00');
+  assert.equal(buildReturnLine(purchaseLine({ source: 'manual', purchaseLineId: null }), input, [], ctx).late, false);
+  assert.equal(hasLateReturn([{ late: false }, rl]), true);
+  assert.equal(hasLateReturn([]), false);
 });

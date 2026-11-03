@@ -10,6 +10,28 @@ export const OTHER_REASON = 'Otro';
 
 const pesos = (n) => `$ ${n.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
 
+// Plazo de devolución: pasado, se deja devolver igual pero la línea queda
+// "fuera de plazo" (aviso en pantalla y `lateReturn` del pedido para estadísticas).
+export const DEFAULT_RETURN_WINDOW_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Fecha de compra: ISO (app) o 'YYYY-MM-DD HH:mm:ss' en UTC sin zona (Odoo).
+export function purchaseTime(date) {
+  if (!date) return null;
+  const s = String(date);
+  const t = new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? `${s.replace(' ', 'T')}Z` : s).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+export function lateInfo(purchaseDate, { nowMs = Date.now(), windowDays = DEFAULT_RETURN_WINDOW_DAYS } = {}) {
+  const t = purchaseTime(purchaseDate);
+  if (t == null) return { late: false, daysSincePurchase: null };
+  const days = Math.floor((nowMs - t) / DAY_MS);
+  return { late: days > windowDays, daysSincePurchase: days };
+}
+
+export const hasLateReturn = (returnLines) => (returnLines ?? []).some((l) => l.late);
+
 export const maxReturnable = (pl) => Math.max(0, (pl.qtyBought ?? 0) - (pl.qtyReturnedBefore ?? 0));
 
 const lineKey = (l) => `${l.source}:${l.purchaseLineId ?? `p${l.productId}`}`;
@@ -39,6 +61,7 @@ export function buildReturnLine(purchaseLine, { qty = 1, destinationId, reason, 
   const rl = {
     ...purchaseLine, rlId: nextReturnLineId(returnLines), qty, destinationId, reason,
     reasonNote: String(reasonNote ?? '').trim().slice(0, 200),
+    purchaseDate: purchaseLine.purchaseDate ?? null, ...lateInfo(purchaseLine.purchaseDate, ctx),
   };
   const errors = validateReturnLine(rl, ctx);
   if (errors.length) throw new Error(errors.join('; '));

@@ -39,6 +39,7 @@ export const DEFAULT_SETTINGS = {
   creditValidityDays: null, // null = el saldo a favor no vence
   returnReasons: ['Talle o medida', 'Falla', 'No le gustó', 'Otro'],
   returnSearchDays: 365,
+  returnWindowDays: 30, // pasado este plazo la devolución se hace igual pero queda "fuera de plazo"
   creditOdooPaymentName: null, // payment.method de Odoo si se paga todo con saldo
 };
 
@@ -133,6 +134,8 @@ export function validateSettings(input) {
     if (!Array.isArray(reasons) || !reasons.length) errors.push('Cargá al menos un motivo de devolución');
     else if (reasons.length > 20 || reasons.some((r) => typeof r !== 'string' || !r.trim() || r.length > 60)) errors.push('Motivos de devolución inválidos');
   }
+  const windowDays = input.returnWindowDays;
+  if (windowDays !== undefined && !(Number.isInteger(windowDays) && windowDays >= 1 && windowDays <= 3650)) errors.push('Plazo de devolución: entre 1 y 3650 días');
   const search = input.returnSearchDays;
   if (search !== undefined && !(Number.isInteger(search) && search >= 1 && search <= 1095)) errors.push('Días de búsqueda de compras: entre 1 y 1095');
   const creditName = input.creditOdooPaymentName;

@@ -158,7 +158,7 @@ export async function readTpvPurchase(posOrderId, odoo = defaultOdoo) {
     const productMoves = moves.filter((m) => id(m.product_id) === productId);
     const product = products.get(productId);
     return {
-      source: 'tpv', purchaseId: String(order.id), purchaseLabel: order.name, purchaseLineId: String(l.id), productId,
+      source: 'tpv', purchaseId: String(order.id), purchaseLabel: order.name, purchaseDate: order.date_order, purchaseLineId: String(l.id), productId,
       sku: product?.default_code ?? skuOf(l.product_id[1]), name: product?.name ?? l.product_id[1],
       qtyBought: l.qty, qtyReturnedBefore: (l.refunded_qty ?? 0) + (byApp.get(l.id) ?? 0), unitValue: tpvUnitValue(l),
       lots: mergeLots(productMoves.map((m) => lots.get(m.id) ?? [])), moveIds: productMoves.map((m) => m.id),
@@ -203,7 +203,7 @@ export async function readSaleOrderPurchase({ source, purchaseId, label, saleOrd
     if (sl.product_uom_qty > delivered) pending.push({ sku, name, qty: sl.product_uom_qty - delivered });
     if (!delivered) continue;
     lines.push({
-      source, purchaseId, purchaseLabel: label ?? orders[0].name, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
+      source, purchaseId, purchaseLabel: label ?? orders[0].name, purchaseDate: orders[0].date_order, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
       qtyBought: delivered, qtyReturnedBefore: lineDone.reduce((s, m) => s + (returnedByMove.get(m.id) ?? 0), 0),
       unitValue: unitValueFor(sl), lots: mergeLots(lineDone.map((m) => lots.get(m.id) ?? [])), moveIds: lineDone.map((m) => m.id),
       invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, ...partner,

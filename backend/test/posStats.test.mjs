@@ -45,3 +45,11 @@ test('computePosStats: las devoluciones restan del total y de los productos', ()
   assert.deepEqual(s.byMethod, { efectivo: 5000 });
   assert.deepEqual(s.topProducts.map((p) => [p.sku, p.qty, p.total]), [['A', 1, 5000]]);
 });
+
+test('computePosStats: cuenta los cambios y devoluciones fuera de plazo', () => {
+  const s = computePosStats([
+    order({ kind: 'devolucion', lateReturn: true }), order({ kind: 'cambio', lateReturn: false }), order({ status: 'anulado', lateReturn: true }),
+  ]);
+  assert.equal(s.returns, 2);
+  assert.equal(s.lateReturns, 1);
+});

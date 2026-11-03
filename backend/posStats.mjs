@@ -60,6 +60,8 @@ export function computePosStats(orders, { from = 0, to = Infinity } = {}) {
   return {
     sales: salesCount,
     returns: sold.filter((o) => o.kind === 'devolucion' || o.kind === 'cambio').length,
+    // Cambios y devoluciones hechos fuera del plazo de devolución.
+    lateReturns: sold.filter((o) => o.lateReturn).length,
     total, net: netOfIva(total), averageTicket: salesCount ? round2(total / salesCount) : 0,
     byLocal: [...byLocal.values()].sort(byTotal), bySeller: [...bySeller.values()].sort(byTotal), byMethod,
     topProducts: [...products.values()].filter((p) => p.qty > 0).sort(byTotal).slice(0, 20),

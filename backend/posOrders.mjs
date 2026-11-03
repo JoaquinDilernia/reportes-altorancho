@@ -13,7 +13,8 @@ import {
   computeTotals, computeExchangeTotals, collectOf, round2, assertPriceList, isDirectorio, priceListTagError,
 } from './posPricing.mjs';
 import {
-  buildReturnLine, editReturnLine, validateReturnLine, returnTotal, orderKind, validateRefund,
+  buildReturnLine, editReturnLine, validateReturnLine, returnTotal, orderKind, validateRefund, hasLateReturn,
+  DEFAULT_RETURN_WINDOW_DAYS,
 } from './posReturns.mjs';
 import { consumeCreditsInTx, restoreCreditsInTx, createCreditInTx, buildCredit } from './posCredits.mjs';
 import { resolveExtraDiscount, listActivePromotions } from './posPromotions.mjs';
@@ -141,7 +142,10 @@ export function claimPricing(order, { methodsById, promotions, now }) {
 }
 
 export function returnCtx(locale, settings) {
-  return { destinationIds: returnDestinationsOf(locale, settings).map((d) => d.id), reasons: settings.returnReasons };
+  return {
+    destinationIds: returnDestinationsOf(locale, settings).map((d) => d.id), reasons: settings.returnReasons,
+    windowDays: settings.returnWindowDays ?? DEFAULT_RETURN_WINDOW_DAYS,
+  };
 }
 
 // Decoradora y Directorio: solo ventas (sin lo que vuelve) y para clientes con su etiqueta.
@@ -423,7 +427,7 @@ export async function createReturnCart(user, purchaseLine, input) {
   const now = new Date();
   const order = {
     localId: user.localId, sellerId: user.id, sellerName: user.name, status: 'carrito', lines: [], returnLines: [returnLine],
-    priceList: 'normal', kind: 'devolucion', refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
+    priceList: 'normal', lateReturn: Boolean(returnLine.late), kind: 'devolucion', refund: null, creditAllocation: null, holderChangeReason: '', returnSteps: {},
     customer: null, shipping: null, payments: [], discountChoice: null, extraDiscount: null, totals: null,
     wantsInvoice: false, notes: '', odooOrders: [], odooOrderId: null, createdAt: now, updatedAt: now,
   };
@@ -455,7 +459,7 @@ async function changeReturnLines(orderId, user, change) {
     assertReturnLinesEditable(order);
     if ((order.priceList ?? 'normal') !== 'normal') throw new Error('Los cambios y devoluciones van con lista Normal: cambiá la lista antes');
     const returnLines = change(order.returnLines ?? [], ctx, order);
-    const update = { returnLines, kind: orderKind({ lines: order.lines, returnLines }), updatedAt: new Date() };
+    const update = { returnLines, lateReturn: hasLateReturn(returnLines), kind: orderKind({ lines: order.lines, returnLines }), updatedAt: new Date() };
     tx.update(ref, update);
     return { ...order, ...update };
   });
@@ -637,7 +641,8 @@ export async function claimOrderForConfirm(orderId, user) {
     if (creditCommit) creditCommit();
     const update = {
       confirmingSince: new Date(), cashSessionId, payments, extraDiscount, totals, refund, creditAllocation,
-      kind: orderKind(order), wantsInvoice, priceList: order.priceList ?? 'normal', updatedAt: new Date(),
+      kind: orderKind(order), wantsInvoice, priceList: order.priceList ?? 'normal', lateReturn: hasLateReturn(order.returnLines),
+      updatedAt: new Date(),
     };
     tx.update(ref, update);
     return { order: { ...order, ...update }, alreadyConfirmed: false };
