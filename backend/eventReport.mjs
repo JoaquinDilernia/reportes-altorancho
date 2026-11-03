@@ -9,7 +9,13 @@ import {
   adsByDate, attributionShares, buildInvestmentPlan, AD_PLATFORMS,
   hourlyShareCurve, expectedShare, dayStatusSoFar, projectClose, recentSales, argHour,
 } from './events.mjs';
-import { summarizeCategories } from './eventCategories.mjs';
+import { summarizeCategories, compareTopProducts } from './eventCategories.mjs';
+
+// Minutes since midnight, Argentina time.
+function argMinuteOfDay(iso) {
+  const d = new Date(new Date(iso).getTime() - 3 * 3600 * 1000);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
 
 const ALL_EVENT_CHANNELS = Object.values(EVENT_GROUPS).flat();
 // "A normal day" for last year's lift: the two weeks right before the event.
@@ -203,13 +209,23 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     get: (day) => dayFactors.get(day)
       ?? inflationFactor(indexByMonth, day.slice(0, 7), `${current.year}${day.slice(4, 7)}`).factor,
   };
+  // Last year's same day as today only counts up to this time of day, so the
+  // category/product comparison is "a esta hora".
+  const todayRef = todayDay && today <= current.end ? todayDay.refDate : null;
+  const nowMinute = argMinuteOfDay(nowIso);
+  const prevToDateDocs = prevSales.filter((s) => {
+    const d = argDay(s.date);
+    if (!refDates.has(d)) return false;
+    return d !== todayRef || argMinuteOfDay(s.date) <= nowMinute;
+  });
   const categories = summarizeCategories({
     prevDocs: prevSales.filter(inPrevWindow),
-    prevToDateDocs: prevSales.filter(s => refDates.has(argDay(s.date))),
+    prevToDateDocs,
     currentDocs: currentSales,
     productsBySku,
     factorByRefDate,
   });
+  const topProducts = compareTopProducts({ prevToDateDocs, currentDocs: currentSales, productsBySku, factorByRefDate });
 
   return {
     updatedAt: ecommerceMeta?.lastSyncedAt ?? null,
@@ -221,6 +237,7 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     topProductToday: topProductOfDay(currentSales, today),
     peakHourYesterday: peakHourOfDay(currentSales, addDays(today, -1)),
     categories,
+    topProducts,
     curves,
   };
 }

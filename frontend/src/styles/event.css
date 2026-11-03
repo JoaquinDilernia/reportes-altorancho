@@ -76,6 +76,19 @@
 .event-live .ev-chip.r { background: rgba(255,90,110,.15); color: #ff8b9b; }
 .event-live .pos { color: var(--mint); }
 .event-live .neg { color: #ff8b9b; }
+.event-live .ev-delta { font-weight: 800; white-space: nowrap; color: var(--mute); }
+.event-live .ev-delta.pos { color: var(--mint); }
+.event-live .ev-delta.neg { color: #ff8b9b; }
+.event-live .ev-delta.new { color: var(--sky); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+
+/* "A esta hora en 2025": last year's numbers at the same point, big. */
+.event-live .ev-vsprev { margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: rgba(124,196,255,.06); border: 1px solid rgba(124,196,255,.22); }
+.event-live .ev-vsprev .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 10px; }
+.event-live .ev-vsprev .cols > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.event-live .ev-vsprev .k { font-size: 12px; color: var(--mute); }
+.event-live .ev-vsprev b { font-size: 26px; font-weight: 800; color: var(--ink); }
+.event-live .ev-vsprev .vs { font-size: 13px; color: var(--mute); }
+.event-live .ev-vsprev .vs .ev-delta { font-size: 15px; margin-left: 4px; }
 
 /* Side */
 .event-live .ev-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -108,7 +121,7 @@
 .event-live .ev-grid2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; align-items: start; }
 
 /* Categories */
-.event-live .ev-cat { display: grid; grid-template-columns: 180px 1fr 220px; align-items: center; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; position: relative; outline: none; }
+.event-live .ev-cat { display: grid; grid-template-columns: 180px 1fr 260px; align-items: center; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; position: relative; outline: none; }
 .event-live .ev-cat:last-of-type { border-bottom: 0; }
 .event-live .ev-cat:hover, .event-live .ev-cat:focus-visible { background: rgba(255,255,255,.03); }
 .event-live .ev-cat .bars { position: relative; height: 18px; }
@@ -147,6 +160,9 @@
 .event-live .ev-table .sepL { border-left: 1px solid var(--line); }
 .event-live .ev-table .pend { color: var(--dim); }
 .event-live .ev-table .ev-chip { margin-top: 0; }
+.event-live .ev-prod td.name { max-width: 340px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.event-live .ev-prod td.cat { text-align: left; color: var(--mute); }
+.event-live .ev-prod th:nth-child(2) { text-align: left; }
 
 /* Folded details: the planning material keeps the regular report's look
    on a light "paper" sheet, so the existing components render unchanged. */
@@ -176,6 +192,8 @@
   .event-live .ev-cat { grid-template-columns: 1fr; gap: 6px; }
   .event-live .ev-cat .r1 { text-align: left; }
   .event-live .ev-ads { grid-template-columns: 1fr; }
+  .event-live .ev-vsprev .cols { grid-template-columns: 1fr; gap: 10px; }
+  .event-live .ev-vsprev b { font-size: 22px; }
   .event-live .ev-paper { padding: 4px 12px 12px; }
 }
 

@@ -67,7 +67,7 @@ export function groupView(data, view) {
   return v;
 }
 
-const pctChange = (now, before) => (before ? (now / before - 1) * 100 : null);
+export const pctChange = (now, before) => (before ? (now / before - 1) * 100 : null);
 
 // One day's sales count and average ticket for a view. Last year's ticket is
 // in today's pesos (same inflation factor as the floor) so the two compare.

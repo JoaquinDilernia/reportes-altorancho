@@ -62,21 +62,19 @@ export function summarizeCategories({ prevDocs, prevToDateDocs, currentDocs, pro
     units: 0, revenue: 0, stock: 0, products: new Map(),
   });
   const byId = new Map(EVENT_CATEGORIES.map(c => [c.id, blank()]));
-
-  const walk = (docs, fn) => {
-    for (const doc of docs) {
-      if (doc.status !== 'completed') continue;
-      const factor = factorByRefDate?.get(argDay(doc.date)) ?? 1;
-      for (const item of doc.items || []) {
-        // Negative-price lines are discounts, not products.
-        if (!(item.unitPrice >= 0)) continue;
-        const id = eventCategoryOf(productsBySku.get(item.sku), item.name);
-        fn(byId.get(id), item, item.qty * item.unitPrice, factor);
-      }
-    }
-  };
+  const walk = (docs, fn) => walkItems(docs, productsBySku, factorByRefDate, (item, rev, f, id) => fn(byId.get(id), item, rev, f));
+  // Last year's units/revenue per product up to the same point, so each top
+  // product can say how much more (or less) it is selling.
+  const prevBySku = new Map();
   walk(prevDocs, (c, item, rev, f) => { c.prevUnits += item.qty; c.prevRevenueAdj += rev * f; });
-  walk(prevToDateDocs, (c, item, rev, f) => { c.prevUnitsToDate += item.qty; c.prevRevenueToDateAdj += rev * f; });
+  walk(prevToDateDocs, (c, item, rev, f) => {
+    c.prevUnitsToDate += item.qty;
+    c.prevRevenueToDateAdj += rev * f;
+    const p = prevBySku.get(item.sku) ?? { units: 0, revenueAdj: 0 };
+    p.units += item.qty;
+    p.revenueAdj += rev * f;
+    prevBySku.set(item.sku, p);
+  });
   walk(currentDocs, (c, item, rev) => {
     c.units += item.qty;
     c.revenue += rev;
@@ -84,6 +82,11 @@ export function summarizeCategories({ prevDocs, prevToDateDocs, currentDocs, pro
     p.units += item.qty;
     p.revenue += rev;
     c.products.set(item.sku, p);
+  });
+  const withPrev = (p) => ({
+    ...p,
+    prevUnitsToDate: prevBySku.get(p.sku)?.units ?? 0,
+    prevRevenueToDateAdj: prevBySku.get(p.sku)?.revenueAdj ?? 0,
   });
 
   // Stock counts every location (incl. mayorista and depósito) of every
@@ -103,8 +106,56 @@ export function summarizeCategories({ prevDocs, prevToDateDocs, currentDocs, pro
       return {
         id, label, ...c,
         cantMatch: c.units + c.stock < c.prevUnits,
-        topProducts: [...products.values()].sort((a, b) => b.units - a.units).slice(0, 5),
+        topProducts: [...products.values()].sort((a, b) => b.units - a.units).slice(0, 5).map(withPrev),
       };
     })
     .filter(c => c.prevUnits || c.units);
+}
+
+// Calls fn(item, revenue, factor, categoryId) for every product line of the
+// completed docs. Negative-price lines are discounts, not products.
+function walkItems(docs, productsBySku, factorByRefDate, fn) {
+  for (const doc of docs) {
+    if (doc.status !== 'completed') continue;
+    const factor = factorByRefDate?.get(argDay(doc.date)) ?? 1;
+    for (const item of doc.items || []) {
+      if (!(item.unitPrice >= 0)) continue;
+      fn(item, item.qty * item.unitPrice, factor, eventCategoryOf(productsBySku.get(item.sku), item.name));
+    }
+  }
+}
+
+// The event's best-selling products (by revenue) against the same products
+// over last year's aligned days up to the same point, 2025 in today's pesos.
+export function compareTopProducts({ prevToDateDocs, currentDocs, productsBySku, factorByRefDate, limit = 15 }) {
+  const label = new Map(EVENT_CATEGORIES.map(c => [c.id, c.label]));
+  const bySku = new Map();
+  const row = (item, catId) => {
+    let p = bySku.get(item.sku);
+    if (!p) {
+      p = {
+        sku: item.sku,
+        name: productsBySku.get(item.sku)?.name ?? item.name,
+        category: label.get(catId),
+        units: 0, revenue: 0, prevUnitsToDate: 0, prevRevenueToDateAdj: 0,
+      };
+      bySku.set(item.sku, p);
+    }
+    return p;
+  };
+  walkItems(currentDocs, productsBySku, null, (item, rev, _f, catId) => {
+    const p = row(item, catId);
+    p.units += item.qty;
+    p.revenue += rev;
+  });
+  walkItems(prevToDateDocs, productsBySku, factorByRefDate, (item, rev, f) => {
+    const p = bySku.get(item.sku);
+    if (!p) return; // only products selling this year make the list
+    p.prevUnitsToDate += item.qty;
+    p.prevRevenueToDateAdj += rev * f;
+  });
+  return [...bySku.values()]
+    .filter(p => p.units > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, limit);
 }

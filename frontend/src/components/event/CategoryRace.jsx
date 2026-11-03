@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatCurrency, formatNumber } from '../../lib/format.js';
-import { compactMoney } from '../../lib/eventLive.js';
+import { compactMoney, pctChange } from '../../lib/eventLive.js';
+import Delta from './Delta.jsx';
 
 // Units of last year's aligned days (gray) vs this year (orange), stock now
 // and a warning when units sold + stock can't match last year's full event.
@@ -30,6 +31,7 @@ export default function CategoryRace({ categories, started, label, prevYear, yea
             </div>
             <span className="r1 num">
               <b>{formatNumber(c.units)}</b> / {formatNumber(base(c))} u
+              {started && <> <Delta pct={pctChange(c.units, c.prevUnitsToDate)} /></>}
               {!isOtros && <> · stock {formatNumber(c.stock)}</>}
               {!isOtros && c.cantMatch && <span className="ev-warn">no alcanza p/ igualar</span>}
             </span>
@@ -38,12 +40,20 @@ export default function CategoryRace({ categories, started, label, prevYear, yea
                 Facturación {started ? 'a hoy' : `${label} ${prevYear} completo`}: {prevYear} ajust.{' '}
                 <b>{compactMoney(started ? c.prevRevenueToDateAdj : c.prevRevenueAdj)}</b> · {year}{' '}
                 <b>{compactMoney(c.revenue)}</b>
+                {started && <> <Delta pct={pctChange(c.revenue, c.prevRevenueToDateAdj)} /></>}
               </div>
               <div>{label} {prevYear} completo: {formatNumber(c.prevUnits)} u · {compactMoney(c.prevRevenueAdj)} ajust.</div>
               {c.topProducts?.length > 0 && (
                 <ol>
                   {c.topProducts.slice(0, 5).map(p => (
-                    <li key={p.sku}><span>{p.name}</span> · {formatNumber(p.units)} u · {formatCurrency(p.revenue)}</li>
+                    <li key={p.sku}>
+                      <span>{p.name}</span> · {formatNumber(p.units)} u · {formatCurrency(p.revenue)}
+                      {p.prevUnitsToDate != null && (
+                        p.prevUnitsToDate > 0
+                          ? <> · {prevYear}: {formatNumber(p.prevUnitsToDate)} u <Delta pct={pctChange(p.units, p.prevUnitsToDate)} /></>
+                          : <> · <span className="ev-delta new">nuevo</span></>
+                      )}
+                    </li>
                   ))}
                 </ol>
               )}

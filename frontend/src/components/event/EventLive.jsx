@@ -15,6 +15,8 @@ import CelebrationToast from './CelebrationToast.jsx';
 import CategoryRace from './CategoryRace.jsx';
 import AdsPacing from './AdsPacing.jsx';
 import DayByDayTable from './DayByDayTable.jsx';
+import ProductsTable from './ProductsTable.jsx';
+import Delta from './Delta.jsx';
 import EventDetails from './EventDetails.jsx';
 import '../../styles/event.css';
 
@@ -129,30 +131,39 @@ function todayChip(v, phase) {
   return v.today.pct != null ? `${Math.round(v.today.pct)}% del obj. a esta hora` : 'todavía sin datos';
 }
 
-// "+12% vs 1.234 en 2025": the chip for a this-year-vs-last-year tile.
-function vsPrevChip(pct, prevText, year) {
-  if (pct == null) return [`${year}: ${prevText}`, ''];
-  return [`${pctText(pct, { sign: true })} vs ${prevText} en ${year}`, pct >= 0 ? 'g' : 'r'];
-}
-
 function LiveHero({ data, v, view, phase }) {
   const ads = adsSummary(data.days);
   const realPct = v.floorElapsed ? (v.revenue / v.floorElapsed - 1) * 100 : null;
   const sales = salesCompare(data, view);
-  const [ordersChip, ordersClass] = vsPrevChip(sales.ordersPct, formatNumber(Math.round(sales.prevOrders)), data.previous.year);
-  const [ticketChip, ticketClass] = vsPrevChip(sales.ticketPct, compactMoney(sales.prevTicket), data.previous.year);
   const [projText, projClass] = projectionChip(v.projection, v);
   return (
     <div className="ev-panel">
       <div className="ev-l">Facturado {data.label} {data.current.year} · {VIEW_LABELS[view]}</div>
       <FlapCounter value={v.revenue} />
-      <div className="ev-sub">
-        {realPct != null && (
-          <span className={realPct >= 0 ? 'pos' : 'neg'}>{pctText(realPct, { sign: true })} real vs mismos días {data.previous.year}</span>
-        )}
+      <div className="ev-vsprev">
+        <div className="ev-l">
+          {phase === 'post' ? `${data.label} ${data.previous.year} en los mismos días` : `A esta hora en ${data.previous.year}`} · ajustado por inflación
+        </div>
+        <div className="cols">
+          <div>
+            <span className="k">Facturado</span>
+            <b className="num">{compactMoney(v.floorElapsed)}</b>
+            <span className="vs">hoy {compactMoney(v.revenue)} <Delta pct={realPct} /></span>
+          </div>
+          <div>
+            <span className="k">Ventas</span>
+            <b className="num">{formatNumber(Math.round(sales.prevOrders))}</b>
+            <span className="vs">hoy {formatNumber(sales.orders)} <Delta pct={sales.ordersPct} /></span>
+          </div>
+          <div>
+            <span className="k">Ticket promedio</span>
+            <b className="num">{compactMoney(sales.prevTicket)}</b>
+            <span className="vs">hoy {compactMoney(sales.ticket)} <Delta pct={sales.ticketPct} /></span>
+          </div>
+        </div>
       </div>
       <GoalTrack value={v.revenue} floor={v.floor} target={v.target} />
-      <div className="ev-tiles six">
+      <div className="ev-tiles">
         <Tile
           label="Hoy"
           value={v.today.revenue == null ? '—' : compactMoney(v.today.revenue)}
@@ -160,8 +171,6 @@ function LiveHero({ data, v, view, phase }) {
           chipClass={statusClass(v.today.status)}
         />
         <Tile label="Si seguimos así" value={v.projection == null ? '—' : compactMoney(v.projection)} chip={projText} chipClass={projClass} />
-        <Tile label="Ventas" value={formatNumber(sales.orders)} chip={ordersChip} chipClass={ordersClass} note="mismos días, hoy a esta hora" />
-        <Tile label="Ticket promedio" value={compactMoney(sales.ticket)} chip={ticketChip} chipClass={ticketClass} note={`${data.previous.year} ajustado por inflación`} />
         <Tile label="Pauta invertida" value={compactMoney(ads.spent)} chip={`de ${compactMoney(ads.plan)} del plan`} />
         <Tile
           label="ROAS Meta · Google"
@@ -391,6 +400,19 @@ export default function EventLive({ onLogout }) {
               </div>
             </div>
 
+            {phase !== 'pre' && (
+              <>
+                <h2 className="ev-sec">
+                  Productos más vendidos
+                  <small>
+                    {data.current.year} contra los mismos productos en {data.label} {data.previous.year}
+                    {phase === 'live' ? ' a esta hora' : ', mismos días'} · {data.previous.year} ajustado por inflación · web + locales
+                  </small>
+                </h2>
+                <ProductsTable products={data.live?.topProducts} prevYear={data.previous.year} year={data.current.year} />
+              </>
+            )}
+
             <h2 className="ev-sec">
               Día por día
               <small>{data.current.year} contra el mismo día de {data.previous.year} (alineado al día oficial) · pauta y venta</small>
@@ -404,6 +426,7 @@ export default function EventLive({ onLogout }) {
               elapsed={{ floor: v.floorElapsed, target: v.targetElapsed }}
               realGrowth={data.assumptions?.realGrowth}
               salesToDate={salesCompare(data, view)}
+              todayShare={data.live?.todayShare}
             />
 
             <EventDetails data={data} view={view} />

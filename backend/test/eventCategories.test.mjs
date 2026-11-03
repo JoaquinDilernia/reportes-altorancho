@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EVENT_CATEGORIES, eventCategoryOf, summarizeCategories } from '../eventCategories.mjs';
+import { EVENT_CATEGORIES, eventCategoryOf, summarizeCategories, compareTopProducts } from '../eventCategories.mjs';
 
 const P = (odooCategPath, name = 'X') => ({ name, odooCategPath });
 
@@ -63,10 +63,29 @@ test('summarizeCategories: units, revenue (2025 inflation-adjusted), stock and c
   assert.equal(sillas.revenue, 1200);
   assert.equal(sillas.stock, 6);
   assert.equal(sillas.cantMatch, true); // 4 + 6 < 15
-  assert.deepEqual(sillas.topProducts, [{ sku: 'S1', name: 'Silla 1', units: 4, revenue: 1200 }]);
+  assert.deepEqual(sillas.topProducts, [{ sku: 'S1', name: 'Silla 1', units: 4, revenue: 1200, prevUnitsToDate: 10, prevRevenueToDateAdj: 2000 }]);
   const otros = out[1];
   assert.equal(otros.prevUnits, 1);
   assert.equal(otros.units, 0);
   assert.equal(otros.cantMatch, true); // 0 + 0 < 1
   assert.equal(otros.stock, 0); // non-Biblia products add no stock
+});
+
+test('compareTopProducts: this year by revenue vs same products last year to date (adjusted)', () => {
+  const productsBySku = new Map([
+    ['S1', { sku: 'S1', name: 'Silla 1', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X' }],
+    ['L1', { sku: 'L1', name: 'Lámpara', odooCategPath: 'All / Biblia/ ILUMINACION / X' }],
+  ]);
+  const prevToDateDocs = [
+    sale('2025-11-03T15:00:00Z', 'completed', [it('S1', 10, 100), it('X9', 3, 100)]),
+    sale('2025-11-03T16:00:00Z', 'pending', [it('S1', 99, 100)]),
+  ];
+  const currentDocs = [
+    sale('2026-11-02T15:00:00Z', 'completed', [it('S1', 4, 300), it('L1', 1, 5000), it('L1', 1, -100)]),
+  ];
+  const out = compareTopProducts({ prevToDateDocs, currentDocs, productsBySku, factorByRefDate: new Map([['2025-11-03', 2]]) });
+  assert.deepEqual(out, [
+    { sku: 'L1', name: 'Lámpara', category: 'Iluminación', units: 1, revenue: 5000, prevUnitsToDate: 0, prevRevenueToDateAdj: 0 },
+    { sku: 'S1', name: 'Silla 1', category: 'Sillas', units: 4, revenue: 1200, prevUnitsToDate: 10, prevRevenueToDateAdj: 2000 },
+  ]);
 });
