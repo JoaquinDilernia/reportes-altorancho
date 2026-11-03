@@ -16,6 +16,7 @@ import { withOrderLock } from './feriaDelivery.mjs';
 import { getDb } from './firestore.mjs';
 import { confirmReturnOrder, defaultReturnDeps, applyCreditNotesStep } from './posReturnsConfirm.mjs';
 import { listCustomerCredits } from './posCredits.mjs';
+import { returnInvoiceLines } from './posReturns.mjs';
 
 const RETRY_EVERY_MS = 3 * 60 * 1000;
 const RETRY_USER = 'Reintento automático';
@@ -44,6 +45,7 @@ const odooIdsOf = (order) => (order.odooOrders?.length
 const invoiceDeps = () => ({
   findOrderInvoices: odoo.findOrderInvoices, createInvoiceForOrders: odoo.createInvoiceForOrders,
   postInvoice: odoo.postInvoice, markOrderInvoiced: orders.markOrderInvoiced, setInvoiceError: orders.setInvoiceError,
+  addReturnLinesToInvoice: odoo.addReturnLinesToInvoice,
 });
 
 // Facturas de venta de cualquiera de los pedidos (sin repetir): una factura
@@ -66,6 +68,10 @@ export function invoicePosOrder(order, locale, deps = invoiceDeps()) {
         await deps.createInvoiceForOrders(orderIds);
         step = odoo.planInvoiceStep(await invoicesOf(orderIds, deps));
         if (step.action === 'create') throw new Error('Odoo no creó la factura');
+      }
+      // Cambio facturado en una sola factura: lo que vuelve, en negativo (idempotente).
+      if (step.action === 'post' && order.returnSteps?.returnsOnInvoice) {
+        await deps.addReturnLinesToInvoice(step.invoiceId, returnInvoiceLines(order.returnLines));
       }
       const invoice = step.action === 'done' ? step.invoice : await deps.postInvoice(step.invoiceId, locale.invoiceJournalId);
       const saved = { invoiceId: invoice.id, invoiceName: invoice.name };
@@ -323,9 +329,7 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
 
   // 6. Factura (nunca tira) y 7. aplicación de NC de lo que vuelve / saldos usados.
   let invoiceId = order.invoiceId ?? null;
-  // Cambio que no paga nada: la factura nueva quedaría en $ 0, no se hace.
-  const nothingToInvoice = order.totals?.odooGoodsFactor != null && !(order.totals.collect > 0);
-  if (order.wantsInvoice && !order.invoiceName && !nothingToInvoice && invoicingEnabledFor(ctx.locale)) {
+  if (order.wantsInvoice && !order.invoiceName && invoicingEnabledFor(ctx.locale)) {
     const result = await deps.invoice(order, ctx.locale);
     if (result?.status === 'invoiced') invoiceId = result.invoiceId;
   }
@@ -333,11 +337,7 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
     // Nunca tira: cualquier error queda como aviso y igual se cierra el pendiente.
     let ncWarnings;
     try {
-      // La NC de lo que vuelve ya no se aplica a la factura nueva (que es solo
-      // por la diferencia). Cambios confirmados antes (sin odooGoodsFactor)
-      // facturaron lo nuevo completo: ahí sí se aplica.
-      const own = order.totals?.odooGoodsFactor != null ? []
-        : Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
+      const own = Object.values(order.returnSteps?.creditNotes ?? {}).filter((n) => n.state === 'posted').map((n) => n.id);
       ncWarnings = await applyCreditNotesStep(order, invoiceId, { own, saldo: await deps.creditNoteIdsOf(order) }, deps);
     } catch (err) {
       ncWarnings = [`No se pudieron aplicar las notas de crédito a la factura (${err.message}): aplicalas en Odoo`];

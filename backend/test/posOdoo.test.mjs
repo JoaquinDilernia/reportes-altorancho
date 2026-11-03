@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor,
+  buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor, planReturnInvoiceLines,
   planOdooOrders, shippingPartnerKindFor, firstLegMoves, alignFirstLegMoves, findSaleOrdersByRef, readOrderStates,
 } from '../posOdoo.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
@@ -232,10 +232,16 @@ test('planOdooOrders: la subida al domicilio va justo después del envío, mismo
   assert.equal(none[0].odooLines.some((l) => l.productId === 57070), false);
 });
 
-test('buildOdooOrderLines: cambio → precio × factor y sin descuento (la factura suma lo cobrado)', () => {
-  const lines = [{ lineId: 'L1', productId: 1, qty: 1, basePrice: 49990, status: 'activo' }];
-  const [l] = buildOdooOrderLines(lines, { lineDiscountPct: 0.8, odooGoodsFactor: 1598.08 / 49990, shipping: 0 }, null);
-  assert.equal(l.discountPct, 0);
-  assert.equal(l.unitPrice, 1320.73);
-  assert.equal(Math.round(l.unitPrice * 1.21 * 100) / 100, 1598.08);
+test('planReturnInvoiceLines: agrega solo lo que falta, con el IVA de la factura', () => {
+  const existing = [
+    { product_id: [1, 'x'], quantity: 1, price_unit: 41314.05, tax_ids: [62] },
+    { product_id: [7, 'x'], quantity: -1, price_unit: 39662.81, tax_ids: [62] },
+  ];
+  const items = [
+    { productId: 7, qty: -1, unitPrice: 39662.81, name: 'Devolución A' },
+    { productId: 8, qty: -2, unitPrice: 1000, name: 'Devolución B' },
+  ];
+  assert.deepEqual(planReturnInvoiceLines(existing, items), [
+    [0, 0, { product_id: 8, quantity: -2, price_unit: 1000, discount: 0, name: 'Devolución B', tax_ids: [[6, 0, [62]]] }],
+  ]);
 });
