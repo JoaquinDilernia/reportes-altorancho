@@ -85,3 +85,19 @@ test('buildLive: 2025 window day that is not a refDate uses the month-based infl
   const sillas = live.categories.find(c => c.id === 'sillas');
   assert.ok(Math.abs(sillas.prevRevenueAdj - 150) < 1e-9);
 });
+
+test('buildLive: categories and top products come per view (total / web / locales)', () => {
+  const ev = { current: { year: 2026, start: '2026-10-29', end: '2026-10-30' }, previous: { year: 2025, start: '2025-10-29', end: '2025-10-30' } };
+  const productsBySku = new Map([['MSI018NE', { sku: 'MSI018NE', name: 'Silla Chicago Negro', odooCategPath: 'All / Biblia/ MUEBLES / SILLAS / SILLA / X', stockByLocation: {} }]]);
+  const s = (id, channel, qty) => ({ id, channel, date: '2026-10-29T15:00:00Z', status: 'completed', total: qty * 100, items: [{ sku: 'MSI018NE', name: 'Silla', qty, unitPrice: 100 }] });
+  const live = buildLive({
+    event: ev, result: { days: [mkDay('2026-10-29', true, 10, 100)] },
+    currentSales: [s('a', 'ecommerce', 3), s('b', 'local_lomas', 2)], prevSales: [], productsBySku,
+    indexByMonth: new Map(), today: '2026-10-29', ecommerceMeta: null, nowIso: '2026-10-29T18:00:00Z',
+  });
+  const units = (view) => live.topProductsByView[view][0]?.units ?? 0;
+  assert.deepEqual([units('total'), units('web'), units('locales')], [5, 3, 2]);
+  const sillas = (view) => live.categoriesByView[view].find(c => c.id === 'sillas')?.units ?? 0;
+  assert.deepEqual([sillas('total'), sillas('web'), sillas('locales')], [5, 3, 2]);
+  assert.equal(live.topProducts, live.topProductsByView.total);
+});

@@ -221,6 +221,8 @@ function CountdownHero({ data, v, view }) {
 }
 
 // Status against the floor/target of the time elapsed (today pro-rated).
+const VIEW_TEXT = { total: 'web + locales', web: 'solo web', locales: 'solo locales' };
+
 function GroupRow({ label, data, group }) {
   const totals = groupView(data, group);
   return (
@@ -371,13 +373,13 @@ export default function EventLive({ onLogout }) {
               Categorías
               <small>
                 unidades {data.label} {data.previous.year} (gris) vs {data.current.year} (naranja)
-                {phase === 'pre' ? ` · ${data.previous.year} completo` : ' · mismos días'} · stock hoy · sin objetivo · web + locales
+                {phase === 'pre' ? ` · ${data.previous.year} completo` : ' · mismos días'} · stock hoy (todos los depósitos) · sin objetivo · {VIEW_TEXT[view]}
               </small>
             </h2>
             <div className="ev-grid2">
               <div className="ev-panel">
                 <CategoryRace
-                  categories={data.live?.categories}
+                  categories={data.live?.categoriesByView?.[view] ?? data.live?.categories}
                   started={phase !== 'pre'}
                   label={data.label}
                   prevYear={data.previous.year}
@@ -406,10 +408,15 @@ export default function EventLive({ onLogout }) {
                   Productos más vendidos
                   <small>
                     {data.current.year} contra los mismos productos en {data.label} {data.previous.year}
-                    {phase === 'live' ? ' a esta hora' : ', mismos días'} · {data.previous.year} ajustado por inflación · web + locales
+                    {phase === 'live' ? ' a esta hora' : ', mismos días'} · {data.previous.year} ajustado por inflación · {VIEW_TEXT[view]}
                   </small>
                 </h2>
-                <ProductsTable products={data.live?.topProducts} prevYear={data.previous.year} year={data.current.year} />
+                <ProductsTable
+                  key={view}
+                  products={data.live?.topProductsByView?.[view] ?? data.live?.topProducts}
+                  prevYear={data.previous.year}
+                  year={data.current.year}
+                />
               </>
             )}
 

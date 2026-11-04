@@ -218,15 +218,26 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     if (!refDates.has(d)) return false;
     return d !== todayRef || argMinuteOfDay(s.date) <= nowMinute;
   });
-  const categories = summarizeCategories({
-    prevDocs: prevSales.filter(inPrevWindow),
-    prevToDateDocs,
-    currentDocs: currentSales,
-    productsBySku,
-    factorByRefDate,
-  });
-  // The table shows 15 and unfolds the rest with "Ver más".
-  const topProducts = compareTopProducts({ prevToDateDocs, currentDocs: currentSales, productsBySku, factorByRefDate, limit: 60 });
+  // Categories and top products follow the page's Total / Web / Locales
+  // filter, so they come per view.
+  const prevWindowDocs = prevSales.filter(inPrevWindow);
+  const views = { total: ALL_EVENT_CHANNELS, ...EVENT_GROUPS };
+  const categoriesByView = {};
+  const topProductsByView = {};
+  for (const [view, channels] of Object.entries(views)) {
+    const inView = (s) => channels.includes(s.channel);
+    const prevToDate = prevToDateDocs.filter(inView);
+    const currentDocs = currentSales.filter(inView);
+    categoriesByView[view] = summarizeCategories({
+      prevDocs: prevWindowDocs.filter(inView),
+      prevToDateDocs: prevToDate,
+      currentDocs,
+      productsBySku,
+      factorByRefDate,
+    });
+    // The table shows 15 and unfolds the rest with "Ver más".
+    topProductsByView[view] = compareTopProducts({ prevToDateDocs: prevToDate, currentDocs, productsBySku, factorByRefDate, limit: 60 });
+  }
 
   return {
     updatedAt: ecommerceMeta?.lastSyncedAt ?? null,
@@ -237,8 +248,11 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     feed: recentSales(currentSales, 12),
     topProductToday: topProductOfDay(currentSales, today),
     peakHourYesterday: peakHourOfDay(currentSales, addDays(today, -1)),
-    categories,
-    topProducts,
+    // categories/topProducts (total) kept for pages still on the old build.
+    categories: categoriesByView.total,
+    topProducts: topProductsByView.total,
+    categoriesByView,
+    topProductsByView,
     curves,
   };
 }
