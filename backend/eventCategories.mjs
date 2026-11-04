@@ -125,21 +125,68 @@ function walkItems(docs, productsBySku, factorByRefDate, fn) {
   }
 }
 
-// The event's best-selling products (by revenue) against the same products
-// over last year's aligned days up to the same point, 2025 in today's pesos.
+// SKUs are model + 2-char color (MMA008NE = MMA008 in Negro). The "reduced
+// SKU" is the model part; anything off that pattern stays as is.
+export function skuModel(sku) {
+  return /^[A-Z]{3}\d{3}[A-Z0-9]{2}$/.test(sku ?? '') ? sku.slice(0, 6) : sku;
+}
+
+// Model display name: the words every color variant's name shares
+// ("Mesa Ratona Tray Big Negro" + "... Blanco" -> "Mesa Ratona Tray Big").
+// Some variants still carry an old long description as name, so when Odoo's
+// "Nombre Modelo AR" tag is there only the names mentioning it count, and the
+// result is cut right after the model words ("Reposera Riviera Blanco y" ->
+// "Reposera Riviera").
+export function modelNames(productsBySku) {
+  const groups = new Map();
+  for (const p of productsBySku.values()) {
+    if (!p.name?.trim()) continue;
+    const key = skuModel(p.sku);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  const out = new Map();
+  for (const [key, variants] of groups) {
+    const modelo = variants.map(v => v.nombreModeloAr).find(Boolean);
+    const modeloWords = norm(modelo).split(/[\s,]+/).filter(w => w.length >= 2);
+    const mentions = modeloWords.length
+      ? variants.filter(v => norm(v.name).split(/\s+/).includes(modeloWords[0]))
+      : [];
+    const names = (mentions.length ? mentions : variants).map(v => v.name.trim().split(/\s+/));
+    let shared = names[0];
+    for (const w of names.slice(1)) {
+      let i = 0;
+      while (i < shared.length && i < w.length && norm(shared[i]) === norm(w[i])) i++;
+      shared = shared.slice(0, i);
+    }
+    if (modeloWords.length) {
+      let last = -1;
+      shared.forEach((w, i) => { if (modeloWords.some(m => norm(w).startsWith(m))) last = i; });
+      if (last >= 0) shared = shared.slice(0, last + 1);
+    }
+    if (shared.length) out.set(key, shared.join(' '));
+  }
+  return out;
+}
+
+// The event's best-selling models (by revenue, all colors together) against
+// the same models over last year's aligned days up to the same point, 2025 in
+// today's pesos.
 export function compareTopProducts({ prevToDateDocs, currentDocs, productsBySku, factorByRefDate, limit = 15 }) {
   const label = new Map(EVENT_CATEGORIES.map(c => [c.id, c.label]));
-  const bySku = new Map();
+  const nameByModel = modelNames(productsBySku);
+  const byModel = new Map();
   const row = (item, catId) => {
-    let p = bySku.get(item.sku);
+    const key = skuModel(item.sku);
+    let p = byModel.get(key);
     if (!p) {
       p = {
-        sku: item.sku,
-        name: productsBySku.get(item.sku)?.name ?? item.name,
+        sku: key,
+        name: nameByModel.get(key) ?? productsBySku.get(item.sku)?.name ?? item.name,
         category: label.get(catId),
         units: 0, revenue: 0, prevUnitsToDate: 0, prevRevenueToDateAdj: 0,
       };
-      bySku.set(item.sku, p);
+      byModel.set(key, p);
     }
     return p;
   };
@@ -149,12 +196,12 @@ export function compareTopProducts({ prevToDateDocs, currentDocs, productsBySku,
     p.revenue += rev;
   });
   walkItems(prevToDateDocs, productsBySku, factorByRefDate, (item, rev, f) => {
-    const p = bySku.get(item.sku);
+    const p = byModel.get(skuModel(item.sku));
     if (!p) return; // only products selling this year make the list
     p.prevUnitsToDate += item.qty;
     p.prevRevenueToDateAdj += rev * f;
   });
-  return [...bySku.values()]
+  return [...byModel.values()]
     .filter(p => p.units > 0)
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, limit);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EVENT_CATEGORIES, eventCategoryOf, summarizeCategories, compareTopProducts } from '../eventCategories.mjs';
+import { EVENT_CATEGORIES, eventCategoryOf, summarizeCategories, compareTopProducts, modelNames } from '../eventCategories.mjs';
 
 const P = (odooCategPath, name = 'X') => ({ name, odooCategPath });
 
@@ -87,5 +87,43 @@ test('compareTopProducts: this year by revenue vs same products last year to dat
   assert.deepEqual(out, [
     { sku: 'L1', name: 'Lámpara', category: 'Iluminación', units: 1, revenue: 5000, prevUnitsToDate: 0, prevRevenueToDateAdj: 0 },
     { sku: 'S1', name: 'Silla 1', category: 'Sillas', units: 4, revenue: 1200, prevUnitsToDate: 10, prevRevenueToDateAdj: 2000 },
+  ]);
+});
+
+test('modelNames ignores old long names and cuts after the model words', () => {
+  const p = (sku, name, nombreModeloAr) => [sku, { sku, name, nombreModeloAr }];
+  const names = modelNames(new Map([
+    p('MSI015BG', 'Silla Budapest Beige', 'BUDAPEST'),
+    p('MSI015BV', 'SILLA TERCIOPELO ESTILO COLEGIO PATAS NEGRAS - BEIGE VERDE', 'BUDAPEST'),
+    p('MSI015NE', 'Silla Budapest Negro', 'BUDAPEST'),
+    p('MSR001BG', 'Reposera Riviera Blanco y Beige', 'RIVIERA'),
+    p('MSR001NE', 'Reposera Riviera Blanco y Negro', 'RIVIERA'),
+    p('MMC013AG', 'Mesa Comedor Urban Rectangular Amarillo', 'URBAN REC'),
+    p('MMC013VE', 'MESA RECTANGULAR DE CHAPA COLOR VERDE', 'URBAN REC'),
+    p('MMC013BL', 'Mesa Comedor Urban Rectangular Blanco', 'URBAN REC'),
+    p('ABC001NE', 'Vela Sola Negra', null),
+  ]));
+  assert.equal(names.get('MSI015'), 'Silla Budapest');
+  assert.equal(names.get('MSR001'), 'Reposera Riviera');
+  assert.equal(names.get('MMC013'), 'Mesa Comedor Urban Rectangular');
+  assert.equal(names.get('ABC001'), 'Vela Sola Negra');
+});
+
+test('compareTopProducts groups colors of the same model by reduced SKU', () => {
+  const cat = 'All / Biblia/ MUEBLES / MESAS / MESA RATONA';
+  const productsBySku = new Map([
+    ['MMA008NE', { sku: 'MMA008NE', name: 'Mesa Ratona Tray Big Negro', odooCategPath: cat }],
+    ['MMA008BL', { sku: 'MMA008BL', name: 'Mesa Ratona Tray Big Blanco', odooCategPath: cat }],
+    ['MMA008GH', { sku: 'MMA008GH', name: 'Mesa Ratona Tray Big Gris Hierro', odooCategPath: cat }],
+    ['MMA009NE', { sku: 'MMA009NE', name: 'Mesa Ratona Tray Small Negro', odooCategPath: cat }],
+  ]);
+  const prevToDateDocs = [sale('2025-11-03T15:00:00Z', 'completed', [it('MMA008GH', 2, 100)])];
+  const currentDocs = [
+    sale('2026-11-02T15:00:00Z', 'completed', [it('MMA008NE', 1, 1000), it('MMA008BL', 2, 1000), it('MMA009NE', 1, 500)]),
+  ];
+  const out = compareTopProducts({ prevToDateDocs, currentDocs, productsBySku, factorByRefDate: new Map([['2025-11-03', 2]]) });
+  assert.deepEqual(out, [
+    { sku: 'MMA008', name: 'Mesa Ratona Tray Big', category: 'Mesas ratonas', units: 3, revenue: 3000, prevUnitsToDate: 2, prevRevenueToDateAdj: 400 },
+    { sku: 'MMA009', name: 'Mesa Ratona Tray Small Negro', category: 'Mesas ratonas', units: 1, revenue: 500, prevUnitsToDate: 0, prevRevenueToDateAdj: 0 },
   ]);
 });

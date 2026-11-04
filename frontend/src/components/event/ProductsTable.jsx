@@ -2,8 +2,9 @@ import { compactMoney, pctChange } from '../../lib/eventLive.js';
 import { formatNumber } from '../../lib/format.js';
 import Delta from './Delta.jsx';
 
-// The event's best sellers (by revenue) vs the same products last year up to
-// the same point. A product that didn't sell last year shows "nuevo".
+// The event's best-selling models (by revenue, colors grouped by reduced SKU)
+// vs the same models last year up to the same point. A model that didn't sell
+// last year shows "nuevo".
 export default function ProductsTable({ products, prevYear, year }) {
   const rows = products || [];
   if (!rows.length) return <div className="ev-panel"><div className="ev-empty">Todavía no hay ventas de productos.</div></div>;
@@ -29,7 +30,7 @@ export default function ProductsTable({ products, prevYear, year }) {
         <tbody>
           {rows.map(p => (
             <tr key={p.sku}>
-              <td className="name" title={p.sku}>{p.name}</td>
+              <td className="name" title={`${p.sku} · ${p.name}`}>{p.name} <span className="ev-sub">{p.sku}</span></td>
               <td className="cat">{p.category}</td>
               <td className="sepL">{formatNumber(p.prevUnitsToDate)}</td>
               <td><b>{formatNumber(p.units)}</b></td>
@@ -42,7 +43,7 @@ export default function ProductsTable({ products, prevYear, year }) {
         </tbody>
       </table>
       <div className="ev-note">
-        Los 15 productos que más facturaron en {year}. {prevYear} = el mismo producto (mismo SKU) en los días alineados,
+        Los 15 modelos que más facturaron en {year}, sumando todos sus colores (SKU reducido). {prevYear} = el mismo modelo en los días alineados,
         con el día de hoy cortado a la misma hora. "Nuevo" = no se vendió en {prevYear} en esos días.
       </div>
     </div>
