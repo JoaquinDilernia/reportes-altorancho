@@ -225,7 +225,8 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     productsBySku,
     factorByRefDate,
   });
-  const topProducts = compareTopProducts({ prevToDateDocs, currentDocs: currentSales, productsBySku, factorByRefDate });
+  // The table shows 15 and unfolds the rest with "Ver más".
+  const topProducts = compareTopProducts({ prevToDateDocs, currentDocs: currentSales, productsBySku, factorByRefDate, limit: 60 });
 
   return {
     updatedAt: ecommerceMeta?.lastSyncedAt ?? null,

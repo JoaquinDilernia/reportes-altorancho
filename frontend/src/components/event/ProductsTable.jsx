@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { compactMoney, pctChange } from '../../lib/eventLive.js';
 import { formatNumber } from '../../lib/format.js';
 import Delta from './Delta.jsx';
@@ -5,8 +6,12 @@ import Delta from './Delta.jsx';
 // The event's best-selling models (by revenue, colors grouped by reduced SKU)
 // vs the same models last year up to the same point. A model that didn't sell
 // last year shows "nuevo".
+const PAGE = 15;
+
 export default function ProductsTable({ products, prevYear, year }) {
-  const rows = products || [];
+  const [shown, setShown] = useState(PAGE);
+  const all = products || [];
+  const rows = all.slice(0, shown);
   if (!rows.length) return <div className="ev-panel"><div className="ev-empty">Todavía no hay ventas de productos.</div></div>;
   const yy = (y) => String(y).slice(2);
   const vs = (now, before) => (before ? <Delta pct={pctChange(now, before)} /> : <span className="ev-delta new">nuevo</span>);
@@ -42,8 +47,20 @@ export default function ProductsTable({ products, prevYear, year }) {
           ))}
         </tbody>
       </table>
+      {(all.length > shown || shown > PAGE) && (
+        <div className="ev-more">
+          {all.length > shown && (
+            <button type="button" onClick={() => setShown(s => s + PAGE)}>
+              Ver más ({Math.min(PAGE, all.length - shown)})
+            </button>
+          )}
+          {shown > PAGE && (
+            <button type="button" onClick={() => setShown(PAGE)}>Ver menos</button>
+          )}
+        </div>
+      )}
       <div className="ev-note">
-        Los 15 modelos que más facturaron en {year}, sumando todos sus colores (SKU reducido). {prevYear} = el mismo modelo en los días alineados,
+        Los {rows.length} modelos que más facturaron en {year}, sumando todos sus colores (SKU reducido). {prevYear} = el mismo modelo en los días alineados,
         con el día de hoy cortado a la misma hora. "Nuevo" = no se vendió en {prevYear} en esos días.
       </div>
     </div>

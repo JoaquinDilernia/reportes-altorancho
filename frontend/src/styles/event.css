@@ -162,6 +162,10 @@
 .event-live .ev-table .ev-chip { margin-top: 0; }
 .event-live .ev-prod td.name { max-width: 340px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .event-live .ev-prod td.cat { text-align: left; color: var(--mute); }
+.event-live .ev-more { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+.event-live .ev-more button { padding: 6px 16px; border-radius: 30px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; color: var(--ink); background: var(--panel); border: 1px solid var(--line); }
+.event-live .ev-more button:hover { border-color: var(--mute); }
+.event-live .ev-more button:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
 .event-live .ev-prod th:nth-child(2) { text-align: left; }
 
 /* Folded details: the planning material keeps the regular report's look
