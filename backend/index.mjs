@@ -10,6 +10,7 @@ import { getResumen } from './resumenReport.mjs';
 import { getProducto } from './productoReport.mjs';
 import { getWeb } from './webReport.mjs';
 import { getLocales } from './localesReport.mjs';
+import { getPauta } from './pautaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
 import { getPeriodRanges } from './periods.mjs';
@@ -123,6 +124,17 @@ app.get('/api/v2/resumen', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getResumen(params)) });
   } catch (err) {
     console.error('[server] v2 resumen error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v2/pauta', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getPauta(params)) });
+  } catch (err) {
+    console.error('[server] v2 pauta error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

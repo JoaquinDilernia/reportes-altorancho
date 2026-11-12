@@ -128,3 +128,19 @@ export async function fetchGa4DailyTotals(start, end) {
   }
   return out;
 }
+
+// GA4 purchases and revenue per Google Ads campaign (google / cpc) over a
+// range, for the Pauta tab. One report call.
+export async function fetchGa4GoogleAdsByCampaign(since, until) {
+  const rows = await runReportAll({
+    dateRanges: [{ startDate: since, endDate: until }],
+    dimensions: [{ name: 'sessionCampaignName' }],
+    dimensionFilter: { filter: { fieldName: 'sessionSourceMedium', stringFilter: { value: GOOGLE_ADS_SOURCE_MEDIUM } } },
+    metrics: [{ name: 'ecommercePurchases' }, { name: 'purchaseRevenue' }],
+  });
+  return rows.map(r => ({
+    name: r.dimensionValues[0].value,
+    purchases: Number(r.metricValues[0].value || 0),
+    value: Number(r.metricValues[1].value || 0),
+  }));
+}

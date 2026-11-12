@@ -138,3 +138,17 @@ export async function fetchGoogleAdsDaily(since, until, ga4ByDate = null) {
   const actionNames = Object.fromEntries(actions.map(a => [a.conversionAction.resourceName, a.conversionAction.name]));
   return normalizeGoogleAdsDaily(costRows, conversionRows, actionNames, ga4ByDate);
 }
+
+// Cost and clicks per campaign over a range (one query), for the Pauta tab.
+export async function fetchGoogleCampaignCosts(since, until) {
+  const rows = await search(`SELECT campaign.name, metrics.cost_micros, metrics.clicks FROM campaign WHERE segments.date BETWEEN '${since}' AND '${until}'`);
+  const by = new Map();
+  for (const r of rows) {
+    const name = r.campaign?.name || '(sin nombre)';
+    const c = by.get(name) ?? { name, spend: 0, clicks: 0 };
+    c.spend += Number(r.metrics?.costMicros || 0) / 1e6;
+    c.clicks += Number(r.metrics?.clicks || 0);
+    by.set(name, c);
+  }
+  return [...by.values()];
+}

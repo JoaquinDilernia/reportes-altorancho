@@ -161,6 +161,14 @@ export function getWeb(params) {
   return getAuthed(`/api/v2/web?${periodQuery(params)}`, 'Web fetch failed');
 }
 
+export function getPauta(params) {
+  return getAuthed(`/api/v2/pauta?${periodQuery(params)}`, 'Pauta fetch failed');
+}
+
+export function getMayorista(params) {
+  return getAuthed(`/api/v2/mayorista?${periodQuery(params)}`, 'Mayorista fetch failed');
+}
+
 export function getLocales(params) {
   return getAuthed(`/api/v2/locales?${periodQuery(params)}`, 'Locales fetch failed');
 }
