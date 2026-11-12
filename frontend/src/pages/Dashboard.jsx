@@ -101,7 +101,7 @@ export default function Dashboard({ onLogout }) {
           />
         )}
         <ChannelTabs channel={channel} onChannelChange={setChannel} />
-        <a className="try-new-link" href="?v=nuevo">Probar el reporte nuevo →</a>
+        <a className="try-new-link" href="./">Ir al reporte nuevo →</a>
       </header>
 
       {isEventTab && <EventLive onLogout={onLogout} />}

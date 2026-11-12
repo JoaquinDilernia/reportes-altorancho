@@ -4,9 +4,10 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import NuevoApp from './nuevo/NuevoApp.jsx';
 
-// The new report lives at ?v=nuevo (Hostinger serves a static index.html with
-// no rewrites, so a separate path isn't possible); / stays the current one.
-const isNuevo = () => new URLSearchParams(window.location.search).get('v') === 'nuevo';
+// The new report is the main one. The previous report stays reachable at
+// ?v=actual while the new one's tabs are being built (Hostinger serves a
+// static index.html with no rewrites, hence a query param, not a path).
+const isActual = () => new URLSearchParams(window.location.search).get('v') === 'actual';
 
 export default function App() {
   const { isAuthenticated, login, logout } = useAuth();
@@ -28,5 +29,5 @@ export default function App() {
     );
   }
 
-  return isNuevo() ? <NuevoApp onLogout={logout} /> : <Dashboard onLogout={logout} />;
+  return isActual() ? <Dashboard onLogout={logout} /> : <NuevoApp onLogout={logout} />;
 }
