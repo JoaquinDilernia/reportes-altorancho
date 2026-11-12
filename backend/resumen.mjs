@@ -137,3 +137,15 @@ export function buildKpis({ cur, prevPeriod, prevYear, sparks, inflation = {}, w
     },
   ];
 }
+
+// Sales sync every 4 h, so a range's numbers are only final ~5 h after its
+// last day ends (ART midnight = 03:00 UTC). Settled ranges are summarized
+// once and kept; their raw docs are read fresh so they aren't cached twice.
+const SETTLE_MS = 5 * 3600 * 1000;
+export function isSettled(end, now) {
+  return now.getTime() >= new Date(`${addDays(end, 1)}T03:00:00Z`).getTime() + SETTLE_MS;
+}
+export function summaryPlan(range, now) {
+  const settled = isSettled(range.end, now);
+  return { cache: settled, fresh: settled };
+}

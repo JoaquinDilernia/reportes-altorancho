@@ -10,7 +10,7 @@ import {
   getInflationIndexByMonth, queryDailySnapshots, CLARITY_DAILY_COL,
 } from './firestore.mjs';
 import { addDays, argDay, inflationFactor } from './events.mjs';
-import { sparkRanges, channelBreakdown, dailyStacked, buildKpis } from './resumen.mjs';
+import { sparkRanges, channelBreakdown, dailyStacked, buildKpis, summaryPlan, isSettled } from './resumen.mjs';
 import { buildAlerts } from './alerts.mjs';
 import { ALERTS } from './alertConfig.mjs';
 import { webCoverage } from './stockCoverage.mjs';
@@ -52,8 +52,8 @@ function baselineRanges(ranges, period) {
 }
 
 // Totals of a range, overall and per channel. Sparklines and baselines need a
-// year of history (~57k sales docs for 12 months): closed ranges are kept for
-// 24 h — a late cancellation shows up a day later in a sparkline, which is fine.
+// year of history (~57k sales docs for 12 months): settled ranges (see
+// summaryPlan) are kept for 24 h — a late cancellation lags a day, which is fine.
 const pick = (t) => ({ revenue: t.revenue, orders: t.orders, avgTicket: t.avgTicket });
 function summarize(docs) {
   return {
@@ -63,12 +63,13 @@ function summarize(docs) {
 }
 const SUMMARY_TTL_MS = 24 * 60 * 60 * 1000;
 const summaryCache = new Map();
-function rangeSummary(r, today) {
-  if (r.end >= today) return querySalesByRange(ALL_CHANNELS, r.start, r.end).then(summarize);
+function rangeSummary(r, now) {
+  const plan = summaryPlan(r, now);
+  if (!plan.cache) return querySalesByRange(ALL_CHANNELS, r.start, r.end).then(summarize);
   const key = `${r.start}|${r.end}`;
   const hit = summaryCache.get(key);
   if (hit && Date.now() - hit.at < SUMMARY_TTL_MS) return hit.promise;
-  const promise = querySalesByRange(ALL_CHANNELS, r.start, r.end).then(summarize);
+  const promise = querySalesByRange(ALL_CHANNELS, r.start, r.end, { fresh: plan.fresh }).then(summarize);
   if (summaryCache.size > 200) summaryCache.delete(summaryCache.keys().next().value);
   summaryCache.set(key, { at: Date.now(), promise });
   promise.catch(() => summaryCache.delete(key));
@@ -111,8 +112,8 @@ export async function buildResumen({ period = 'week', date, start, end }, { now 
   const [curDocs, prevDocs, sparkSummaries, baseSummaries, prevYearDocs, webDocs, productsBySku, indexByMonth, meta, google, behavior, gaDaily, clarity, originBySku] = await Promise.all([
     querySalesByRange(ALL_CHANNELS, current.start, current.end),
     querySalesByRange(ALL_CHANNELS, prevPeriod.start, prevPeriod.end),
-    Promise.all(sparks.map(r => rangeSummary(r, today))),
-    Promise.all(base.map(r => rangeSummary(r, today))),
+    Promise.all(sparks.map(r => rangeSummary(r, now))),
+    Promise.all(base.map(r => rangeSummary(r, now))),
     querySalesByRange(ALL_CHANNELS, prevYear.start, prevYear.end),
     querySalesByRange(['ecommerce'], webWindow.start, webWindow.end),
     getProductsBySku(),
@@ -147,8 +148,9 @@ export async function buildResumen({ period = 'week', date, start, end }, { now 
   });
 
   // A period still running would always look "down" against full ones, so the
-  // comparisons that need a closed period (stores, origin) wait for it to end.
-  const closed = current.end < today;
+  // comparisons that need a closed period (stores, origin) wait until its
+  // last day has synced.
+  const closed = isSettled(current.end, now);
   const origins = closed && originBySku?.size
     ? summarizeOrigins({ prevToDateDocs: prevYearDocs, currentDocs: curDocs, originBySku, factorByRefDate: { get: () => prevYearFactor ?? 1 } })
     : null;

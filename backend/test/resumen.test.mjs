@@ -120,3 +120,15 @@ test('buildKpis: ad spend with ROAS, null ROAS when spend is 0', () => {
   assert.equal(zero.extra.roas, null);
   assert.equal(zero.vsPrev, null);
 });
+
+import { summaryPlan } from '../resumen.mjs';
+
+// Sales sync every 4 h: a day's data is only final ~5 h after it ends (ART).
+test('summaryPlan: a range is cached (and read fresh) only once its last day has settled', () => {
+  const week = { start: '2026-11-02', end: '2026-11-08' };
+  // Sunday 8 Nov ends at 2026-11-09T03:00Z; settled from 08:00Z.
+  assert.deepEqual(summaryPlan(week, new Date('2026-11-09T03:30:00Z')), { cache: false, fresh: false });
+  assert.deepEqual(summaryPlan(week, new Date('2026-11-09T07:59:00Z')), { cache: false, fresh: false });
+  assert.deepEqual(summaryPlan(week, new Date('2026-11-09T08:00:00Z')), { cache: true, fresh: true });
+  assert.deepEqual(summaryPlan(week, new Date('2026-11-20T12:00:00Z')), { cache: true, fresh: true });
+});
