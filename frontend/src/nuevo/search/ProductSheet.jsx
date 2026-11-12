@@ -3,18 +3,8 @@ import { getProductSheet } from '../../api/client.js';
 import { periodParams } from '../urlState.js';
 import { GROUPS } from '../resumen/ChannelsCard.jsx';
 import { money, num } from '../format.js';
+import { stockRows, toStockByLoc } from '../stockLabels.js';
 
-// Odoo locations (stockByLocation keys). Rolón is the central depot: the
-// web and mayorista stock physically sit there.
-const LOCATIONS = [
-  ['deposito', 'Rolón · depósito'],
-  ['mayorista', 'Rolón · mayorista'],
-  ['alcorta_en_rolon', 'Rolón · de Alcorta'],
-  ['ecommerce_odoo', 'Ecommerce (Odoo)'],
-  ['local_lomas', 'Lomas'],
-  ['local_belgrano', 'Belgrano'],
-  ['local_alcorta', 'Alcorta'],
-];
 
 function addDays(iso, n) {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -60,9 +50,8 @@ export default function ProductSheet({ sku, state, onClose }) {
 
   const days = data ? fillDays(data.byDay, data.range) : [];
   const maxDay = Math.max(...days.map(d => d.units), 1);
-  const stock = data?.stockByLocation || {};
-  // Odoo has negative stock in places (unadjusted moves): only real stock shows.
-  const locs = LOCATIONS.filter(([k]) => stock[k] > 0);
+  // Web's own Odoo warehouse is the same boxes as Tiendanube's number: not listed twice.
+  const locs = data ? stockRows(toStockByLoc(data)).filter(r => r.key !== 'web_odoo') : [];
   const totalUnits = data ? data.byChannel.reduce((s, c) => s + c.units, 0) : 0;
   const totalRevenue = data ? data.byChannel.reduce((s, c) => s + c.revenue, 0) : 0;
 
@@ -92,8 +81,8 @@ export default function ProductSheet({ sku, state, onClose }) {
                 <b className={data.webStock > 0 ? '' : 'nv-zero'}>{data.webStock == null ? '—' : num(data.webStock)}</b>
               </div>
               {locs.length === 0 && <p className="nv-empty">Sin stock en depósitos ni locales.</p>}
-              {locs.map(([k, label]) => (
-                <div className="nv-stock-row" key={k}><span>{label}</span><span>{num(stock[k])}</span></div>
+              {locs.map(r => (
+                <div className="nv-stock-row" key={r.key}><span>{r.label}</span><span>{num(r.units)}</span></div>
               ))}
             </section>
 

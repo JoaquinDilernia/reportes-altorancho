@@ -157,6 +157,10 @@ export async function searchProducts(q) {
   return data.results;
 }
 
+export function getProducto({ ch = 'all', ...params }) {
+  return getAuthed(`/api/v2/producto?${periodQuery(params)}&ch=${encodeURIComponent(ch)}`, 'Producto fetch failed');
+}
+
 export function getProductSheet(sku, params) {
   return getAuthed(`/api/v2/product/${encodeURIComponent(sku)}?${periodQuery(params)}`, 'Product fetch failed');
 }

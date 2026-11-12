@@ -55,6 +55,7 @@ export function productSheet({ sku, productsBySku, salesDocs, originBySku }) {
     origin: originBySku?.get(sku) ?? null,
     webStock: p.currentStock ?? null,
     stockByLocation: p.stockByLocation ?? null,
+    stockByLoc: p.stockByLoc ?? null,
     byChannel: [...byChannel.values()],
     byDay: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)),
   };

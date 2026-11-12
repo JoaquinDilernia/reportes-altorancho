@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { TABS, parseUrlState, serializeUrlState, periodParams } from './urlState.js';
 
 const TODAY = '2026-11-12';
-const DEFAULT = { tab: 'resumen', period: 'week', date: TODAY, start: null, end: null, sku: null };
+const DEFAULT = { tab: 'resumen', period: 'week', date: TODAY, start: null, end: null, sku: null, ch: 'all' };
 
 describe('urlState', () => {
   it('lists the tabs, without feria', () => {
@@ -15,7 +15,7 @@ describe('urlState', () => {
 
   it('reads tab, period and date', () => {
     expect(parseUrlState('?v=nuevo&tab=producto&period=month&date=2026-10-01', TODAY))
-      .toEqual({ tab: 'producto', period: 'month', date: '2026-10-01', start: null, end: null, sku: null });
+      .toEqual({ tab: 'producto', period: 'month', date: '2026-10-01', start: null, end: null, sku: null, ch: 'all' });
   });
 
   it('falls back to defaults on junk', () => {
@@ -30,14 +30,14 @@ describe('urlState', () => {
   });
 
   it('round-trips a custom range', () => {
-    const s = { tab: 'web', period: 'custom', date: TODAY, start: '2026-10-01', end: '2026-10-15', sku: null };
+    const s = { tab: 'web', period: 'custom', date: TODAY, start: '2026-10-01', end: '2026-10-15', sku: null, ch: 'all' };
     const qs = serializeUrlState(s);
     expect(qs.startsWith('?v=nuevo')).toBe(true);
     expect(parseUrlState(qs, TODAY)).toEqual(s);
   });
 
   it('round-trips a month', () => {
-    const s = { tab: 'locales', period: 'month', date: '2026-10-01', start: null, end: null, sku: 'MSI018VE' };
+    const s = { tab: 'locales', period: 'month', date: '2026-10-01', start: null, end: null, sku: 'MSI018VE', ch: 'mayorista' };
     expect(parseUrlState(serializeUrlState(s), TODAY)).toEqual(s);
   });
 
@@ -51,5 +51,18 @@ describe('urlState', () => {
     expect(parseUrlState('?v=nuevo&sku=MSI018VE', TODAY).sku).toBe('MSI018VE');
     expect(parseUrlState('?v=nuevo&sku=%3Cscript%3E', TODAY).sku).toBe(null);
     expect(serializeUrlState({ ...DEFAULT, sku: null })).not.toContain('sku');
+  });
+
+  it('reads the Producto channel filter; junk falls back to all', () => {
+    expect(parseUrlState('?v=nuevo&tab=producto&ch=web', TODAY).ch).toBe('web');
+    expect(parseUrlState('?v=nuevo&tab=producto&ch=locales', TODAY).ch).toBe('locales');
+    expect(parseUrlState('?v=nuevo&ch=xx', TODAY).ch).toBe('all');
+  });
+
+  it('serializes ch only when it is not all', () => {
+    expect(serializeUrlState({ ...DEFAULT, tab: 'producto', ch: 'web' })).toContain('ch=web');
+    expect(serializeUrlState({ ...DEFAULT, tab: 'producto' })).not.toContain('ch=');
+    const s = { ...DEFAULT, tab: 'producto', ch: 'locales' };
+    expect(parseUrlState(serializeUrlState(s), TODAY)).toEqual(s);
   });
 });

@@ -4,7 +4,7 @@ import { searchProducts, productSheet } from '../productLookup.mjs';
 
 const products = new Map([
   ['MSI018RV', { sku: 'MSI018RV', name: 'Silla Chicago Roble', category: 'Sillas', currentStock: 4, stockByLocation: { deposito: 10 } }],
-  ['MSI018VE', { sku: 'MSI018VE', name: 'Silla Chicago Verde', category: 'Sillas', currentStock: 0, stockByLocation: { local_lomas: 1 } }],
+  ['MSI018VE', { sku: 'MSI018VE', name: 'Silla Chicago Verde', category: 'Sillas', currentStock: 0, stockByLocation: { local_lomas: 1 }, stockByLoc: { lomas_exhibicion: 1 } }],
   ['MSI020NE', { sku: 'MSI020NE', name: 'Silla Tube Negra', category: 'Sillas', currentStock: 2 }],
   ['ILU005BL', { sku: 'ILU005BL', name: 'Lámpara Inalámbrica Bola', category: 'Iluminación', currentStock: 7 }],
   ['GFT001AR', { sku: 'GFT001AR', name: 'GIFT CARD', category: 'Gift card', currentStock: 100000000 }],
@@ -47,6 +47,7 @@ test('productSheet: channels grouped (feria in mayorista), Argentine days, only 
   assert.equal(s.name, 'Silla Chicago Verde');
   assert.equal(s.webStock, 0);
   assert.deepEqual(s.stockByLocation, { local_lomas: 1 });
+  assert.deepEqual(s.stockByLoc, { lomas_exhibicion: 1 });
   assert.deepEqual(s.origin, { clase: 'Importado', pais: 'China' });
   const by = Object.fromEntries(s.byChannel.map(c => [c.id, c]));
   assert.deepEqual(by.web, { id: 'web', units: 2, revenue: 200 });

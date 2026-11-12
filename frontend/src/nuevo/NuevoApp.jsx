@@ -8,6 +8,7 @@ import TopBar from './TopBar.jsx';
 import PeriodBar from './PeriodBar.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import Resumen from './resumen/Resumen.jsx';
+import Producto from './producto/Producto.jsx';
 import ProductSearch from './search/ProductSearch.jsx';
 import ProductSheet from './search/ProductSheet.jsx';
 import './nuevo.css';
@@ -29,9 +30,10 @@ function addDays(iso, n) {
 }
 
 // Tab content. Tabs not built yet say so and link to the current report.
-function TabContent({ state, onLogout, onNavigate }) {
+function TabContent({ state, onLogout, onNavigate, onUpdate }) {
   switch (state.tab) {
     case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
+    case 'producto': return <Producto state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'cyber': return <EventLive onLogout={onLogout} />;
     default: return <ComingSoon tabLabel={TAB_LABELS[state.tab]} />;
   }
@@ -87,7 +89,7 @@ export default function NuevoApp({ onLogout }) {
       <main className="nv-wrap">
         {!isCyber && <PeriodBar state={state} today={today} onChange={(patch) => update(patch)} />}
         {!isCyber && <div className="nv-ai"><InsightsButton {...aiProps} /></div>}
-        <TabContent state={state} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} />
+        <TabContent state={state} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} onUpdate={update} />
       </main>
       {!isCyber && <ChatWidget {...aiProps} />}
       {state.sku && <ProductSheet sku={state.sku} state={state} onClose={() => update({ sku: null }, { push: true })} />}
