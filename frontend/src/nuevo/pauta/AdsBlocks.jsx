@@ -9,9 +9,10 @@ const BLOCKS = [
 const roasText = (v) => (v == null ? '—' : `${v.toLocaleString('es-AR', { maximumFractionDigits: 2 })}x`);
 const ddmm = (iso) => iso.split('-').reverse().slice(0, 2).join('/');
 
-function Pills({ vsPrev, vsYear, period, yearLabel, kind, invert = false }) {
-  // For costs a rise is bad: flip the tone.
-  const tone = (v) => toneOf(v == null ? v : invert ? -v : v);
+// tone: 'up' = a rise is good, 'down' = a rise is bad (costs), 'none' =
+// neither (spending more is a decision, not good or bad news).
+function Pills({ vsPrev, vsYear, period, yearLabel, kind, sense = 'up' }) {
+  const tone = (v) => (sense === 'none' ? 'nt' : toneOf(v == null ? v : sense === 'down' ? -v : v));
   return (
     <span className="nv-pills">
       <span className={`nv-pill ${tone(vsPrev)}`}>{pct(vsPrev, { sign: true })} {PREV_LABEL[period]}</span>
@@ -25,20 +26,20 @@ function Pills({ vsPrev, vsYear, period, yearLabel, kind, invert = false }) {
 function Block({ id, label, color, b, period, yearLabel }) {
   const kind = b.yearAdjusted ? 'ajust.' : 'nominal';
   const lines = [
-    ['Valor atribuido', money(b.value), 'value', kind, false],
-    ['ROAS', roasText(b.roas), 'roas', '', false],
-    ['Costo por compra', money(b.costPerPurchase), 'costPerPurchase', kind, true],
+    ['Valor atribuido', money(b.value), 'value', kind, 'up'],
+    ['ROAS', roasText(b.roas), 'roas', '', 'up'],
+    ['Costo por compra', money(b.costPerPurchase), 'costPerPurchase', kind, 'down'],
   ];
   return (
     <div className={`nv-card nv-loc${id === 'total' ? ' nv-loc-total' : ''}`} style={{ borderTopColor: color }}>
       <div className="nv-loc-head"><span className="nv-lbl">{label}</span><span className="nv-mute">inversión</span></div>
       <div className="nv-big">{money(b.spend)}</div>
-      <Pills vsPrev={b.vsPrev.spend} vsYear={b.vsYear.spend} period={period} yearLabel={yearLabel} kind={kind} invert />
+      <Pills vsPrev={b.vsPrev.spend} vsYear={b.vsYear.spend} period={period} yearLabel={yearLabel} kind={kind} sense="none" />
       <dl className="nv-loc-lines">
-        {lines.map(([l, v, key, k, inv]) => (
+        {lines.map(([l, v, key, k, sense]) => (
           <div key={key}>
             <dt>{l} <b>{v}</b></dt>
-            <dd><Pills vsPrev={b.vsPrev[key]} vsYear={b.vsYear[key]} period={period} yearLabel={yearLabel} kind={k} invert={inv} /></dd>
+            <dd><Pills vsPrev={b.vsPrev[key]} vsYear={b.vsYear[key]} period={period} yearLabel={yearLabel} kind={k} sense={sense} /></dd>
           </div>
         ))}
         {id === 'google' && (
