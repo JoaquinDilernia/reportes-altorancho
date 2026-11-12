@@ -6,11 +6,12 @@ import ChatWidget from '../components/ChatWidget.jsx';
 import { parseUrlState, serializeUrlState } from './urlState.js';
 import TopBar from './TopBar.jsx';
 import PeriodBar from './PeriodBar.jsx';
-import ComingSoon from './ComingSoon.jsx';
 import Resumen from './resumen/Resumen.jsx';
 import Producto from './producto/Producto.jsx';
 import Web from './web/Web.jsx';
 import Locales from './locales/Locales.jsx';
+import Pauta from './pauta/Pauta.jsx';
+import Mayorista from './mayorista/Mayorista.jsx';
 import ProductSearch from './search/ProductSearch.jsx';
 import ProductSheet from './search/ProductSheet.jsx';
 import './nuevo.css';
@@ -31,15 +32,17 @@ function addDays(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 
-// Tab content. Tabs not built yet say so and link to the current report.
+// Tab content.
 function TabContent({ state, onLogout, onNavigate, onUpdate }) {
   switch (state.tab) {
     case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
     case 'web': return <Web state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'locales': return <Locales state={state} onUpdate={onUpdate} onLogout={onLogout} />;
+    case 'pauta': return <Pauta state={state} onLogout={onLogout} />;
+    case 'mayorista': return <Mayorista state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'producto': return <Producto state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'cyber': return <EventLive onLogout={onLogout} />;
-    default: return <ComingSoon tabLabel={TAB_LABELS[state.tab]} />;
+    default: return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
   }
 }
 

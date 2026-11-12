@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { chatInsights } from '../api/client.js';
 import FormattedText from './FormattedText.jsx';
 
-// Rendered once at the top level (Dashboard), not per-tab — its state
+// Rendered once at the top level (NuevoApp), not per-tab — its state
 // (messages, open/closed) must survive switching between Consolidado/
 // Ecommerce/Meta Ads/etc. Always analyzes whatever period/channel is
 // currently selected, resolved fresh on every send.

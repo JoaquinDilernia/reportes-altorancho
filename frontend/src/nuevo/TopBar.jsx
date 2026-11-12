@@ -19,7 +19,6 @@ export default function TopBar({ tab, showCyber, onTab, onLogout, search = null 
       </nav>
       <div className="nv-search-slot">{search}</div>
       <div className="nv-top-links">
-        <a href="?v=actual">Reporte anterior</a>
         <button type="button" onClick={onLogout}>Salir</button>
       </div>
     </header>

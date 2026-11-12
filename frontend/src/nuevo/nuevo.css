@@ -321,3 +321,14 @@
   .nv-payrow { grid-template-columns: minmax(0, 110px) 1fr 70px; }
   .nv-payrow > :nth-child(4) { display: none; }
 }
+
+/* Pauta + Mayorista tabs */
+.nv-locs.nv-ads3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.nv-adcell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nv-adthumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: var(--nv-soft); flex: none; display: inline-block; }
+.nv-adtext { min-width: 0; display: flex; flex-direction: column; }
+.nv-adtext .nv-block { max-width: 300px; }
+.nv-subh { margin-top: 18px; }
+.nv-kpinote { font-size: 11px; margin-top: 6px; }
+@media (max-width: 1000px) { .nv-locs.nv-ads3 { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .nv-adtext .nv-block { max-width: 170px; } }
