@@ -3,6 +3,7 @@ import { getEventBehavior } from '../../api/client.js';
 import { compactMoney, pctChange } from '../../lib/eventLive.js';
 import { formatNumber } from '../../lib/format.js';
 import Delta from './Delta.jsx';
+import ClarityPanel from './ClarityPanel.jsx';
 import { shortDate } from './shared.js';
 
 // Web behaviour from GA4 (own endpoint, refreshed every 30 min): funnel,
@@ -379,6 +380,8 @@ export default function WebBehavior({ eventId, onLogout }) {
           <Regions b={b} />
         </div>
       </div>
+
+      <ClarityPanel onLogout={onLogout} />
     </>
   );
 }

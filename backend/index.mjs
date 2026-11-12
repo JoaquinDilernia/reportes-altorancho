@@ -8,6 +8,7 @@ import { getProductBySku, getProductsBySku } from './firestore.mjs';
 import { buildFullReport } from './report.mjs';
 import { getEventReport } from './eventReport.mjs';
 import { getBehaviorReport } from './eventBehavior.mjs';
+import { getClarityReport } from './clarity.mjs';
 import { EVENTS, liveSyncEvent, argDay } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
@@ -92,6 +93,16 @@ app.get('/api/event/behavior', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getBehaviorReport(eventId)) });
   } catch (err) {
     console.error('[server] event behavior error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Clarity behaviour signals (rage/dead clicks, scroll) for the last 24 h.
+app.get('/api/clarity', requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await getClarityReport()) });
+  } catch (err) {
+    console.error('[server] clarity error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

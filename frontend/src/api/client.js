@@ -84,6 +84,19 @@ export async function chatInsights({ messages, ...params }) {
   return data.text;
 }
 
+export async function getClarity() {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+  const res = await fetch(`${API_URL}/api/clarity`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Clarity fetch failed');
+  return data;
+}
+
 export async function getEventBehavior(event) {
   const token = getToken();
   if (!token) throw new Error('Not authenticated');
