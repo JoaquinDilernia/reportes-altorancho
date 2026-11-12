@@ -8,9 +8,9 @@
 export const ROLON_KEYS = ['deposito', 'mayorista', 'alcorta_en_rolon'];
 export const LOCAL_KEYS = ['local_lomas', 'local_belgrano', 'local_alcorta'];
 
-export function isJunkSku(sku, name) {
-  return /^GFT/i.test(sku ?? '') || /env[ií]o/i.test(sku ?? '') || /env[ií]o/i.test(name ?? '');
-}
+import { isJunkSku } from './stockLocations.mjs';
+
+export { isJunkSku };
 
 const GROUP_ORDER = { rolon: 0, local: 1, none: 2 };
 

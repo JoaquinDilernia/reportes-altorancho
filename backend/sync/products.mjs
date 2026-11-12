@@ -3,6 +3,7 @@ import { authenticate, fetchAll } from '../odoo.mjs';
 import { primaryTiendanubeCategory, leafOdooCategoryName } from '../categories.mjs';
 import { extractSkuFromDisplayName } from '../normalize.mjs';
 import { saveProducts } from '../firestore.mjs';
+import { STOCK_LOCATIONS, stockByLocFromQuants } from '../stockLocations.mjs';
 
 // Odoo stock.location ids for the warehouses we care about (verified live
 // against stock.warehouse — the other warehouses in this Odoo instance
@@ -19,12 +20,17 @@ const LOCATION_CHANNELS = {
   174: 'deposito',        // RL/Stock — Rolón Local, the central warehouse.
 };
 
+// One stock.quant read feeds both the old stockByLocation (still used by the
+// previous report) and the new stockByLoc (all physical locations, clean).
 async function fetchStockByLocation() {
-  const quants = await fetchAll(
+  const ids = [...new Set([...Object.keys(LOCATION_CHANNELS), ...Object.keys(STOCK_LOCATIONS)].map(Number))];
+  const allQuants = await fetchAll(
     'stock.quant',
-    [['location_id', 'in', Object.keys(LOCATION_CHANNELS).map(Number)], ['quantity', '>', 0]],
+    [['location_id', 'in', ids], ['quantity', '>', 0]],
     ['product_id', 'location_id', 'quantity'],
   );
+  const stockByLoc = stockByLocFromQuants(allQuants);
+  const quants = allQuants.filter(q => LOCATION_CHANNELS[q.location_id[0]]);
 
   const bySku = new Map();
   for (const q of quants) {
@@ -34,7 +40,7 @@ async function fetchStockByLocation() {
     const entry = bySku.get(sku);
     entry[channel] = (entry[channel] || 0) + q.quantity;
   }
-  return bySku;
+  return { bySku, stockByLoc };
 }
 
 export async function syncProducts() {
@@ -84,9 +90,10 @@ export async function syncProducts() {
     for (const m of modelos) modeloNameById.set(m.id, m.name);
   }
 
-  const stockByLocationBySku = await fetchStockByLocation();
+  const { bySku: stockByLocationBySku, stockByLoc } = await fetchStockByLocation();
   for (const doc of productDocs) {
     doc.stockByLocation = stockByLocationBySku.get(doc.sku) || null;
+    doc.stockByLoc = stockByLoc.get(doc.sku) || null;
     const odooProduct = odooBySku.get(doc.sku);
     doc.odooTemplateId = odooProduct?.id ?? null;
     doc.odooCategPath = odooProduct?.categ_id?.[1] ?? null;
