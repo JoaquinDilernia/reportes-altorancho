@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { TABS, parseUrlState, serializeUrlState, periodParams } from './urlState.js';
 
 const TODAY = '2026-11-12';
-const DEFAULT = { tab: 'resumen', period: 'week', date: TODAY, start: null, end: null, sku: null, ch: 'all' };
+const DEFAULT = { tab: 'resumen', period: 'week', date: TODAY, start: null, end: null, sku: null, ch: 'all', loc: 'lomas' };
 
 describe('urlState', () => {
   it('lists the tabs, without feria', () => {
@@ -15,7 +15,7 @@ describe('urlState', () => {
 
   it('reads tab, period and date', () => {
     expect(parseUrlState('?v=nuevo&tab=producto&period=month&date=2026-10-01', TODAY))
-      .toEqual({ tab: 'producto', period: 'month', date: '2026-10-01', start: null, end: null, sku: null, ch: 'all' });
+      .toEqual({ tab: 'producto', period: 'month', date: '2026-10-01', start: null, end: null, sku: null, ch: 'all', loc: 'lomas' });
   });
 
   it('falls back to defaults on junk', () => {
@@ -30,14 +30,14 @@ describe('urlState', () => {
   });
 
   it('round-trips a custom range', () => {
-    const s = { tab: 'web', period: 'custom', date: TODAY, start: '2026-10-01', end: '2026-10-15', sku: null, ch: 'all' };
+    const s = { tab: 'web', period: 'custom', date: TODAY, start: '2026-10-01', end: '2026-10-15', sku: null, ch: 'all', loc: 'lomas' };
     const qs = serializeUrlState(s);
     expect(qs.startsWith('?v=nuevo')).toBe(true);
     expect(parseUrlState(qs, TODAY)).toEqual(s);
   });
 
   it('round-trips a month', () => {
-    const s = { tab: 'locales', period: 'month', date: '2026-10-01', start: null, end: null, sku: 'MSI018VE', ch: 'mayorista' };
+    const s = { tab: 'locales', period: 'month', date: '2026-10-01', start: null, end: null, sku: 'MSI018VE', ch: 'mayorista', loc: 'alcorta' };
     expect(parseUrlState(serializeUrlState(s), TODAY)).toEqual(s);
   });
 
@@ -64,5 +64,20 @@ describe('urlState', () => {
     expect(serializeUrlState({ ...DEFAULT, tab: 'producto' })).not.toContain('ch=');
     const s = { ...DEFAULT, tab: 'producto', ch: 'locales' };
     expect(parseUrlState(serializeUrlState(s), TODAY)).toEqual(s);
+  });
+
+  it('loc defaults to lomas and stays out of the URL', () => {
+    expect(parseUrlState('?v=nuevo&tab=locales', TODAY).loc).toBe('lomas');
+    expect(serializeUrlState({ ...DEFAULT, tab: 'locales' })).not.toContain('loc=');
+  });
+
+  it('loc=belgrano round-trips', () => {
+    const url = serializeUrlState({ ...DEFAULT, tab: 'locales', loc: 'belgrano' });
+    expect(url).toContain('loc=belgrano');
+    expect(parseUrlState(url, TODAY).loc).toBe('belgrano');
+  });
+
+  it('unknown loc falls back to lomas', () => {
+    expect(parseUrlState('?v=nuevo&tab=locales&loc=xx', TODAY).loc).toBe('lomas');
   });
 });

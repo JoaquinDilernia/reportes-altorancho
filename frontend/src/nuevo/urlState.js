@@ -4,6 +4,8 @@ export const TABS = ['resumen', 'web', 'locales', 'producto', 'pauta', 'mayorist
 const PERIODS = ['week', 'month', 'custom'];
 // Producto tab channel filter (?ch=…); 'all' is the default and stays out of the URL.
 export const PRODUCT_CHANNELS = ['all', 'web', 'locales', 'mayorista'];
+// Locales tab store (?loc=…); lomas is the default and stays out of the URL.
+export const LOCAL_IDS = ['lomas', 'belgrano', 'alcorta'];
 // An open product sheet (?sku=…). SKUs are letters, digits, . _ -
 const SKU_RE = /^[A-Za-z0-9._-]{1,40}$/;
 
@@ -33,15 +35,17 @@ export function parseUrlState(search, today) {
   const tab = TABS.includes(q.get('tab')) ? q.get('tab') : 'resumen';
   const sku = SKU_RE.test(q.get('sku') || '') ? q.get('sku') : null;
   const ch = PRODUCT_CHANNELS.includes(q.get('ch')) ? q.get('ch') : 'all';
-  return { tab, ...parsePeriod(q, today), sku, ch };
+  const loc = LOCAL_IDS.includes(q.get('loc')) ? q.get('loc') : 'lomas';
+  return { tab, ...parsePeriod(q, today), sku, ch, loc };
 }
 
-export function serializeUrlState({ tab, period, date, start, end, sku, ch }) {
+export function serializeUrlState({ tab, period, date, start, end, sku, ch, loc }) {
   const q = new URLSearchParams({ v: 'nuevo' });
   if (tab && tab !== 'resumen') q.set('tab', tab);
   q.set('period', period);
   if (period === 'custom') { q.set('start', start); q.set('end', end); } else q.set('date', date);
   if (ch && ch !== 'all') q.set('ch', ch);
+  if (loc && loc !== 'lomas') q.set('loc', loc);
   if (sku) q.set('sku', sku);
   return `?${q.toString()}`;
 }
