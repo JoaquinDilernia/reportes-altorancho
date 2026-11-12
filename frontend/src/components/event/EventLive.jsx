@@ -19,6 +19,7 @@ import ProductsTable from './ProductsTable.jsx';
 import Delta from './Delta.jsx';
 import EventDetails from './EventDetails.jsx';
 import WebBehavior from './WebBehavior.jsx';
+import OriginsTable from './OriginsTable.jsx';
 import '../../styles/event.css';
 
 const POLL_MS = 2 * 60 * 1000;
@@ -415,6 +416,19 @@ export default function EventLive({ onLogout }) {
                 <ProductsTable
                   key={view}
                   products={data.live?.topProductsByView?.[view] ?? data.live?.topProducts}
+                  prevYear={data.previous.year}
+                  year={data.current.year}
+                />
+
+                <h2 className="ev-sec">
+                  Por origen del producto
+                  <small>
+                    fábrica · proveedor nacional · importado · {data.current.year} contra {data.label} {data.previous.year}
+                    {phase === 'live' ? ' a esta hora' : ', mismos días'} · {data.previous.year} ajustado por inflación · {VIEW_TEXT[view]}
+                  </small>
+                </h2>
+                <OriginsTable
+                  origins={data.live?.originsByView?.[view]}
                   prevYear={data.previous.year}
                   year={data.current.year}
                 />

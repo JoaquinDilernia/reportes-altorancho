@@ -10,6 +10,8 @@ import {
   hourlyShareCurve, expectedShare, dayStatusSoFar, projectClose, recentSales, argHour,
 } from './events.mjs';
 import { summarizeCategories, compareTopProducts } from './eventCategories.mjs';
+import { summarizeOrigins } from './eventOrigins.mjs';
+import { getOriginBySku } from './productOrigin.mjs';
 
 // Minutes since midnight, Argentina time.
 function argMinuteOfDay(iso) {
@@ -176,7 +178,7 @@ function todayShareFor(curve, current, today, nowIso) {
 
 // Live block: pace of today against the typical hourly curve, projected
 // close, recent orders and per-category progress.
-export function buildLive({ event, result, currentSales, prevSales, productsBySku, indexByMonth, today, ecommerceMeta, nowIso = new Date().toISOString() }) {
+export function buildLive({ event, result, currentSales, prevSales, productsBySku, originBySku = new Map(), indexByMonth, today, ecommerceMeta, nowIso = new Date().toISOString() }) {
   const { current, previous } = event;
   const inPrevWindow = (s) => {
     const d = argDay(s.date);
@@ -224,6 +226,7 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
   const views = { total: ALL_EVENT_CHANNELS, ...EVENT_GROUPS };
   const categoriesByView = {};
   const topProductsByView = {};
+  const originsByView = {};
   for (const [view, channels] of Object.entries(views)) {
     const inView = (s) => channels.includes(s.channel);
     const prevToDate = prevToDateDocs.filter(inView);
@@ -237,6 +240,7 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     });
     // The table shows 15 and unfolds the rest with "Ver más".
     topProductsByView[view] = compareTopProducts({ prevToDateDocs: prevToDate, currentDocs, productsBySku, factorByRefDate, limit: 60 });
+    originsByView[view] = originBySku.size ? summarizeOrigins({ prevToDateDocs: prevToDate, currentDocs, originBySku, factorByRefDate }) : null;
   }
 
   return {
@@ -253,6 +257,7 @@ export function buildLive({ event, result, currentSales, prevSales, productsBySk
     topProducts: topProductsByView.total,
     categoriesByView,
     topProductsByView,
+    originsByView,
     curves,
   };
 }
@@ -335,7 +340,8 @@ export async function buildEventReport(eventId) {
     };
   }
 
-  const { curves, ...live } = buildLive({ event, result, currentSales, prevSales, productsBySku, indexByMonth, today, ecommerceMeta });
+  const originBySku = await getOriginBySku();
+  const { curves, ...live } = buildLive({ event, result, currentSales, prevSales, productsBySku, originBySku, indexByMonth, today, ecommerceMeta });
 
   return {
     event: eventId,
