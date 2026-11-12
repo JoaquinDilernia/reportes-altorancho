@@ -7,6 +7,7 @@ import { requireAuth, generateToken } from './auth.mjs';
 import { getProductBySku, getProductsBySku, querySalesByRange } from './firestore.mjs';
 import { buildFullReport, ALL_CHANNELS } from './report.mjs';
 import { getResumen } from './resumenReport.mjs';
+import { getProducto } from './productoReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
 import { getPeriodRanges } from './periods.mjs';
@@ -120,6 +121,17 @@ app.get('/api/v2/resumen', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getResumen(params)) });
   } catch (err) {
     console.error('[server] v2 resumen error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v2/producto', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getProducto({ ...params, ch: String(req.query.ch || 'all') })) });
+  } catch (err) {
+    console.error('[server] v2 producto error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
