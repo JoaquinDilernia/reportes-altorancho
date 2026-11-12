@@ -95,6 +95,21 @@ function compareBy(rows, dim, { sortBy = 'sessions' } = {}) {
   return [...map.values()].sort((a, b) => (b.cur?.[sortBy] || 0) - (a.cur?.[sortBy] || 0));
 }
 
+// GA4 lumps Performance Max and Demand Gen into one "Cross-network" channel,
+// but they behave nothing alike (Nov 2026: PMax 0.33% conversion, Demand Gen
+// 0 purchases in 181k sessions), so that row is replaced by one per Google
+// Ads campaign type. Without the breakdown the row stays as it was.
+const CROSS_TYPE_LABELS = { 'Demand Gen': 'Google Demand Gen', 'Performance Max': 'Google PMax' };
+export function splitCrossNetwork(channelRows, crossRows) {
+  if (!crossRows) return channelRows;
+  return [
+    ...channelRows.filter(r => r.sessionDefaultChannelGroup !== 'Cross-network'),
+    ...crossRows.map(({ sessionGoogleAdsCampaignType: type, ...r }) => ({
+      ...r, sessionDefaultChannelGroup: CROSS_TYPE_LABELS[type] ?? 'Google cross-network (otro)',
+    })),
+  ];
+}
+
 function itemsSummary(itemRows, byName) {
   const blank = () => ({ views: 0, carts: 0, purchases: 0, revenue: 0, prevViews: 0, prevCarts: 0, prevPurchases: 0 });
   const cats = new Map(EVENT_CATEGORIES.map(c => [c.id, { ...c, ...blank() }]));
@@ -188,7 +203,7 @@ export function shapeBehavior({ ranges, raw, productsBySku }) {
     ranges,
     totals,
     funnel: { cur: funnelOf(byRange(raw.funnel, 'cur')), prev: funnelOf(byRange(raw.funnel, 'prev')) },
-    channels: compareBy(raw.channels, 'sessionDefaultChannelGroup'),
+    channels: compareBy(splitCrossNetwork(raw.channels, raw.crossNetwork), 'sessionDefaultChannelGroup'),
     devices: compareBy(raw.devices, 'deviceCategory'),
     visitors: compareBy(raw.visitors, 'newVsReturning').filter(v => v.key === 'new' || v.key === 'returning'),
     items: itemsSummary(raw.items, byName),
@@ -220,6 +235,10 @@ async function fetchRaw(ranges) {
       dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: FUNNEL_STEPS.map(s => s.id) } } },
     },
     channels: { dateRanges: both, dimensions: [{ name: 'sessionDefaultChannelGroup' }], metrics: salesMetrics, limit: 50 },
+    crossNetwork: {
+      dateRanges: both, dimensions: [{ name: 'sessionGoogleAdsCampaignType' }], metrics: salesMetrics, limit: 20,
+      dimensionFilter: { filter: { fieldName: 'sessionDefaultChannelGroup', stringFilter: { value: 'Cross-network' } } },
+    },
     devices: { dateRanges: both, dimensions: [{ name: 'deviceCategory' }], metrics: salesMetrics },
     visitors: { dateRanges: both, dimensions: [{ name: 'newVsReturning' }], metrics: salesMetrics },
     items: {
