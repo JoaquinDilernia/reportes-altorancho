@@ -119,5 +119,6 @@ const DAY_MS = 86400000;
 export function prevYearToDate({ current, prevYear }, today) {
   if (today >= current.end) return { start: prevYear.start, end: prevYear.end, partial: false };
   const elapsed = Math.max(0, Math.round((Date.parse(today) - Date.parse(current.start)) / DAY_MS));
-  return { start: prevYear.start, end: addDays(prevYear.start, elapsed), partial: true };
+  const cut = addDays(prevYear.start, elapsed);
+  return { start: prevYear.start, end: cut < prevYear.end ? cut : prevYear.end, partial: true };
 }

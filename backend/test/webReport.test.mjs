@@ -33,3 +33,14 @@ test('webPlan: closed week → previous week whole (same GA4 cache key as the Re
   assert.deepEqual(p.prevPeriodRange, { ...ranges.prevPeriod, partial: false });
   assert.deepEqual(p.gaRanges.prev, ranges.prevPeriod);
 });
+
+test('webPlan: late March never reaches into March for "mes ant."', () => {
+  const march = {
+    current: { start: '2026-03-01', end: '2026-03-31' },
+    prevPeriod: { start: '2026-02-01', end: '2026-02-28' },
+    prevYear: { start: '2025-03-01', end: '2025-03-31' },
+  };
+  const p = webPlan(march, '2026-03-30');
+  assert.equal(p.prevPeriodRange.end, '2026-02-28');
+  assert.equal(p.gaRanges.prev.end, '2026-02-28');
+});

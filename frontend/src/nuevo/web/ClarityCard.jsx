@@ -37,7 +37,7 @@ export default function ClarityCard({ clarity }) {
       <div className="nv-titlebar">
         <div className="nv-h">
           <h2>Experiencia (Clarity)</h2>
-          <span>{has ? `${clarity.days} de ${clarity.totalDays} días con datos · ${num(clarity.totals.sessions)} sesiones` : 'cómo usan el sitio'}</span>
+          <span>{has ? `${clarity.days} de ${clarity.totalDays} días con datos${clarity.running ? ' (hasta ayer)' : ''} · ${num(clarity.totals.sessions)} sesiones` : 'cómo usan el sitio'}</span>
         </div>
         <a className="nv-link nv-ext" href={CLARITY_URL} target="_blank" rel="noopener noreferrer">Ver mapas de calor en Clarity ↗</a>
       </div>

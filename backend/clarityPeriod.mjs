@@ -43,11 +43,16 @@ export function mergeClarityPages(snapshots) {
     .sort((a, b) => b.sessions - a.sessions);
 }
 
-export function clarityForPeriod(snapshots, range) {
-  const totalDays = dayCount(range);
-  const days = (snapshots || []).filter(s => s?.totals && s.date >= range.start && s.date <= range.end)
+// A running period (today inside it) only counts the days already closed:
+// today's snapshot is taken after midnight.
+export function clarityForPeriod(snapshots, range, { today } = {}) {
+  const running = !!today && today <= range.end;
+  const lastDay = running ? addDays(today, -1) : range.end;
+  const totalDays = lastDay < range.start ? 0 : dayCount({ start: range.start, end: lastDay });
+  const flag = running ? { running: true } : {};
+  const days = (snapshots || []).filter(s => s?.totals && s.date >= range.start && s.date <= lastDay)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!days.length) return { days: 0, totalDays };
+  if (!days.length) return { days: 0, totalDays, ...flag };
 
   let sessions = 0;
   let users = 0;
@@ -72,6 +77,7 @@ export function clarityForPeriod(snapshots, range) {
   return {
     days: days.length,
     totalDays,
+    ...flag,
     dates: days.map(s => s.date),
     totals: {
       sessions,

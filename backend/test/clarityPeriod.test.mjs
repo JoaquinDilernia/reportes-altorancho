@@ -55,3 +55,11 @@ test('clarityForPeriod: a signal null every day stays null; small pages not list
   assert.equal(c.totals.signals.excessiveScroll, null);
   assert.deepEqual(c.pages.map(p => p.path), ['/']);
 });
+
+test('clarityForPeriod: a running period only counts days already closed', () => {
+  const c = clarityForPeriod([snap('2026-11-10', { sessions: 100, scroll: 40, rage: sig(1, 3) })], RANGE, { today: '2026-11-12' });
+  assert.equal(c.totalDays, 3); // 9, 10, 11 — today's snapshot is taken tomorrow
+  assert.equal(c.running, true);
+  assert.deepEqual(clarityForPeriod([], RANGE, { today: '2026-11-09' }), { days: 0, totalDays: 0, running: true });
+  assert.equal(clarityForPeriod([], RANGE, { today: '2026-11-20' }).totalDays, 7);
+});

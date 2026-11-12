@@ -60,7 +60,7 @@ export async function buildWeb({ period = 'week', date, start, end }, { now = ne
     }),
     behavior,
     behaviorError: behavior ? null : behaviorError,
-    clarity: clarityForPeriod(snapshots, current),
+    clarity: clarityForPeriod(snapshots, current, { today }),
     generatedAt: now.toISOString(),
   };
 }
