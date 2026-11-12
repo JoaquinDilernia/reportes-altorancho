@@ -16,10 +16,12 @@ export async function syncFeria(categoryBySku, sinceOverride) {
   await authenticate();
 
   const meta = await getSyncMetadata('feria');
-  const since = sinceOverride || meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') || '2000-01-01 00:00:00';
+  // Docs synced before the sales team was stored need one full re-sync.
+  const backfill = !meta?.teamsBackfilled;
+  const since = sinceOverride || (backfill ? null : meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ')) || '2000-01-01 00:00:00';
 
   const domain = [['team_id', 'in', FERIA_TEAM_IDS], ['write_date', '>=', since]];
-  const orders = await fetchAll('sale.order', domain, ['id', 'date_order', 'amount_total', 'state', 'order_line']);
+  const orders = await fetchAll('sale.order', domain, ['id', 'date_order', 'amount_total', 'state', 'order_line', 'team_id']);
 
   const allLineIds = orders.flatMap(o => o.order_line);
   const linesByOrderId = new Map();
@@ -39,11 +41,11 @@ export async function syncFeria(categoryBySku, sinceOverride) {
     order,
     linesByOrderId.get(order.id) || [],
     categoryBySku,
-    { channel: 'feria' },
+    { channel: 'feria', team: true },
   ));
 
   await saveSalesDocs(docs);
-  await setSyncMetadata('feria', { lastSyncedAt: new Date().toISOString(), count: docs.length });
+  await setSyncMetadata('feria', { lastSyncedAt: new Date().toISOString(), count: docs.length, teamsBackfilled: true });
 
   console.log(`[sync:feria] ${docs.length} órdenes sincronizadas`);
   return { count: docs.length };

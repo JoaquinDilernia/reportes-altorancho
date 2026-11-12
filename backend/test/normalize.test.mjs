@@ -226,3 +226,17 @@ test('parseSourceDate trata el datetime naive de Odoo como UTC sin importar la z
 test('parseSourceDate respeta el offset de las fechas ISO de Tiendanube', () => {
   assert.equal(parseSourceDate('2026-07-01T10:00:00-03:00').toISOString(), '2026-07-01T13:00:00.000Z');
 });
+
+test('normalizeOdooSaleOrder: feria doc carries its sales team', () => {
+  const order = { id: 9, date_order: '2026-11-03 15:00:00', amount_total: 100, state: 'sale', team_id: [21, 'Presentes'] };
+  const doc = normalizeOdooSaleOrder(order, [], new Map(), { channel: 'feria', team: true });
+  assert.equal(doc.teamId, 21);
+  assert.equal(doc.team, 'Presentes');
+});
+
+test('normalizeOdooSaleOrder: mayorista doc has no team fields', () => {
+  const order = { id: 9, date_order: '2026-11-03 15:00:00', amount_total: 100, state: 'sale', team_id: [8, 'Mayorista'] };
+  const doc = normalizeOdooSaleOrder(order, [], new Map());
+  assert.equal('team' in doc, false);
+  assert.equal('teamId' in doc, false);
+});

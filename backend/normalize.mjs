@@ -60,7 +60,9 @@ export function normalizeOdooPosOrder(order, lines, channel, categoryBySku, paym
   };
 }
 
-export function normalizeOdooSaleOrder(order, lines, categoryBySku, { channel = 'mayorista', amountCollected = 0 } = {}) {
+export function normalizeOdooSaleOrder(order, lines, categoryBySku, { channel = 'mayorista', amountCollected = 0, team = false } = {}) {
+  // Feria docs keep their Odoo sales team (each team is one fair/expo).
+  const teamFields = team && Array.isArray(order.team_id) ? { teamId: order.team_id[0], team: order.team_id[1] } : {};
   const status =
     order.state === 'cancel' ? 'cancelled' :
     ['sale', 'done'].includes(order.state) ? 'completed' :
@@ -78,6 +80,7 @@ export function normalizeOdooSaleOrder(order, lines, categoryBySku, { channel = 
     // collected so far (sum of amount_total - amount_residual across the
     // order's linked invoices), 0 for orders with no invoice yet.
     amountCollected: Number(amountCollected),
+    ...teamFields,
     paymentMethod: null,
     shippingProvince: null,
     items: lines.map(l => {
