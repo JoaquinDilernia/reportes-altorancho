@@ -4,8 +4,12 @@ import cors from 'cors';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { requireAuth, generateToken } from './auth.mjs';
-import { getProductBySku, getProductsBySku } from './firestore.mjs';
-import { buildFullReport } from './report.mjs';
+import { getProductBySku, getProductsBySku, querySalesByRange } from './firestore.mjs';
+import { buildFullReport, ALL_CHANNELS } from './report.mjs';
+import { getResumen } from './resumenReport.mjs';
+import { searchProducts, productSheet } from './productLookup.mjs';
+import { getOriginBySku } from './productOrigin.mjs';
+import { getPeriodRanges } from './periods.mjs';
 import { getEventReport } from './eventReport.mjs';
 import { getBehaviorReport } from './eventBehavior.mjs';
 import { getClarityReport } from './clarity.mjs';
@@ -104,6 +108,48 @@ app.get('/api/clarity', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getClarityReport()) });
   } catch (err) {
     console.error('[server] clarity error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// New report (/?v=nuevo). Same period params as /api/report.
+app.get('/api/v2/resumen', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getResumen(params)) });
+  } catch (err) {
+    console.error('[server] v2 resumen error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v2/product-search', requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, results: searchProducts(await getProductsBySku(), String(req.query.q || '')) });
+  } catch (err) {
+    console.error('[server] v2 product-search error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v2/product/:sku', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    const { current } = params.period === 'custom'
+      ? getPeriodRanges(params.start, 'custom', params.end)
+      : getPeriodRanges(params.date, params.period);
+    const [productsBySku, salesDocs, originBySku] = await Promise.all([
+      getProductsBySku(),
+      querySalesByRange(ALL_CHANNELS, current.start, current.end),
+      getOriginBySku().catch(() => new Map()),
+    ]);
+    const sheet = productSheet({ sku: req.params.sku, productsBySku, salesDocs, originBySku });
+    if (!sheet) return res.status(404).json({ ok: false, error: 'Producto no encontrado' });
+    res.json({ ok: true, range: current, ...sheet });
+  } catch (err) {
+    console.error('[server] v2 product error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

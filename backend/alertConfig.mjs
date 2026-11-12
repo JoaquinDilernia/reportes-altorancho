@@ -7,6 +7,8 @@ export const ALERTS = {
   localBaselinePeriods: { week: 8, month: 3, custom: 8 },
   // Web stock that lasts fewer days than this at the current pace.
   coverageDays: 7,
+  // …and that sold at least this many units a week on the web (below it's noise).
+  coverageMinWeeklyUnits: 1,
   // A product needs this many views per week before "few sales" means anything.
   trafficMinViewsPerWeek: 2000,
   // A traffic source with at least this share of sessions…

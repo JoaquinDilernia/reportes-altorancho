@@ -18,6 +18,7 @@ test('config: thresholds', () => {
   assert.equal(ALERTS.maxAlerts, 6);
   assert.equal(ALERTS.localDropPct, 0.15);
   assert.deepEqual(ALERTS.localBaselinePeriods, { week: 8, month: 3, custom: 8 });
+  assert.equal(ALERTS.coverageMinWeeklyUnits, 1);
 });
 
 test('all inputs null → no alerts', () => {
@@ -37,13 +38,21 @@ test('local: −17% vs baseline → red alert naming the store; −11% → nothi
 });
 
 test('stock: one alert summarising the products running out', () => {
-  const coverage = [{ sku: 'A', group: 'rolon' }, { sku: 'B', group: 'rolon' }, { sku: 'C', group: 'local' }];
+  const coverage = [
+    { sku: 'A', name: 'Silla A', group: 'rolon', weeklyUnits: 12, dailyRevenue: 678853 },
+    { sku: 'B', name: 'Silla B', group: 'rolon', weeklyUnits: 3, dailyRevenue: 900000 },
+    { sku: 'C', name: 'Mesa C', group: 'local', weeklyUnits: 1, dailyRevenue: 1000 },
+    { sku: 'D', name: 'Raro D', group: 'rolon', weeklyUnits: 0.5, dailyRevenue: 9e6 },
+  ];
   const alerts = buildAlerts({ ...none, coverage });
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].kind, 'stock');
   assert.equal(alerts[0].tab, 'producto');
   assert.match(alerts[0].title, /3 productos/);
   assert.match(alerts[0].detail, /2 en Rolón/);
+  assert.match(alerts[0].detail, /Silla B/);
+  assert.doesNotMatch(alerts[0].detail, /Raro D/);
+  assert.deepEqual(buildAlerts({ ...none, coverage: [coverage[3]] }), []);
   assert.deepEqual(buildAlerts({ ...none, coverage: [] }), []);
 });
 
@@ -85,7 +94,7 @@ test('cut at maxAlerts, keeping one piece of good news', () => {
   const locales = ['Alcorta', 'Lomas', 'Belgrano', 'Mayorista'].map((label, i) => ({ ...alcorta, id: `l${i}`, label }));
   const alerts = buildAlerts({
     ...none, locales,
-    coverage: [{ sku: 'A', group: 'rolon' }],
+    coverage: [{ sku: 'A', name: 'A', group: 'rolon', weeklyUnits: 5, dailyRevenue: 1 }],
     behavior: behaviorWith({ lowConversion: [lowItem], channels: [crossNetwork] }),
     origins: [origin('importado', 'Importado', 501, 352)],
   });

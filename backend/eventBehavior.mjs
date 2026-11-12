@@ -182,9 +182,11 @@ export function shapeBehavior({ ranges, raw, productsBySku }) {
   const byName = productsByName(productsBySku);
   const cur = totalsOf(byRange(raw.totals, 'cur'));
   const prev = totalsOf(byRange(raw.totals, 'prev'));
+  const totals = { cur, prev };
+  if (ranges.yoy) totals.yoy = totalsOf(byRange(raw.totals, 'yoy'));
   return {
     ranges,
-    totals: { cur, prev },
+    totals,
     funnel: { cur: funnelOf(byRange(raw.funnel, 'cur')), prev: funnelOf(byRange(raw.funnel, 'prev')) },
     channels: compareBy(raw.channels, 'sessionDefaultChannelGroup'),
     devices: compareBy(raw.devices, 'deviceCategory'),
@@ -204,10 +206,12 @@ async function fetchRaw(ranges) {
     { startDate: ranges.prev.start, endDate: ranges.prev.end, name: 'prev' },
   ];
   const cur = [both[0]];
+  // Only the totals carry a third range (a year ago), for the KPIs.
+  const withYoy = ranges.yoy ? [...both, { startDate: ranges.yoy.start, endDate: ranges.yoy.end, name: 'yoy' }] : both;
   const salesMetrics = [{ name: 'sessions' }, { name: 'ecommercePurchases' }, { name: 'purchaseRevenue' }];
   const desc = (metricName) => [{ metric: { metricName }, desc: true }];
   const queries = {
-    totals: { dateRanges: both, metrics: ['sessions', 'totalUsers', 'newUsers', 'engagementRate', 'averageSessionDuration', 'screenPageViewsPerSession', 'ecommercePurchases', 'purchaseRevenue'].map(name => ({ name })) },
+    totals: { dateRanges: withYoy, metrics: ['sessions', 'totalUsers', 'newUsers', 'engagementRate', 'averageSessionDuration', 'screenPageViewsPerSession', 'ecommercePurchases', 'purchaseRevenue'].map(name => ({ name })) },
     funnel: {
       dateRanges: both, dimensions: [{ name: 'eventName' }], metrics: [{ name: 'totalUsers' }],
       dimensionFilter: { filter: { fieldName: 'eventName', inListFilter: { values: FUNNEL_STEPS.map(s => s.id) } } },
@@ -261,5 +265,23 @@ export function getBehaviorReport(eventId) {
   const promise = buildBehaviorReport(eventId);
   cache.set(eventId, { at: Date.now(), promise });
   promise.catch(() => cache.delete(eventId));
+  return promise;
+}
+
+// Any range (the new report): cur vs prev, plus a year-ago total when given.
+// Past ranges don't change, so they keep 6 h; ranges reaching today 30 min.
+const PAST_TTL_MS = 6 * 60 * 60 * 1000;
+
+export function getWebBehavior({ cur, prev, yoy }, { today = argDay(new Date().toISOString()) } = {}) {
+  const key = [cur, prev, yoy].map(r => (r ? `${r.start}..${r.end}` : '-')).join('|');
+  const ttl = cur.end >= today ? CACHE_TTL_MS : PAST_TTL_MS;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < ttl) return hit.promise;
+  const ranges = { cur, prev, ...(yoy ? { yoy } : {}) };
+  const promise = Promise.all([fetchRaw(ranges), getProductsBySku()])
+    .then(([raw, productsBySku]) => shapeBehavior({ ranges, raw, productsBySku }));
+  if (cache.size > 30) cache.delete(cache.keys().next().value);
+  cache.set(key, { at: Date.now(), promise });
+  promise.catch(() => cache.delete(key));
   return promise;
 }

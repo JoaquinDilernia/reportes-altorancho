@@ -109,3 +109,22 @@ export async function fetchGa4GoogleAdsDaily(since, until) {
   });
   return normalizeGa4GoogleAdsRows(rows);
 }
+
+// Sessions and purchases per day (YYYY-MM-DD → { sessions, purchases }), for
+// the conversion sparkline of the new report.
+export async function fetchGa4DailyTotals(start, end) {
+  const rows = await runReportAll({
+    dateRanges: [{ startDate: start, endDate: end }],
+    dimensions: [{ name: 'date' }],
+    metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }],
+  });
+  const out = new Map();
+  for (const r of rows) {
+    const raw = r.dimensionValues[0].value;
+    out.set(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`, {
+      sessions: Number(r.metricValues[0].value || 0),
+      purchases: Number(r.metricValues[1].value || 0),
+    });
+  }
+  return out;
+}

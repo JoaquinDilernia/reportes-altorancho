@@ -43,9 +43,11 @@ function localAlerts(locales, period) {
   return out.sort((a, b) => a.drop - b.drop).map(({ drop, ...a }) => a);
 }
 
-function stockAlert(coverage) {
-  if (!coverage?.length) return [];
+function stockAlert(allRows) {
+  const coverage = (allRows || []).filter(r => r.weeklyUnits >= ALERTS.coverageMinWeeklyUnits);
+  if (!coverage.length) return [];
   const count = (g) => coverage.filter(r => r.group === g).length;
+  const top = [...coverage].filter(r => r.group !== 'none').sort((a, b) => b.dailyRevenue - a.dailyRevenue)[0];
   const parts = [
     count('rolon') && `${count('rolon')} en Rolón (se pueden pasar a la web ya)`,
     count('local') && `${count('local')} solo en locales`,
@@ -55,7 +57,7 @@ function stockAlert(coverage) {
   return [{
     id: 'stock-coverage', kind: 'stock', tone: 'y', tab: 'producto',
     title: `${n} ${n === 1 ? 'producto que se venía vendiendo se queda' : 'productos que se venían vendiendo se quedan'} sin stock web en menos de ${ALERTS.coverageDays} días`,
-    detail: `${parts.join(', ')}.`,
+    detail: `${parts.join(', ')}.${top ? ` El que más vende: ${top.name} (${money(top.dailyRevenue)} por día).` : ''}`,
   }];
 }
 
