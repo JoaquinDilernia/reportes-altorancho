@@ -29,10 +29,28 @@ test('shapeClarityPages: groups URLs by path and turns signals into % of session
       { URL: 'https://www.altorancho.com/alto-cyber?utm=b', totalSessionCount: '40' },
       { URL: 'https://www.altorancho.com/chica', totalSessionCount: '5' },
     ] },
-    { metricName: 'RageClickCount', information: [{ URL: 'https://www.altorancho.com/alto-cyber?utm=a', sessionsCount: '10', subTotal: '25' }] },
+    // Live shape: sessionsCount is ALL the URL's sessions; the share with the signal is sessionsWithMetricPercentage.
+    { metricName: 'RageClickCount', information: [{ URL: 'https://www.altorancho.com/alto-cyber?utm=a', sessionsCount: '50', sessionsWithMetricPercentage: 20, subTotal: '25' }] },
     { metricName: 'ScrollDepth', information: [{ URL: 'https://www.altorancho.com/alto-cyber', averageScrollDepth: 42.5 }] },
   ];
   const pages = shapeClarityPages(resp);
   assert.equal(pages.length, 1);
   assert.deepEqual(pages[0], { path: '/alto-cyber', sessions: 100, scrollDepth: 42.5, rage: 10, dead: 0, quickback: 0 });
+});
+
+test('shapeClarityPages: real per-URL rows (12/11/2026) → signal % of the page, not 100%', () => {
+  const url = 'https://altorancho.com/';
+  const row = (pct, n) => ({ sessionsCount: 98, sessionsWithMetricPercentage: pct, sessionsWithoutMetricPercentage: 100 - pct, pagesViews: n, subTotal: n, Url: url });
+  const resp = [
+    { metricName: 'DeadClickCount', information: [row(0, 0)] },
+    { metricName: 'RageClickCount', information: [row(0, 0)] },
+    { metricName: 'QuickbackClick', information: [row(52.04, 55)] },
+    { metricName: 'ScrollDepth', information: [{ averageScrollDepth: 20.66, Url: url }] },
+    { metricName: 'Traffic', information: [{ totalSessionCount: 98, totalBotSessionCount: 6, distinctUserCount: 96, Url: url }] },
+  ];
+  const [p] = shapeClarityPages(resp);
+  assert.equal(p.sessions, 98);
+  assert.equal(p.rage, 0);
+  assert.equal(p.dead, 0);
+  assert.ok(Math.abs(p.quickback - 52.04) < 0.01, String(p.quickback));
 });

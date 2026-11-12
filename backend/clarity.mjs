@@ -89,8 +89,11 @@ export function shapeClarityPages(resp, { minSessions = 20, limit = 15 } = {}) {
     for (const r of metric(resp, s.id)) {
       if (!urlOf(r)) continue;
       const p = get(urlOf(r));
+      // sessionsCount is all of the URL's sessions; only the percentage tells
+      // how many of them had the signal (verified live 12/11/2026).
+      const withSignal = ((num(r.sessionsCount) || 0) * (num(r.sessionsWithMetricPercentage) || 0)) / 100;
       const prev = p.signals[s.key] || { sessions: 0, count: 0 };
-      p.signals[s.key] = { sessions: prev.sessions + (num(r.sessionsCount) || 0), count: prev.count + (num(r.subTotal) || 0) };
+      p.signals[s.key] = { sessions: prev.sessions + withSignal, count: prev.count + (num(r.subTotal) || 0) };
     }
   }
   return [...pages.values()]
