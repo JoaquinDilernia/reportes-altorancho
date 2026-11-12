@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { TABS, parseUrlState, serializeUrlState, periodParams } from './urlState.js';
 
 const TODAY = '2026-11-12';
-const DEFAULT = { tab: 'resumen', period: 'week', date: TODAY, start: null, end: null };
+const DEFAULT = { tab: 'resumen', period: 'week', date: TODAY, start: null, end: null, sku: null };
 
 describe('urlState', () => {
   it('lists the tabs, without feria', () => {
@@ -15,7 +15,7 @@ describe('urlState', () => {
 
   it('reads tab, period and date', () => {
     expect(parseUrlState('?v=nuevo&tab=producto&period=month&date=2026-10-01', TODAY))
-      .toEqual({ tab: 'producto', period: 'month', date: '2026-10-01', start: null, end: null });
+      .toEqual({ tab: 'producto', period: 'month', date: '2026-10-01', start: null, end: null, sku: null });
   });
 
   it('falls back to defaults on junk', () => {
@@ -30,14 +30,14 @@ describe('urlState', () => {
   });
 
   it('round-trips a custom range', () => {
-    const s = { tab: 'web', period: 'custom', date: TODAY, start: '2026-10-01', end: '2026-10-15' };
+    const s = { tab: 'web', period: 'custom', date: TODAY, start: '2026-10-01', end: '2026-10-15', sku: null };
     const qs = serializeUrlState(s);
     expect(qs.startsWith('?v=nuevo')).toBe(true);
     expect(parseUrlState(qs, TODAY)).toEqual(s);
   });
 
   it('round-trips a month', () => {
-    const s = { tab: 'locales', period: 'month', date: '2026-10-01', start: null, end: null };
+    const s = { tab: 'locales', period: 'month', date: '2026-10-01', start: null, end: null, sku: 'MSI018VE' };
     expect(parseUrlState(serializeUrlState(s), TODAY)).toEqual(s);
   });
 
@@ -45,5 +45,11 @@ describe('urlState', () => {
     expect(periodParams(DEFAULT)).toEqual({ period: 'week', date: TODAY });
     expect(periodParams({ ...DEFAULT, period: 'custom', start: '2026-10-01', end: '2026-10-15' }))
       .toEqual({ period: 'custom', start: '2026-10-01', end: '2026-10-15' });
+  });
+
+  it('keeps an open product only if the SKU looks like one', () => {
+    expect(parseUrlState('?v=nuevo&sku=MSI018VE', TODAY).sku).toBe('MSI018VE');
+    expect(parseUrlState('?v=nuevo&sku=%3Cscript%3E', TODAY).sku).toBe(null);
+    expect(serializeUrlState({ ...DEFAULT, sku: null })).not.toContain('sku');
   });
 });

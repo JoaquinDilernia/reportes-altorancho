@@ -2,6 +2,8 @@
 // view can be shared, reloaded or reached with the back button.
 export const TABS = ['resumen', 'web', 'locales', 'producto', 'pauta', 'mayorista', 'cyber'];
 const PERIODS = ['week', 'month', 'custom'];
+// An open product sheet (?sku=…). SKUs are letters, digits, . _ -
+const SKU_RE = /^[A-Za-z0-9._-]{1,40}$/;
 
 function isISODate(s) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false;
@@ -27,14 +29,16 @@ function parsePeriod(q, today) {
 export function parseUrlState(search, today) {
   const q = new URLSearchParams(search);
   const tab = TABS.includes(q.get('tab')) ? q.get('tab') : 'resumen';
-  return { tab, ...parsePeriod(q, today) };
+  const sku = SKU_RE.test(q.get('sku') || '') ? q.get('sku') : null;
+  return { tab, ...parsePeriod(q, today), sku };
 }
 
-export function serializeUrlState({ tab, period, date, start, end }) {
+export function serializeUrlState({ tab, period, date, start, end, sku }) {
   const q = new URLSearchParams({ v: 'nuevo' });
   if (tab && tab !== 'resumen') q.set('tab', tab);
   q.set('period', period);
   if (period === 'custom') { q.set('start', start); q.set('end', end); } else q.set('date', date);
+  if (sku) q.set('sku', sku);
   return `?${q.toString()}`;
 }
 

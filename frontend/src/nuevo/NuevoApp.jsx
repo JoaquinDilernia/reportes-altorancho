@@ -8,6 +8,8 @@ import TopBar from './TopBar.jsx';
 import PeriodBar from './PeriodBar.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import Resumen from './resumen/Resumen.jsx';
+import ProductSearch from './search/ProductSearch.jsx';
+import ProductSheet from './search/ProductSheet.jsx';
 import './nuevo.css';
 
 export const TAB_LABELS = {
@@ -80,6 +82,7 @@ export default function NuevoApp({ onLogout }) {
         showCyber={eventActive || isCyber}
         onTab={(tab) => update({ tab }, { push: true })}
         onLogout={onLogout}
+        search={<ProductSearch onSelect={(sku) => update({ sku }, { push: true })} />}
       />
       <main className="nv-wrap">
         {!isCyber && <PeriodBar state={state} today={today} onChange={(patch) => update(patch)} />}
@@ -87,6 +90,7 @@ export default function NuevoApp({ onLogout }) {
         <TabContent state={state} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} />
       </main>
       {!isCyber && <ChatWidget {...aiProps} />}
+      {state.sku && <ProductSheet sku={state.sku} state={state} onClose={() => update({ sku: null }, { push: true })} />}
     </div>
   );
 }
