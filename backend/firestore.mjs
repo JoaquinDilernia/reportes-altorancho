@@ -178,6 +178,26 @@ export async function saveMetaAdsAdDailyDocs(docs) {
   return { written: docs.length };
 }
 
+// Daily snapshots (one doc per day, id = date): Clarity's last-24 h metrics
+// and the web stock, which their sources don't keep historically.
+export const CLARITY_DAILY_COL = 'altorancho_reportes_clarity_daily';
+export const WEB_STOCK_DAILY_COL = 'altorancho_reportes_web_stock_daily';
+
+export async function saveDailySnapshot(col, date, data) {
+  await getDb().collection(col).doc(date).set({ ...data, date, savedAt: admin.firestore.FieldValue.serverTimestamp() });
+  invalidate(col);
+}
+
+export async function getDailySnapshot(col, date) {
+  const snap = await getDb().collection(col).doc(date).get();
+  return snap.exists ? snap.data() : null;
+}
+
+export async function queryDailySnapshots(col, startDate, endDate) {
+  const docs = await queryDateRange(col, startDate, endDate);
+  return [...docs].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function queryDateRange(col, startDate, endDate, opts) {
   return cached(col, `${startDate}|${endDate}`, async () => {
     const firestore = getDb();

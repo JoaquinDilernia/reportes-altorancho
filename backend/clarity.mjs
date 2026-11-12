@@ -103,11 +103,17 @@ export function shapeClarityPages(resp, { minSessions = 20, limit = 15 } = {}) {
     .slice(0, limit);
 }
 
-async function buildClarity() {
-  const [totals, byUrl] = await Promise.all([
+// Raw last-24 h responses (the 2 calls), for the daily snapshot.
+export async function fetchClarityLast24h() {
+  const [totalsResp, byUrlResp] = await Promise.all([
     clarityCall({ numOfDays: '1' }),
     clarityCall({ numOfDays: '1', dimension1: 'URL' }),
   ]);
+  return { totalsResp, byUrlResp };
+}
+
+async function buildClarity() {
+  const { totalsResp: totals, byUrlResp: byUrl } = await fetchClarityLast24h();
   return {
     available: true,
     window: 'últimas 24 h',
