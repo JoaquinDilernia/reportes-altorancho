@@ -10,6 +10,7 @@ import ViewedCategoriesCard from './ViewedCategoriesCard.jsx';
 import ItemsCard from './ItemsCard.jsx';
 import SearchesCard from './SearchesCard.jsx';
 import EntryCard from './EntryCard.jsx';
+import ClarityCard from './ClarityCard.jsx';
 import { DEVICES, VISITORS } from './webFormat.js';
 
 const TITLE = { week: 'Web de la semana', month: 'Web del mes', custom: 'Web del rango' };
@@ -71,10 +72,12 @@ export default function Web({ state, onUpdate, onLogout }) {
       <WebSalesCard sales={data.sales} period={period} prevYear={data.prevYear} prevRange={data.prevRange} />
 
       <h2 className="nv-section">Comportamiento</h2>
+      {!b && <ClarityCard clarity={data.clarity} />}
       {!b && <section className="nv-card nv-sec"><p className="nv-empty">{data.behaviorError || 'GA4 no respondió'}: sin datos de comportamiento. La venta sigue siendo la de Odoo.</p></section>}
       {b && (
         <>
           <BehaviorKpis totals={b.totals} period={period} prevYear={data.prevYear} />
+          <ClarityCard clarity={data.clarity} />
           <div className="nv-grid2">
             <FunnelCard funnel={b.funnel} period={period} />
             <div>
