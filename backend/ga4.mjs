@@ -36,7 +36,17 @@ async function accessToken() {
 
 const PAGE_SIZE = 100000;
 
-async function runReportAll(body) {
+// GA4 rejects a range ending after today when it has revenue metrics (400
+// "Future currency exchange rate not exist" — e.g. the running month up to
+// the 30th), so every range is cut at today, in Argentina's date.
+export function clampGa4DateRanges(body, today) {
+  if (!body.dateRanges) return body;
+  return { ...body, dateRanges: body.dateRanges.map(r => (r.endDate > today ? { ...r, endDate: today } : r)) };
+}
+const argToday = () => new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+async function runReportAll(rawBody) {
+  const body = clampGa4DateRanges(rawBody, argToday());
   const rows = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${process.env.GA4_PROPERTY_ID}:runReport`, {
@@ -59,7 +69,7 @@ export async function runGa4Report(body) {
   const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${process.env.GA4_PROPERTY_ID}:runReport`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(clampGa4DateRanges(body, argToday())),
     signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) throw new Error(`GA4 ${res.status}: ${(await res.text()).slice(0, 300)}`);
