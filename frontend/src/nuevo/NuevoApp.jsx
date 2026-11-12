@@ -7,6 +7,7 @@ import { parseUrlState, serializeUrlState } from './urlState.js';
 import TopBar from './TopBar.jsx';
 import PeriodBar from './PeriodBar.jsx';
 import ComingSoon from './ComingSoon.jsx';
+import Resumen from './resumen/Resumen.jsx';
 import './nuevo.css';
 
 export const TAB_LABELS = {
@@ -26,8 +27,9 @@ function addDays(iso, n) {
 }
 
 // Tab content. Tabs not built yet say so and link to the current report.
-function TabContent({ state, onLogout }) {
+function TabContent({ state, onLogout, onNavigate }) {
   switch (state.tab) {
+    case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
     case 'cyber': return <EventLive onLogout={onLogout} />;
     default: return <ComingSoon tabLabel={TAB_LABELS[state.tab]} />;
   }
@@ -82,7 +84,7 @@ export default function NuevoApp({ onLogout }) {
       <main className="nv-wrap">
         {!isCyber && <PeriodBar state={state} today={today} onChange={(patch) => update(patch)} />}
         {!isCyber && <div className="nv-ai"><InsightsButton {...aiProps} /></div>}
-        <TabContent state={state} onLogout={onLogout} />
+        <TabContent state={state} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} />
       </main>
       {!isCyber && <ChatWidget {...aiProps} />}
     </div>
