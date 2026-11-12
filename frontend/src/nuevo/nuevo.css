@@ -216,7 +216,8 @@
 }
 
 @media (max-width: 760px) {
-  .nv-top { padding: 10px 16px; gap: 10px; }
+  /* Wraps to ~150px on a phone: let it scroll away instead of eating the screen. */
+  .nv-top { padding: 10px 16px; gap: 10px; position: static; }
   .nv-wrap { padding: 16px 16px 80px; }
   .nv-cmp { margin-left: 0; }
   .nv-search-slot { margin-left: 0; width: 100%; }
