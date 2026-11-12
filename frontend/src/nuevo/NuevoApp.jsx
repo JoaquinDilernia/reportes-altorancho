@@ -9,6 +9,7 @@ import PeriodBar from './PeriodBar.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import Resumen from './resumen/Resumen.jsx';
 import Producto from './producto/Producto.jsx';
+import Web from './web/Web.jsx';
 import ProductSearch from './search/ProductSearch.jsx';
 import ProductSheet from './search/ProductSheet.jsx';
 import './nuevo.css';
@@ -33,6 +34,7 @@ function addDays(iso, n) {
 function TabContent({ state, onLogout, onNavigate, onUpdate }) {
   switch (state.tab) {
     case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
+    case 'web': return <Web state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'producto': return <Producto state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'cyber': return <EventLive onLogout={onLogout} />;
     default: return <ComingSoon tabLabel={TAB_LABELS[state.tab]} />;
