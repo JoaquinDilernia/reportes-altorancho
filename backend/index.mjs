@@ -321,7 +321,13 @@ async function runFullSync() {
       console.error('[cron] posLocales sync error:', err.message);
     }
     await syncMayorista(categoryBySku);
-    await syncFeria(categoryBySku);
+    try {
+      // The one-time full feria re-read is heavier; if it fails, ads and
+      // inflation still sync and the next run retries it.
+      await syncFeria(categoryBySku);
+    } catch (err) {
+      console.error('[cron] feria sync error:', err.message);
+    }
     await syncMetaAds();
     try {
       await syncGoogleAds();

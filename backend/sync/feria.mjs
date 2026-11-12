@@ -12,13 +12,29 @@ const FERIA_TEAM_IDS = [10, 20, 21, 22, 23, 24];
 
 const CHUNK_SIZE = 2000;
 
+const CURSOR_OVERLAP_MS = 60_000;
+
+// What to read and what to remember afterwards. Docs synced before the sales
+// team was stored need one full re-sync; a sinceOverride run (backfill.mjs)
+// may not reach back far enough, so it never marks that re-sync done. The
+// next cursor is when this run STARTED (minus a minute of overlap): an order
+// edited while the sync is running is re-read next time instead of skipped.
+export function feriaSyncWindow(meta, sinceOverride, startedAt = new Date()) {
+  const backfillDone = !!meta?.teamsBackfilled;
+  const cursor = backfillDone ? meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ') : null;
+  const since = sinceOverride || cursor || '2000-01-01 00:00:00';
+  const lastSyncedAt = new Date(startedAt.getTime() - CURSOR_OVERLAP_MS).toISOString();
+  return {
+    since,
+    nextMeta: (count) => ({ lastSyncedAt, count, teamsBackfilled: sinceOverride ? backfillDone : true }),
+  };
+}
+
 export async function syncFeria(categoryBySku, sinceOverride) {
   await authenticate();
 
   const meta = await getSyncMetadata('feria');
-  // Docs synced before the sales team was stored need one full re-sync.
-  const backfill = !meta?.teamsBackfilled;
-  const since = sinceOverride || (backfill ? null : meta?.lastSyncedAt?.slice(0, 19).replace('T', ' ')) || '2000-01-01 00:00:00';
+  const { since, nextMeta } = feriaSyncWindow(meta, sinceOverride, new Date());
 
   const domain = [['team_id', 'in', FERIA_TEAM_IDS], ['write_date', '>=', since]];
   const orders = await fetchAll('sale.order', domain, ['id', 'date_order', 'amount_total', 'state', 'order_line', 'team_id']);
@@ -45,7 +61,7 @@ export async function syncFeria(categoryBySku, sinceOverride) {
   ));
 
   await saveSalesDocs(docs);
-  await setSyncMetadata('feria', { lastSyncedAt: new Date().toISOString(), count: docs.length, teamsBackfilled: true });
+  await setSyncMetadata('feria', nextMeta(docs.length));
 
   console.log(`[sync:feria] ${docs.length} órdenes sincronizadas`);
   return { count: docs.length };
