@@ -18,6 +18,7 @@ import DayByDayTable from './DayByDayTable.jsx';
 import ProductsTable from './ProductsTable.jsx';
 import Delta from './Delta.jsx';
 import EventDetails from './EventDetails.jsx';
+import WebBehavior from './WebBehavior.jsx';
 import '../../styles/event.css';
 
 const POLL_MS = 2 * 60 * 1000;
@@ -435,6 +436,8 @@ export default function EventLive({ onLogout }) {
               salesToDate={salesCompare(data, view)}
               todayShare={data.live?.todayShare}
             />
+
+            {phase !== 'pre' && view !== 'locales' && <WebBehavior eventId={eventId} onLogout={onLogout} />}
 
             <EventDetails data={data} view={view} />
           </>

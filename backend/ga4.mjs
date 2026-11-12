@@ -52,6 +52,31 @@ async function runReportAll(body) {
   }
 }
 
+// One runReport call (single page) → rows as plain objects keyed by the
+// dimension/metric names; metrics as numbers. With several dateRanges, GA4
+// adds a `dateRange` dimension holding each range's `name`.
+export async function runGa4Report(body) {
+  const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${process.env.GA4_PROPERTY_ID}:runReport`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`GA4 ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return ga4Records(await res.json());
+}
+
+export function ga4Records(page) {
+  const dims = (page.dimensionHeaders || []).map(h => h.name);
+  const mets = (page.metricHeaders || []).map(h => h.name);
+  return (page.rows || []).map(r => {
+    const o = {};
+    dims.forEach((d, i) => { o[d] = r.dimensionValues[i].value; });
+    mets.forEach((m, i) => { o[m] = Number(r.metricValues[i].value || 0); });
+    return o;
+  });
+}
+
 export function isGa4Configured() {
   return Boolean(process.env.GA4_SERVICE_ACCOUNT && process.env.GA4_PROPERTY_ID);
 }

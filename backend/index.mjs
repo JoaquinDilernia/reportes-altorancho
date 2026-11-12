@@ -7,6 +7,7 @@ import { requireAuth, generateToken } from './auth.mjs';
 import { getProductBySku, getProductsBySku } from './firestore.mjs';
 import { buildFullReport } from './report.mjs';
 import { getEventReport } from './eventReport.mjs';
+import { getBehaviorReport } from './eventBehavior.mjs';
 import { EVENTS, liveSyncEvent, argDay } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
@@ -78,6 +79,19 @@ app.get('/api/event', requireAuth, async (req, res) => {
     res.json({ ok: true, ...report });
   } catch (err) {
     console.error('[server] event report error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Cyber / Black web behaviour from GA4 (funnel, sources, categories viewed,
+// searches…). Separate from /api/event so the 5-min live poll doesn't hit GA4.
+app.get('/api/event/behavior', requireAuth, async (req, res) => {
+  try {
+    const eventId = req.query.event || 'cyber';
+    if (!EVENTS[eventId]) return res.status(400).json({ ok: false, error: `Unknown event: ${eventId}` });
+    res.json({ ok: true, ...(await getBehaviorReport(eventId)) });
+  } catch (err) {
+    console.error('[server] event behavior error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
