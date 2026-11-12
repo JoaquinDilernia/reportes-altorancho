@@ -225,7 +225,8 @@
 
 /* Producto */
 .nv-titlebar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.nv-sec { margin-bottom: 16px; }
+.nv-sec { margin-bottom: 16px; min-width: 0; }
+.nv-grid2 > * { min-width: 0; }
 .nv-tscroll { overflow-x: auto; margin: 0 -4px; }
 .nv-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 .nv-table th { font-size: 11px; color: var(--nv-ink3); font-weight: 600; text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--nv-line); white-space: nowrap; }
@@ -252,8 +253,8 @@
 .nv-wh .nv-lbl { margin-bottom: 4px; }
 .nv-whrow { display: grid; grid-template-columns: minmax(120px, 180px) 1fr 64px 70px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--nv-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) {
-  .nv-catrow { grid-template-columns: minmax(80px, 1fr) 64px 58px 44px; }
+  .nv-catrow { grid-template-columns: minmax(0, 1fr) 64px 58px 44px; }
   .nv-catrow > .nv-track, .nv-catrow > :nth-child(6) { display: none; }
-  .nv-whrow { grid-template-columns: minmax(100px, 1fr) 60px 64px; }
+  .nv-whrow { grid-template-columns: minmax(0, 1fr) 60px 64px; }
   .nv-whrow > .nv-track { display: none; }
 }
