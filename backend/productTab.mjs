@@ -2,6 +2,7 @@
 // Stock is "as of today" (stockByLoc from Odoo + Tiendanube's web stock).
 import { STOCK_LOCATIONS, LOC_GROUPS, isJunkSku } from './stockLocations.mjs';
 import { eventCategoryOf, skuModel } from './eventCategories.mjs';
+import { addDays } from './events.mjs';
 
 export const CHANNEL_FILTERS = {
   all: null,
@@ -40,10 +41,11 @@ export function modelStock(productsBySku) {
   for (const p of productsBySku.values()) {
     if (!p?.sku || isJunkSku(p.sku, p.name)) continue;
     const key = skuModel(p.sku);
-    const m = out.get(key) ?? { total: 0, web: 0, byLoc: {} };
+    const m = out.get(key) ?? { total: 0, web: 0, tn: 0, byLoc: {} };
     const s = stockOf(p);
     m.total += s.total;
     m.web += s.web;
+    m.tn += pos(p.currentStock);
     for (const [k, n] of Object.entries(locsOf(p))) if (k !== 'web_odoo' && pos(n)) m.byLoc[k] = (m.byLoc[k] || 0) + pos(n);
     out.set(key, m);
   }
@@ -109,4 +111,13 @@ export function warehouses(productsBySku) {
   return [...acc.entries()].map(([key, a]) => ({
     key, label: LOC_LABELS[key] ?? key, group: LOCAL_KEYS.has(key) ? 'locales' : 'rolon', ...a,
   }));
+}
+
+// Last year's window cut to the days already elapsed in the current one, so
+// a running week isn't compared with a whole week (it would always look down).
+const DAY_MS = 86400000;
+export function prevYearToDate({ current, prevYear }, today) {
+  if (today >= current.end) return { start: prevYear.start, end: prevYear.end, partial: false };
+  const elapsed = Math.max(0, Math.round((Date.parse(today) - Date.parse(current.start)) / DAY_MS));
+  return { start: prevYear.start, end: addDays(prevYear.start, elapsed), partial: true };
 }

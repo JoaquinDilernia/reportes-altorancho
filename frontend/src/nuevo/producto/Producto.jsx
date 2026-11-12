@@ -89,7 +89,8 @@ export default function Producto({ state, onUpdate, onLogout }) {
       <div className="nv-titlebar">
         <div>
           <h1 className="nv-h1">Producto y stock</h1>
-          <div className="nv-sub">Ventas: {CH_NOTE[ch]} · stock a hoy{data ? ` (${data.stockAsOf.split('-').reverse().slice(0, 2).join('/')})` : ''}</div>
+          <div className="nv-sub">Ventas: {CH_NOTE[ch]} · stock a hoy{data ? ` (${data.stockAsOf.split('-').reverse().slice(0, 2).join('/')})` : ''}
+            {data?.prevRange?.partial && ` · período en curso: se compara con ${data.prevYear} hasta el ${data.prevRange.end.split('-').reverse().slice(0, 2).join('/')}`}</div>
         </div>
         {filter}
       </div>

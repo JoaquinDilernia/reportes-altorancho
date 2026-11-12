@@ -64,3 +64,22 @@ test('modelStock and categoryStock: summed by model / category from the new loca
   const c = categoryStock(p);
   assert.equal([...c.values()].reduce((s, n) => s + n, 0), 8);
 });
+
+test('prevYearToDate: a running period compares against the same elapsed days last year', async () => {
+  const { prevYearToDate } = await import('../productTab.mjs');
+  const ranges = { current: { start: '2026-11-09', end: '2026-11-15' }, prevYear: { start: '2025-11-09', end: '2025-11-15' } };
+  // Wednesday: Mon–Wed this year vs Mon–Wed of last year's window.
+  assert.deepEqual(prevYearToDate(ranges, '2026-11-11'), { start: '2025-11-09', end: '2025-11-11', partial: true });
+  // Closed period: the whole window.
+  assert.deepEqual(prevYearToDate(ranges, '2026-11-20'), { start: '2025-11-09', end: '2025-11-15', partial: false });
+  assert.deepEqual(prevYearToDate(ranges, '2026-11-15'), { start: '2025-11-09', end: '2025-11-15', partial: false });
+});
+
+test('modelStock: web column is Tiendanube only (same number as Pasar a la web)', () => {
+  const p = new Map([
+    ['MSI018VE', { sku: 'MSI018VE', name: 'V', currentStock: 0, stockByLoc: { web_odoo: 20, rolon: 1 } }],
+    ['MSI018NE', { sku: 'MSI018NE', name: 'N', currentStock: 3, stockByLoc: { web_odoo: 3 } }],
+  ]);
+  const m = modelStock(p).get('MSI018');
+  assert.equal(m.tn, 3);
+});

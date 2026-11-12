@@ -31,7 +31,7 @@ export default function TopModelsCard({ topModels, prevYear }) {
                     <td className="r">{num(m.units)}</td>
                     <td className="r">{money(m.revenue)}</td>
                     <td className="r"><span className={`nv-pill ${toneOf(d)}`}>{d == null ? 'nuevo' : pct(d, { sign: true })}</span></td>
-                    <td className={`r${m.stock.web === 0 ? ' nv-red' : ''}`}>{num(m.stock.web)}</td>
+                    <td className={`r${(m.stock.tn ?? m.stock.web) === 0 ? ' nv-red' : ''}`}>{num(m.stock.tn ?? m.stock.web)}</td>
                     <td className="r">{num(m.stock.total)}</td>
                     <td>
                       <span className="nv-chips">

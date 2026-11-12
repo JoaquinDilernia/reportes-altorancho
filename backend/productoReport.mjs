@@ -10,7 +10,7 @@ import { summarizeCategories, compareTopProducts } from './eventCategories.mjs';
 import { summarizeOrigins } from './eventOrigins.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
 import { webCoverage } from './stockCoverage.mjs';
-import { CHANNEL_FILTERS, filterDocs, overstock, warehouses, modelStock, categoryStock } from './productTab.mjs';
+import { CHANNEL_FILTERS, filterDocs, overstock, warehouses, modelStock, categoryStock, prevYearToDate } from './productTab.mjs';
 
 const WEB_WINDOW_DAYS = 28;
 const OVERSTOCK_WINDOW_DAYS = 56;
@@ -23,10 +23,11 @@ export async function buildProducto({ period = 'week', date, start, end, ch = 'a
   const today = argDay(now.toISOString());
   const webFrom = addDays(today, -(WEB_WINDOW_DAYS - 1));
   const overFrom = addDays(today, -(OVERSTOCK_WINDOW_DAYS - 1));
+  const prevCut = prevYearToDate(ranges, today);
 
   const [curAll, prevYearAll, webDocs, recentDocs, productsBySku, indexByMonth, originBySku] = await Promise.all([
     querySalesByRange(ALL_CHANNELS, current.start, current.end),
-    querySalesByRange(ALL_CHANNELS, prevYear.start, prevYear.end),
+    querySalesByRange(ALL_CHANNELS, prevCut.start, prevCut.end),
     querySalesByRange(['ecommerce'], webFrom, today),
     querySalesByRange(ALL_CHANNELS, overFrom, today),
     getProductsBySku(),
@@ -45,13 +46,14 @@ export async function buildProducto({ period = 'week', date, start, end, ch = 'a
 
   const stockByModel = modelStock(productsBySku);
   const topModels = compareTopProducts({ prevToDateDocs: prev, currentDocs: cur, productsBySku, factorByRefDate: factor, limit: 30 })
-    .map(m => ({ ...m, stock: stockByModel.get(m.sku) ?? { total: 0, web: 0, byLoc: {} } }));
+    .map(m => ({ ...m, stock: stockByModel.get(m.sku) ?? { total: 0, web: 0, tn: 0, byLoc: {} } }));
 
   return {
     range: current,
     ch: channel,
     prevYear: Number(prevYear.start.slice(0, 4)),
     inflationAdjusted: !yf.missing,
+    prevRange: prevCut,
     categories,
     origins: originBySku?.size ? summarizeOrigins({ prevToDateDocs: prev, currentDocs: cur, originBySku, factorByRefDate: factor }) : null,
     topModels,
