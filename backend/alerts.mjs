@@ -2,6 +2,7 @@
 // already has, each with its number. Every input may be null (source not
 // available) and its rules then stay quiet.
 import { ALERTS } from './alertConfig.mjs';
+import { mergeClarityPages } from './clarityPeriod.mjs';
 
 const pctText = (x) => `${x < 0 ? '−' : '+'}${Math.round(Math.abs(x) * 100)}%`;
 const fracPct = (f, digits = 2) => `${(f * 100).toLocaleString('es-AR', { maximumFractionDigits: digits })}%`;
@@ -90,18 +91,7 @@ function sourceAlert(behavior) {
 // Clarity daily snapshots of the range, pages merged across days.
 function clarityAlert(snapshots) {
   if (!snapshots?.length) return [];
-  const pages = new Map();
-  for (const s of snapshots) {
-    for (const p of s.pages || []) {
-      const acc = pages.get(p.path) ?? { path: p.path, sessions: 0, rageS: 0, deadS: 0 };
-      acc.sessions += p.sessions;
-      acc.rageS += (p.rage || 0) * p.sessions / 100;
-      acc.deadS += (p.dead || 0) * p.sessions / 100;
-      pages.set(p.path, acc);
-    }
-  }
-  const hit = [...pages.values()]
-    .map(p => ({ ...p, rage: (p.rageS / p.sessions) * 100, dead: (p.deadS / p.sessions) * 100 }))
+  const hit = mergeClarityPages(snapshots)
     .filter(p => p.sessions >= ALERTS.clarityMinSessions && (p.rage >= ALERTS.clarityRagePct || p.dead >= ALERTS.clarityDeadPct))
     .sort((a, b) => b.sessions - a.sessions)[0];
   if (!hit) return [];
