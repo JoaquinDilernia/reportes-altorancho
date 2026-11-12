@@ -4,8 +4,10 @@ import { rate } from './webFormat.js';
 // Two or three groups side by side (device, new vs returning): share of
 // sessions and how each converts.
 export default function SplitCard({ title, rows, labels }) {
-  const shown = rows.filter(r => r.cur?.sessions && labels[r.key]);
-  const total = shown.reduce((s, r) => s + r.cur.sessions, 0);
+  const all = rows.filter(r => r.cur?.sessions && labels[r.key]);
+  const total = all.reduce((s, r) => s + r.cur.sessions, 0);
+  // Groups under 1% of sessions (one Smart TV visit) only add noise.
+  const shown = all.filter(r => r.cur.sessions / total >= 0.01);
   return (
     <section className="nv-card nv-sec">
       <div className="nv-h"><h2>{title}</h2></div>

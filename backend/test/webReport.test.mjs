@@ -21,3 +21,15 @@ test('webPlan: running week on Wednesday → prev-year cut to Mon–Wed', () => 
   assert.deepEqual(p.prevRange, { start: '2025-11-09', end: '2025-11-11', partial: true });
   assert.deepEqual(p.gaRanges.yoy, { start: '2025-11-09', end: '2025-11-11' });
 });
+
+test('webPlan: running week → the previous week is cut to the same elapsed days too', () => {
+  const p = webPlan(ranges, '2026-11-11');
+  assert.deepEqual(p.prevPeriodRange, { start: '2026-11-02', end: '2026-11-04', partial: true });
+  assert.deepEqual(p.gaRanges.prev, { start: '2026-11-02', end: '2026-11-04' });
+});
+
+test('webPlan: closed week → previous week whole (same GA4 cache key as the Resumen)', () => {
+  const p = webPlan(ranges, '2026-11-20');
+  assert.deepEqual(p.prevPeriodRange, { ...ranges.prevPeriod, partial: false });
+  assert.deepEqual(p.gaRanges.prev, ranges.prevPeriod);
+});

@@ -67,6 +67,9 @@ export default function Web({ state, onUpdate, onLogout }) {
     <div className="nv-web">
       <h1 className="nv-h1">{TITLE[period]}</h1>
       <div className="nv-sub">Venta: Odoo · comportamiento: GA4 (tiene unas horas de demora) · experiencia: Clarity</div>
+      {data.prevRange.partial && (
+        <div className="nv-running">Período en curso: todo se compara con los mismos días del período anterior y de {data.prevYear} (hasta el {data.prevRange.end.split('-').reverse().slice(0, 2).join('/')}).</div>
+      )}
 
       <h2 className="nv-section">Venta web</h2>
       <WebSalesCard sales={data.sales} period={period} prevYear={data.prevYear} prevRange={data.prevRange} />

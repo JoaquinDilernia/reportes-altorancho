@@ -37,7 +37,7 @@ export default function WebSalesCard({ sales, period, prevYear, prevRange }) {
           );
         })}
       </div>
-      <DailyStacked daily={sales.daily} prevYear={prevYear} groups={WEB_ONLY} subtitle="venta web de Odoo" />
+      <DailyStacked daily={sales.daily} prevYear={prevYear} groups={WEB_ONLY} subtitle="venta web de Odoo" prevLabel={sales.kpis.revenue.yearAdjusted ? 'ajustado' : 'nominal'} />
     </>
   );
 }

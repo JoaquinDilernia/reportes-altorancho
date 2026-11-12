@@ -12,28 +12,32 @@ import { isGa4Configured } from './ga4.mjs';
 
 const month = (r) => r.start.slice(0, 7);
 
-// A running period is compared with the same elapsed days last year. Once the
-// period is closed the year-ago range is the full window, the same one the
-// Resumen asks GA4 for, so both tabs share its cache.
+// A running period is compared with the same elapsed days of the previous
+// period and of last year (a half week against a whole one always looks
+// down). Once the period is closed both are the full windows, the same ones
+// the Resumen asks GA4 for, so both tabs share its cache.
+const span = ({ start, end }) => ({ start, end });
 export function webPlan(ranges, today) {
   const prevRange = prevYearToDate(ranges, today);
+  const prevPeriodRange = prevYearToDate({ current: ranges.current, prevYear: ranges.prevPeriod }, today);
   return {
     prevRange,
-    gaRanges: { cur: ranges.current, prev: ranges.prevPeriod, yoy: { start: prevRange.start, end: prevRange.end } },
+    prevPeriodRange,
+    gaRanges: { cur: ranges.current, prev: span(prevPeriodRange), yoy: span(prevRange) },
   };
 }
 
 export async function buildWeb({ period = 'week', date, start, end }, { now = new Date() } = {}) {
   const ranges = period === 'custom' ? getPeriodRanges(start, period, end) : getPeriodRanges(date, period);
-  const { current, prevPeriod } = ranges;
+  const { current } = ranges;
   const today = argDay(now.toISOString());
-  const { prevRange, gaRanges } = webPlan(ranges, today);
+  const { prevRange, prevPeriodRange, gaRanges } = webPlan(ranges, today);
 
   const ga4 = isGa4Configured();
   let behaviorError = ga4 ? null : 'GA4 no configurado';
   const [curDocs, prevDocs, prevYearDocs, indexByMonth, behavior, snapshots] = await Promise.all([
     querySalesByRange(['ecommerce'], current.start, current.end),
-    querySalesByRange(['ecommerce'], prevPeriod.start, prevPeriod.end),
+    querySalesByRange(['ecommerce'], prevPeriodRange.start, prevPeriodRange.end),
     querySalesByRange(['ecommerce'], prevRange.start, prevRange.end),
     getInflationIndexByMonth(),
     ga4 ? getWebBehavior(gaRanges).catch(err => { console.error('[web] GA4:', err.message); behaviorError = 'GA4 no respondió'; return null; }) : null,
@@ -47,6 +51,7 @@ export async function buildWeb({ period = 'week', date, start, end }, { now = ne
   return {
     range: current,
     prevRange,
+    prevPeriodRange,
     prevYear: Number(prevRange.start.slice(0, 4)),
     sales: webSalesSummary({
       curDocs, prevDocs, prevYearDocs, range: current,
