@@ -115,7 +115,7 @@ function itemsSummary(itemRows, byName) {
     c.views += r.itemsViewed; c.carts += r.itemsAddedToCart; c.purchases += r.itemsPurchased; c.revenue += r.itemRevenue;
     const key = normName(r.itemName);
     const it = items.get(key) ?? {
-      name: r.itemName, category: c.label, webStock: hit?.webStock ?? null, views: 0, carts: 0, purchases: 0, revenue: 0,
+      name: r.itemName, sku: hit?.product?.sku ?? null, category: c.label, webStock: hit?.webStock ?? null, views: 0, carts: 0, purchases: 0, revenue: 0,
     };
     it.views += r.itemsViewed; it.carts += r.itemsAddedToCart; it.purchases += r.itemsPurchased; it.revenue += r.itemRevenue;
     items.set(key, it);
@@ -200,6 +200,9 @@ export function shapeBehavior({ ranges, raw, productsBySku }) {
   };
 }
 
+// One row per day: long custom ranges must not be cut.
+export const BEHAVIOR_DAILY_LIMIT = 400;
+
 async function fetchRaw(ranges) {
   const both = [
     { startDate: ranges.cur.start, endDate: ranges.cur.end, name: 'cur' },
@@ -228,7 +231,7 @@ async function fetchRaw(ranges) {
     landings: { dateRanges: cur, dimensions: [{ name: 'landingPage' }], metrics: salesMetrics, orderBys: desc('sessions'), limit: 15 },
     regions: { dateRanges: cur, dimensions: [{ name: 'region' }], metrics: salesMetrics, orderBys: desc('sessions'), limit: 10 },
     hourly: { dateRanges: cur, dimensions: [{ name: 'hour' }], metrics: salesMetrics, limit: 24 },
-    daily: { dateRanges: cur, dimensions: [{ name: 'date' }], metrics: [{ name: 'sessions' }, { name: 'addToCarts' }, { name: 'ecommercePurchases' }], limit: 60 },
+    daily: { dateRanges: cur, dimensions: [{ name: 'date' }], metrics: [{ name: 'sessions' }, { name: 'addToCarts' }, { name: 'ecommercePurchases' }], limit: BEHAVIOR_DAILY_LIMIT },
   };
   // GA4 allows 10 concurrent requests per property; stay under it.
   const entries = Object.entries(queries);

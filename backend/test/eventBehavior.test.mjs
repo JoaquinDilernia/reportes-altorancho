@@ -55,3 +55,26 @@ test('shapeBehavior: conversion is purchases/sessions and items land in Odoo cat
   assert.equal(r.items.lowConversion[0].webStock, 4);
   assert.equal(r.funnel.cur.find(s => s.id === 'purchase').users, 5);
 });
+
+test('shapeBehavior: item rows carry the matched sku (null if no match)', async () => {
+  const { shapeBehavior: shape } = await import('../eventBehavior.mjs');
+  const productsBySku = new Map([['S1', { sku: 'S1', name: 'Silla Tube', currentStock: 4, odooCategPath: 'All / Biblia / MUEBLES / SILLAS / X' }]]);
+  const r = shape({
+    ranges: {}, productsBySku,
+    raw: {
+      totals: [], funnel: [], channels: [], devices: [], visitors: [], searches: [], landings: [], regions: [], hourly: [], daily: [],
+      items: [
+        { dateRange: 'cur', itemName: 'Silla Tube', itemsViewed: 3000, itemsAddedToCart: 30, itemsPurchased: 6, itemRevenue: 600 },
+        { dateRange: 'cur', itemName: 'Producto Viejo', itemsViewed: 2500, itemsAddedToCart: 1, itemsPurchased: 0, itemRevenue: 0 },
+      ],
+    },
+  });
+  const bySku = Object.fromEntries(r.items.topViewed.map(i => [i.name, i.sku]));
+  assert.equal(bySku['Silla Tube'], 'S1');
+  assert.equal(bySku['Producto Viejo'], null);
+});
+
+test('GA4 daily series is not cut for long custom ranges', async () => {
+  const { BEHAVIOR_DAILY_LIMIT } = await import('../eventBehavior.mjs');
+  assert.ok(BEHAVIOR_DAILY_LIMIT >= 366);
+});
