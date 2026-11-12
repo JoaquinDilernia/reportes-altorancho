@@ -256,3 +256,33 @@
 .event-live .ev-btbl td.name { white-space: normal; min-width: 150px; line-height: 1.3; }
 .event-live .ev-btbl .ev-cat2 { display: block; font-size: 11px; }
 .event-live .ev-btbl th, .event-live .ev-btbl td { padding: 7px 6px; }
+
+/* Full-screen celebration when the event's total target is passed */
+.event-live .ev-festejo { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 45%, #3a2a05 0%, #120c02 45%, #000 100%); animation: ev-fj-shake .6s cubic-bezier(.36,.07,.19,.97) .15s 2 both; }
+.event-live .ev-fj-rays { position: absolute; left: 50%; top: 45%; width: 260vmax; height: 260vmax; margin: -130vmax 0 0 -130vmax; background: repeating-conic-gradient(from 0deg, rgba(255,200,60,.22) 0deg 9deg, rgba(255,200,60,0) 9deg 22deg); animation: ev-fj-spin 14s linear infinite; mask-image: radial-gradient(circle, #000 0%, transparent 45%); -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 45%); }
+.event-live .ev-fj-flash { position: absolute; inset: 0; background: #fff; animation: ev-fj-flash 1.1s ease-out forwards; pointer-events: none; }
+.event-live .ev-fj-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.event-live .ev-fj-body { position: relative; text-align: center; padding: 24px 16px; max-width: 100%; }
+.event-live .ev-fj-trophy { font-size: clamp(64px, 12vw, 130px); line-height: 1; animation: ev-fj-drop .9s cubic-bezier(.2,1.6,.4,1) .2s both, ev-fj-bob 2.4s ease-in-out 1.2s infinite; filter: drop-shadow(0 0 30px rgba(255,200,60,.8)); }
+.event-live .ev-fj-kicker { margin-top: 10px; font-size: clamp(12px, 1.6vw, 16px); letter-spacing: .4em; text-transform: uppercase; color: var(--amber); font-weight: 800; animation: ev-fj-in .5s ease-out .5s both; }
+.event-live .ev-fj-title { margin: 8px 0 0; font-size: clamp(48px, 11vw, 150px); line-height: .9; font-weight: 900; letter-spacing: -.04em; background: linear-gradient(100deg, #fff6c8 0%, #ffc83c 25%, #ff7a45 50%, #C6F432 75%, #fff6c8 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ev-fj-zoom .8s cubic-bezier(.2,1.5,.35,1) .35s both, ev-fj-shine 2.2s linear 1.2s infinite; filter: drop-shadow(0 6px 30px rgba(255,122,69,.55)); }
+.event-live .ev-fj-amount { margin-top: 14px; font-size: clamp(40px, 8vw, 96px); font-weight: 900; color: #fff; text-shadow: 0 0 24px rgba(198,244,50,.9), 0 0 60px rgba(198,244,50,.5); animation: ev-fj-zoom .7s cubic-bezier(.2,1.5,.35,1) .9s both, ev-fj-pulse 1.1s ease-in-out 1.6s infinite; }
+.event-live .ev-fj-sub { margin-top: 8px; font-size: clamp(14px, 2vw, 20px); color: #ffe6a8; animation: ev-fj-in .5s ease-out 1.2s both; }
+.event-live .ev-fj-sub b { color: var(--lime); }
+.event-live .ev-fj-actions { margin-top: 26px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; animation: ev-fj-in .5s ease-out 1.5s both; }
+.event-live .ev-fj-btn { font: inherit; font-weight: 800; font-size: 15px; padding: 12px 22px; border-radius: 40px; border: 0; cursor: pointer; background: var(--amber); color: #1a1200; }
+.event-live .ev-fj-btn.hot { background: var(--lime); animation: ev-fj-pulse .9s ease-in-out infinite; box-shadow: 0 0 30px rgba(198,244,50,.7); }
+.event-live .ev-fj-btn.ghost { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.3); }
+.event-live .ev-fj-btn:focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; }
+.event-live .ev-fj-thanks { margin-top: 18px; color: rgba(255,255,255,.7); font-size: 14px; animation: ev-fj-in .5s ease-out 2s both; }
+.event-live .ev-festejo.calm, .event-live .ev-festejo.calm * { animation-duration: .01s !important; animation-iteration-count: 1 !important; }
+.event-live .ev-trophy-btn { font: inherit; font-size: 12px; font-weight: 800; padding: 6px 12px; border-radius: 30px; border: 0; cursor: pointer; background: linear-gradient(90deg, var(--amber), var(--orange)); color: #1a1200; box-shadow: 0 0 16px rgba(255,200,60,.45); }
+@keyframes ev-fj-spin { to { transform: rotate(360deg); } }
+@keyframes ev-fj-flash { 0% { opacity: .95 } 100% { opacity: 0 } }
+@keyframes ev-fj-shake { 10%, 90% { transform: translate(-2px, 1px) } 20%, 80% { transform: translate(4px, -2px) } 30%, 50%, 70% { transform: translate(-8px, 3px) } 40%, 60% { transform: translate(8px, -3px) } }
+@keyframes ev-fj-drop { from { transform: translateY(-80vh) rotate(-30deg); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes ev-fj-bob { 50% { transform: translateY(-10px) rotate(4deg) } }
+@keyframes ev-fj-zoom { from { transform: scale(3); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+@keyframes ev-fj-shine { to { background-position: -250% 0 } }
+@keyframes ev-fj-pulse { 50% { transform: scale(1.06) } }
+@keyframes ev-fj-in { from { transform: translateY(16px); opacity: 0 } to { transform: none; opacity: 1 } }

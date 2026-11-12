@@ -20,9 +20,13 @@ import Delta from './Delta.jsx';
 import EventDetails from './EventDetails.jsx';
 import WebBehavior from './WebBehavior.jsx';
 import OriginsTable from './OriginsTable.jsx';
+import GoalCelebration from './GoalCelebration.jsx';
+import { goalStatus, wasCelebrated, markCelebrated, forcedByUrl } from '../../lib/goalCelebration.js';
 import '../../styles/event.css';
 
 const POLL_MS = 2 * 60 * 1000;
+// Read before the app rewrites the URL (it keeps only its own params).
+const FORCED_AT_LOAD = forcedByUrl(globalThis.location?.search || '');
 const EVENTS = [{ id: 'cyber', label: 'Cyber' }, { id: 'black', label: 'Black' }];
 const VIEWS = [{ id: 'total', label: 'Total' }, { id: 'web', label: 'Web' }, { id: 'locales', label: 'Locales' }];
 
@@ -59,7 +63,7 @@ function Segmented({ options, value, onChange, label }) {
   );
 }
 
-function Topbar({ data, eventId, onEvent, view, onView, now, stale }) {
+function Topbar({ data, eventId, onEvent, view, onView, now, stale, onFestejo }) {
   const label = data?.label ?? EVENTS.find(e => e.id === eventId).label;
   const year = data ? String(data.current.year).slice(2) : '26';
   let line = null;
@@ -82,6 +86,7 @@ function Topbar({ data, eventId, onEvent, view, onView, now, stale }) {
       <div className="ev-brand">Alto<em>{label}</em> {year}</div>
       {line}
       {stale && <span className="ev-stale">no se pudo actualizar, reintento en 2 min</span>}
+      {onFestejo && <button type="button" className="ev-trophy-btn" onClick={onFestejo}>🏆 ¡Objetivo cumplido! Festejar de nuevo</button>}
       <div className="ev-segs">
         <Segmented options={EVENTS} value={eventId} onChange={onEvent} label="Evento" />
         <Segmented options={VIEWS} value={view} onChange={onView} label="Vista" />
@@ -293,6 +298,8 @@ export default function EventLive({ onLogout }) {
   const [stale, setStale] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [toasts, setToasts] = useState([]);
+  const [festejo, setFestejo] = useState(false);
+  const forcedShown = useRef(false);
   const prevViews = useRef(new Map());
   const toastSeq = useRef(0);
   const hasData = useRef(false);
@@ -349,15 +356,38 @@ export default function EventLive({ onLogout }) {
     if (fresh.length) setToasts(q => [...q, ...fresh]);
   }, [data, v, view, eventId, phase]);
 
+  // The big celebration: total target passed → once per browser per event,
+  // on entering the tab or live when it happens. ?festejo=1 forces it once.
+  const goal = useMemo(() => (data && data.event === eventId ? goalStatus(data) : null), [data, eventId]);
+  useEffect(() => {
+    if (!goal || !data || phase === 'pre') return;
+    if (!forcedShown.current && FORCED_AT_LOAD) {
+      forcedShown.current = true;
+      setFestejo(true);
+      return;
+    }
+    if (goal.passed && !wasCelebrated(globalThis.localStorage, eventId, data.current.year)) {
+      markCelebrated(globalThis.localStorage, eventId, data.current.year);
+      setFestejo(true);
+    }
+  }, [goal, data, eventId, phase]);
+  const closeFestejo = useCallback(() => setFestejo(false), []);
+
   const nextToast = useCallback(() => setToasts(q => q.slice(1)), []);
 
-  const changeEvent = (id) => { if (id !== eventId) { setToasts([]); setEventId(id); } };
+  const changeEvent = (id) => { if (id !== eventId) { setToasts([]); setFestejo(false); setEventId(id); } };
 
   return (
     <div className="event-live">
+      {festejo && goal && data && (
+        <GoalCelebration
+          label={data.label} year={data.current.year} revenue={goal.revenue} target={goal.target}
+          overPct={goal.overPct} test={!goal.passed} onClose={closeFestejo}
+        />
+      )}
       {toasts[0] && <CelebrationToast key={toasts[0].id} message={toasts[0].text} onDone={nextToast} />}
       <div className="ev-wrap">
-        <Topbar data={data} eventId={eventId} onEvent={changeEvent} view={view} onView={setView} now={now} stale={stale} />
+        <Topbar data={data} eventId={eventId} onEvent={changeEvent} view={view} onView={setView} now={now} stale={stale} onFestejo={goal?.passed ? () => setFestejo(true) : null} />
 
         {error && <p className="ev-status err">Error: {error}</p>}
         {!data && !error && <p className="ev-status">Cargando…</p>}
