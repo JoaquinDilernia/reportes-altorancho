@@ -2,6 +2,11 @@ import { useState } from 'react';
 import { useAuth } from './auth/useAuth.js';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import NuevoApp from './nuevo/NuevoApp.jsx';
+
+// The new report lives at ?v=nuevo (Hostinger serves a static index.html with
+// no rewrites, so a separate path isn't possible); / stays the current one.
+const isNuevo = () => new URLSearchParams(window.location.search).get('v') === 'nuevo';
 
 export default function App() {
   const { isAuthenticated, login, logout } = useAuth();
@@ -23,5 +28,5 @@ export default function App() {
     );
   }
 
-  return <Dashboard onLogout={logout} />;
+  return isNuevo() ? <NuevoApp onLogout={logout} /> : <Dashboard onLogout={logout} />;
 }

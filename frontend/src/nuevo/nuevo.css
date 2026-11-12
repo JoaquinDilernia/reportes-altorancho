@@ -1,0 +1,107 @@
+/* New report (?v=nuevo). Everything is scoped under .nv so the current
+   report at / keeps its own look. */
+.nv {
+  --nv-ink: #353434;
+  --nv-ink2: #6b6968;
+  --nv-ink3: #9a9897;
+  --nv-line: #ececeb;
+  --nv-soft: #f6f6f5;
+  --nv-bg: #fafafa;
+  --nv-card: #fff;
+  --nv-up: #0e9f6e;
+  --nv-up-bg: #e3f6ee;
+  --nv-dn: #d64545;
+  --nv-dn-bg: #fbe7e7;
+  --nv-warn: #a86f00;
+  --nv-warn-bg: #fdf3dc;
+  --nv-info: #3b6fd8;
+  --nv-info-bg: #e6eefc;
+  --nv-radius: 14px;
+  --nv-web: #1BAF7A;
+  --nv-lomas: #008300;
+  --nv-belgrano: #4A3AA7;
+  --nv-alcorta: #EB6834;
+  --nv-mayorista: #2A78D6;
+  min-height: 100vh;
+  background: var(--nv-bg);
+  color: var(--nv-ink);
+  font-family: 'Poppins', sans-serif;
+}
+.nv *, .nv *::before, .nv *::after { box-sizing: border-box; }
+.nv button { font-family: inherit; cursor: pointer; }
+
+/* Top bar */
+.nv-top {
+  background: var(--nv-ink); color: #fff; padding: 12px 32px;
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 20;
+}
+.nv-brand { font-weight: 700; letter-spacing: .2em; font-size: 14px; }
+.nv-nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.nv-nav button {
+  background: none; border: 0; color: #c9c8c7; font-size: 13px; padding: 7px 13px;
+  border-radius: 20px; font-weight: 500; transition: background .15s, color .15s;
+}
+.nv-nav button:hover { color: #fff; }
+.nv-nav button.on { background: #fff; color: var(--nv-ink); }
+.nv-nav button.ev { color: #f5c451; }
+.nv-nav button.ev.on { background: #f5c451; color: var(--nv-ink); }
+.nv-nav button:focus-visible, .nv-seg button:focus-visible { outline: 2px solid #f5c451; outline-offset: 2px; }
+.nv-search-slot { margin-left: auto; }
+.nv-top-links { display: flex; gap: 12px; align-items: center; font-size: 12px; }
+.nv-top-links a, .nv-top-links button { color: #bdbcbb; background: none; border: 0; font-size: 12px; text-decoration: none; padding: 0; }
+.nv-top-links a:hover, .nv-top-links button:hover { color: #fff; }
+
+/* Layout */
+.nv-wrap { max-width: 1240px; margin: 0 auto; padding: 22px 32px 80px; }
+.nv-card { background: var(--nv-card); border: 1px solid var(--nv-line); border-radius: var(--nv-radius); padding: 16px 18px; }
+.nv-lbl { font-size: 11px; color: var(--nv-ink3); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+.nv-btn {
+  display: inline-block; background: var(--nv-ink); color: #fff; border: 0; border-radius: 20px;
+  padding: 8px 16px; font-size: 13px; font-weight: 500; text-decoration: none;
+}
+
+/* Period bar */
+.nv-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.nv-seg { display: flex; background: #fff; border: 1px solid var(--nv-line); border-radius: 20px; padding: 3px; }
+.nv-seg button { background: none; border: 0; font-size: 12px; padding: 5px 13px; border-radius: 16px; color: var(--nv-ink2); font-weight: 500; }
+.nv-seg button.on { background: var(--nv-ink); color: #fff; }
+.nv-nav-period { display: flex; align-items: center; gap: 6px; }
+.nv-nav-period button {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--nv-line); background: #fff;
+  color: var(--nv-ink); font-size: 16px; line-height: 1;
+}
+.nv-nav-period button:hover { background: var(--nv-soft); }
+.nv-range { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.nv-dates { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--nv-ink2); }
+.nv-dates input {
+  font-family: inherit; font-size: 12px; border: 1px solid var(--nv-line); border-radius: 8px;
+  padding: 5px 8px; color: var(--nv-ink); background: #fff;
+}
+.nv-cmp { font-size: 12px; color: var(--nv-ink2); margin-left: auto; }
+
+/* Coming soon */
+.nv-soon { max-width: 560px; margin: 40px auto; text-align: center; padding: 36px 28px; }
+.nv-soon h2 { font-size: 22px; margin: 6px 0 8px; font-weight: 700; }
+.nv-soon p { color: var(--nv-ink2); font-size: 14px; margin: 0 0 18px; }
+
+/* The existing AI assistant, restyled here only (components untouched). */
+.nv-ai { margin-bottom: 16px; }
+.nv .insights-button {
+  background: #fff; color: var(--nv-ink); border: 1px solid var(--nv-line); border-radius: 20px;
+  box-shadow: none; font-size: 12px; padding: 6px 14px; font-weight: 500;
+}
+.nv .insights-button:hover:not(:disabled) { background: var(--nv-soft); }
+.nv .insights-card { background: #fff; border: 1px solid var(--nv-line); border-radius: var(--nv-radius); box-shadow: none; }
+.nv .chat-fab { background: var(--nv-ink); box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+.nv .chat-panel { border-radius: var(--nv-radius); border: 1px solid var(--nv-line); }
+.nv .chat-header { background: var(--nv-ink); color: #fff; }
+.nv .chat-message-user { background: var(--nv-soft); }
+.nv .chat-input-row button { background: var(--nv-ink); }
+
+@media (max-width: 760px) {
+  .nv-top { padding: 10px 16px; gap: 10px; }
+  .nv-wrap { padding: 16px 16px 80px; }
+  .nv-cmp { margin-left: 0; }
+  .nv-search-slot { margin-left: 0; width: 100%; }
+}

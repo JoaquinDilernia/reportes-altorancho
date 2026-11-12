@@ -129,3 +129,34 @@ export async function getEventReport(event) {
   if (!data.ok) throw new Error(data.error || 'Event report fetch failed');
   return data;
 }
+
+// New report (?v=nuevo) endpoints — same auth handling as the rest.
+async function getAuthed(path, failMessage) {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+  const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || failMessage);
+  return data;
+}
+
+function periodQuery({ period, date, start, end }) {
+  return (period === 'custom' ? new URLSearchParams({ period, start, end }) : new URLSearchParams({ period, date })).toString();
+}
+
+export function getResumen(params) {
+  return getAuthed(`/api/v2/resumen?${periodQuery(params)}`, 'Resumen fetch failed');
+}
+
+export async function searchProducts(q) {
+  const data = await getAuthed(`/api/v2/product-search?q=${encodeURIComponent(q)}`, 'Search failed');
+  return data.results;
+}
+
+export function getProductSheet(sku, params) {
+  return getAuthed(`/api/v2/product/${encodeURIComponent(sku)}?${periodQuery(params)}`, 'Product fetch failed');
+}

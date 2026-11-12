@@ -358,3 +358,7 @@ button {
   background: rgba(194, 106, 0, 0.1);
 }
 .invest-table { min-width: 860px; }
+
+/* Link to the new report (?v=nuevo) */
+.try-new-link { font-size: 12px; color: var(--ink-secondary); text-decoration: none; border: 1px solid var(--border-subtle); border-radius: 16px; padding: 4px 12px; white-space: nowrap; }
+.try-new-link:hover { color: var(--ink-primary); border-color: var(--ink-primary); }
