@@ -20,12 +20,12 @@ const ofChannels = (docs, channels) => (docs || []).filter(d => channels.include
 
 function metrics(docs) {
   const t = computeTotals(docs);
-  return { revenue: t.revenue, orders: t.orders, units: t.units, avgTicket: t.avgTicket, unitsPerTicket: t.orders ? round(t.units / t.orders) : null };
+  return { revenue: t.revenue, orders: t.orders, units: t.units, avgTicket: t.orders ? t.avgTicket : null, unitsPerTicket: t.orders ? round(t.units / t.orders) : null };
 }
 
 function row({ id, label }, cur, prev, year, inflation, totalRevenue) {
   const { currentIndex, prevYearIndex } = inflation;
-  const money = (key) => computeInflationAdjustedDelta(cur[key], year[key], currentIndex, prevYearIndex);
+  const money = (key) => (cur[key] == null || year[key] == null ? null : computeInflationAdjustedDelta(cur[key], year[key], currentIndex, prevYearIndex));
   const revAdj = money('revenue');
   const ticketAdj = money('avgTicket');
   return {
@@ -124,6 +124,8 @@ export function localDetail({ local, curDocs, prevDocs, productsBySku, originByS
     categories,
     origins: originBySku?.size ? summarizeOrigins({ prevToDateDocs: prevDocs, currentDocs: curDocs, originBySku, factorByRefDate }) : null,
     payments: payments(curDocs),
-    stock: { stock: pick(local.stockKey), exhibition: pick(local.exhibitionKey) },
+    // Exhibition only exists in the new stockByLoc; products synced before it
+    // carry the legacy keys, where a 0 on the floor would be a false "no stock".
+    stock: { stock: pick(local.stockKey), exhibition: pick(local.exhibitionKey), exhibitionKnown: [...productsBySku.values()].some(p => p?.stockByLoc) },
   };
 }

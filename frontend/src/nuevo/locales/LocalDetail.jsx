@@ -15,13 +15,15 @@ function StockStrip({ stock, label, asOf }) {
       <div className="nv-h"><h2>Stock de {label}</h2><span>stock a hoy ({asOf})</span></div>
       <div className="nv-locstock">
         <div><div className="nv-lbl">Depósito del local</div><div className="nv-big nv-mid">{num(stock.stock.units)} u.</div><div className="nv-mute">{num(stock.stock.products)} productos</div></div>
-        <div><div className="nv-lbl">Exhibición</div><div className="nv-big nv-mid">{num(stock.exhibition.units)} u.</div><div className="nv-mute">{num(stock.exhibition.products)} productos</div></div>
+        {stock.exhibitionKnown
+          ? <div><div className="nv-lbl">Exhibición</div><div className="nv-big nv-mid">{num(stock.exhibition.units)} u.</div><div className="nv-mute">{num(stock.exhibition.products)} productos</div></div>
+          : <div><div className="nv-lbl">Exhibición</div><div className="nv-big nv-mid">s/d</div><div className="nv-mute">todavía no se sincronizó desde Odoo</div></div>}
       </div>
     </section>
   );
 }
 
-function TopTable({ rows, prevYear, label, onOpenSku }) {
+function TopTable({ rows, prevYear, label, onOpenSku, exhibitionKnown }) {
   return (
     <section className="nv-card nv-sec">
       <div className="nv-h"><h2>Más vendidos en {label}</h2><span>por modelo, todos los colores · stock a hoy</span></div>
@@ -48,7 +50,7 @@ function TopTable({ rows, prevYear, label, onOpenSku }) {
                     <td className="r">{num(m.units)}</td>
                     <td className="r">{money(m.revenue)}</td>
                     <td className="r"><YearPill cur={m.revenue} prev={m.prevRevenueToDateAdj} /></td>
-                    <td className={`r${local === 0 ? ' nv-red' : ''}`} title={`Depósito ${num(m.local.stock)} · exhibición ${num(m.local.exhibition)}`}>{num(local)}</td>
+                    <td className={`r${exhibitionKnown && local === 0 ? ' nv-red' : ''}`} title={exhibitionKnown ? `Depósito ${num(m.local.stock)} · exhibición ${num(m.local.exhibition)}` : 'Solo depósito: la exhibición todavía no se sincronizó'}>{num(local)}</td>
                     <td className="r">{num(m.rolon)}</td>
                   </tr>
                 );
@@ -57,7 +59,9 @@ function TopTable({ rows, prevYear, label, onOpenSku }) {
           </table>
         </div>
       )}
-      <div className="nv-note">En rojo: se vende en el local y no le queda stock ahí (ni en depósito ni exhibido). Si Rolón tiene, se puede reponer.</div>
+      <div className="nv-note">{exhibitionKnown
+        ? 'En rojo: se vende en el local y no le queda stock ahí (ni en depósito ni exhibido). Si Rolón tiene, se puede reponer.'
+        : 'Stock local = solo el depósito del local: la exhibición todavía no se sincronizó desde Odoo.'}</div>
     </section>
   );
 }
@@ -119,7 +123,7 @@ export default function LocalDetail({ data, loc, onUpdate, onOpenSku }) {
         </div>
       </div>
       <StockStrip stock={d.stock} label={store.label} asOf={asOf} />
-      <TopTable rows={d.topModels} prevYear={data.prevYear} label={store.label} onOpenSku={onOpenSku} />
+      <TopTable rows={d.topModels} prevYear={data.prevYear} label={store.label} onOpenSku={onOpenSku} exhibitionKnown={d.stock.exhibitionKnown} />
       <div className="nv-grid2">
         <CategoriesTable rows={d.categories} prevYear={data.prevYear} />
         <div>

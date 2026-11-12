@@ -36,7 +36,9 @@ test('localesSideBySide: a store with no sales has null ticket metrics', () => {
   const a = byId(r, 'alcorta');
   assert.equal(a.revenue, 0);
   assert.equal(a.orders, 0);
-  assert.equal(a.avgTicket, 0);
+  assert.equal(a.avgTicket, null);
+  assert.equal(a.vsPrev.avgTicket, null);
+  assert.equal(a.vsYear.avgTicket, null);
   assert.equal(a.unitsPerTicket, null);
   assert.equal(a.sharePct, 0);
   assert.equal(a.vsPrev.revenue, null);
@@ -111,6 +113,15 @@ test('localDetail: origins null without origin map; stock from the store keys', 
   ]);
   const d = localDetail({ local: lomas, curDocs: [doc(100)], prevDocs: [], productsBySku, originBySku: null });
   assert.equal(d.origins, null);
-  assert.deepEqual(d.stock, { stock: { units: 5, products: 1 }, exhibition: { units: 5, products: 2 } });
+  assert.deepEqual(d.stock, { stock: { units: 5, products: 1 }, exhibition: { units: 5, products: 2 }, exhibitionKnown: true });
   assert.ok(Array.isArray(d.categories));
+});
+
+test('localDetail: exhibition unknown while products only carry the legacy stock keys', () => {
+  const legacy = new Map([['A1', { sku: 'A1', name: 'a', stockByLocation: { local_lomas: 4 } }]]);
+  const d = localDetail({ local: lomas, curDocs: [doc(100, { sku: 'A1' })], prevDocs: [], productsBySku: legacy, originBySku: null });
+  assert.equal(d.stock.exhibitionKnown, false);
+  assert.equal(d.stock.stock.units, 4);
+  const modern = new Map([['A1', { sku: 'A1', name: 'a', stockByLoc: { lomas_stock: 4 } }]]);
+  assert.equal(localDetail({ local: lomas, curDocs: [], prevDocs: [], productsBySku: modern, originBySku: null }).stock.exhibitionKnown, true);
 });
