@@ -161,6 +161,10 @@ export function getWeb(params) {
   return getAuthed(`/api/v2/web?${periodQuery(params)}`, 'Web fetch failed');
 }
 
+export function getLocales(params) {
+  return getAuthed(`/api/v2/locales?${periodQuery(params)}`, 'Locales fetch failed');
+}
+
 export function getProducto({ ch = 'all', ...params }) {
   return getAuthed(`/api/v2/producto?${periodQuery(params)}&ch=${encodeURIComponent(ch)}`, 'Producto fetch failed');
 }
