@@ -281,13 +281,44 @@ export async function buildBehaviorReport(eventId, { today = argDay(new Date().t
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const cache = new Map();
 
+// When GA4 fails (quota, timeouts), the last good result of the same key is
+// served instead of an error: a few-hours-old behaviour beats an empty card.
+// A failure stays cached for a couple of minutes so every visit doesn't fire
+// another ~12 reports at a GA4 that is already refusing them.
+const FAIL_TTL_MS = 2 * 60 * 1000;
+const lastGood = new Map();
+
+export function withLastGood(key, build, { store = lastGood, log = console.error } = {}) {
+  return build().then(
+    (value) => {
+      if (store.size > 30 && !store.has(key)) store.delete(store.keys().next().value);
+      store.set(key, { value, at: new Date().toISOString() });
+      return value;
+    },
+    (err) => {
+      const good = store.get(key);
+      if (!good) throw err;
+      log(`[ga4] ${key}: ${err.message} (sirviendo el resultado del ${good.at})`);
+      return { ...good.value, stale: true, staleSince: good.at };
+    },
+  );
+}
+
+function cached(key, ttl, build) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < (hit.failed ? FAIL_TTL_MS : ttl)) return hit.promise;
+  const entry = { at: Date.now(), failed: false };
+  entry.promise = withLastGood(key, build);
+  if (cache.size > 30) cache.delete(cache.keys().next().value);
+  cache.set(key, entry);
+  // A stale answer is a failure too: retry GA4 soon, not after the full TTL.
+  const failed = () => { entry.failed = true; entry.at = Date.now(); };
+  entry.promise.then(v => { if (v?.stale) failed(); }, failed);
+  return entry.promise;
+}
+
 export function getBehaviorReport(eventId) {
-  const hit = cache.get(eventId);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.promise;
-  const promise = buildBehaviorReport(eventId);
-  cache.set(eventId, { at: Date.now(), promise });
-  promise.catch(() => cache.delete(eventId));
-  return promise;
+  return cached(`event:${eventId}`, CACHE_TTL_MS, () => buildBehaviorReport(eventId));
 }
 
 // Any range (the new report): cur vs prev, plus a year-ago total when given.
@@ -297,13 +328,7 @@ const PAST_TTL_MS = 6 * 60 * 60 * 1000;
 export function getWebBehavior({ cur, prev, yoy }, { today = argDay(new Date().toISOString()) } = {}) {
   const key = [cur, prev, yoy].map(r => (r ? `${r.start}..${r.end}` : '-')).join('|');
   const ttl = cur.end >= today ? CACHE_TTL_MS : PAST_TTL_MS;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < ttl) return hit.promise;
   const ranges = { cur, prev, ...(yoy ? { yoy } : {}) };
-  const promise = Promise.all([fetchRaw(ranges), getProductsBySku()])
-    .then(([raw, productsBySku]) => shapeBehavior({ ranges, raw, productsBySku }));
-  if (cache.size > 30) cache.delete(cache.keys().next().value);
-  cache.set(key, { at: Date.now(), promise });
-  promise.catch(() => cache.delete(key));
-  return promise;
+  return cached(key, ttl, () => Promise.all([fetchRaw(ranges), getProductsBySku()])
+    .then(([raw, productsBySku]) => shapeBehavior({ ranges, raw, productsBySku })));
 }

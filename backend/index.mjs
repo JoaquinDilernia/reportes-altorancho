@@ -17,7 +17,8 @@ import { getOriginBySku } from './productOrigin.mjs';
 import { getPeriodRanges } from './periods.mjs';
 import { getEventReport } from './eventReport.mjs';
 import { getBehaviorReport } from './eventBehavior.mjs';
-import { getClarityReport } from './clarity.mjs';
+import { getClarityReport, isClarityConfigured } from './clarity.mjs';
+import { isGa4Configured } from './ga4.mjs';
 import { takeDailySnapshots } from './snapshots.mjs';
 import { EVENTS, liveSyncEvent, argDay } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
@@ -398,5 +399,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
-  app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
+  app.listen(PORT, () => console.log(`[server] listening on :${PORT} (clarity=${isClarityConfigured() ? "si" : "no"}, ga4=${isGa4Configured() ? "si" : "no"})`));
 }

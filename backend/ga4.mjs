@@ -45,18 +45,67 @@ export function clampGa4DateRanges(body, today) {
 }
 const argToday = () => new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+// Every GA4 call of the process goes through one gate. GA4 allows 10
+// concurrent requests per property, shared with the altorancho-ventas
+// backend; each tab fans out ~12 reports, so a few tabs at once used to hit
+// "concurrent requests" 429s and timeouts, and those burn the hourly
+// server-errors quota (10/h), which then blocks every report for up to an
+// hour. So: at most MAX_CONCURRENT in flight, and after a 429 (or a run of
+// server errors) stop calling for a while instead of digging the hole deeper.
+export function createGa4Gate({ maxConcurrent = 3, cooldownMs = 15 * 60 * 1000, serverErrorLimit = 3, now = () => Date.now() } = {}) {
+  let active = 0;
+  const waiting = [];
+  let blockedUntil = 0;
+  let serverErrors = 0;
+  const release = () => {
+    active--;
+    const next = waiting.shift();
+    if (next) next();
+  };
+  const block = () => { blockedUntil = now() + cooldownMs; serverErrors = 0; };
+  return {
+    blockedUntil: () => blockedUntil,
+    async run(fn) {
+      if (now() < blockedUntil) throw new Error('GA4 sin cuota por un rato (429): reintenta en unos minutos');
+      if (active >= maxConcurrent) await new Promise(resolve => waiting.push(resolve));
+      active++;
+      try {
+        if (now() < blockedUntil) throw new Error('GA4 sin cuota por un rato (429): reintenta en unos minutos');
+        const res = await fn();
+        if (res.status === 429) block();
+        else if (res.status >= 500) { if (++serverErrors >= serverErrorLimit) block(); }
+        else if (res.ok) serverErrors = 0;
+        return res;
+      } catch (err) {
+        // Timeouts and network failures look like server errors to GA4's quota.
+        if (++serverErrors >= serverErrorLimit) block();
+        throw err;
+      } finally {
+        release();
+      }
+    },
+  };
+}
+
+const gate = createGa4Gate();
+
+async function ga4Fetch(body) {
+  const token = await accessToken();
+  const res = await gate.run(() => fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${process.env.GA4_PROPERTY_ID}:runReport`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  }));
+  if (!res.ok) throw new Error(`GA4 ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
+
 async function runReportAll(rawBody) {
   const body = clampGa4DateRanges(rawBody, argToday());
   const rows = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${process.env.GA4_PROPERTY_ID}:runReport`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, offset, limit: PAGE_SIZE }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!res.ok) throw new Error(`GA4 ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const page = await res.json();
+    const page = await ga4Fetch({ ...body, offset, limit: PAGE_SIZE });
     rows.push(...(page.rows || []));
     if (!page.rows || page.rows.length < PAGE_SIZE || rows.length >= (page.rowCount || 0)) return rows;
   }
@@ -66,14 +115,7 @@ async function runReportAll(rawBody) {
 // dimension/metric names; metrics as numbers. With several dateRanges, GA4
 // adds a `dateRange` dimension holding each range's `name`.
 export async function runGa4Report(body) {
-  const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${process.env.GA4_PROPERTY_ID}:runReport`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(clampGa4DateRanges(body, argToday())),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) throw new Error(`GA4 ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return ga4Records(await res.json());
+  return ga4Records(await ga4Fetch(clampGa4DateRanges(body, argToday())));
 }
 
 export function ga4Records(page) {

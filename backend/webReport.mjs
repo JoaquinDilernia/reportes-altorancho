@@ -40,7 +40,7 @@ export async function buildWeb({ period = 'week', date, start, end }, { now = ne
     querySalesByRange(['ecommerce'], prevPeriodRange.start, prevPeriodRange.end),
     querySalesByRange(['ecommerce'], prevRange.start, prevRange.end),
     getInflationIndexByMonth(),
-    ga4 ? getWebBehavior(gaRanges).catch(err => { console.error('[web] GA4:', err.message); behaviorError = 'GA4 no respondió'; return null; }) : null,
+    ga4 ? getWebBehavior(gaRanges).catch(err => { console.error('[web] GA4:', err.message); behaviorError = /429/.test(err.message) ? 'GA4 sin cuota por un rato (vuelve en menos de una hora)' : 'GA4 no respondió'; return null; }) : null,
     queryDailySnapshots(CLARITY_DAILY_COL, current.start, current.end).catch(err => { console.error('[web] clarity:', err.message); return null; }),
   ]);
 
