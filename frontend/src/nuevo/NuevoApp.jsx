@@ -5,6 +5,7 @@ import InsightsButton from '../components/InsightsButton.jsx';
 import ChatWidget from '../components/ChatWidget.jsx';
 import { parseUrlState, serializeUrlState } from './urlState.js';
 import TopBar from './TopBar.jsx';
+import { pickEvent } from './eventTab.js';
 import PeriodBar from './PeriodBar.jsx';
 import Resumen from './resumen/Resumen.jsx';
 import Producto from './producto/Producto.jsx';
@@ -26,14 +27,10 @@ export function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function addDays(iso, n) {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
+const EVENT_IDS = ['cyber', 'black'];
 
 // Tab content.
-function TabContent({ state, onLogout, onNavigate, onUpdate }) {
+function TabContent({ state, eventId, onLogout, onNavigate, onUpdate }) {
   switch (state.tab) {
     case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
     case 'web': return <Web state={state} onUpdate={onUpdate} onLogout={onLogout} />;
@@ -41,7 +38,8 @@ function TabContent({ state, onLogout, onNavigate, onUpdate }) {
     case 'pauta': return <Pauta state={state} onLogout={onLogout} />;
     case 'mayorista': return <Mayorista state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'producto': return <Producto state={state} onUpdate={onUpdate} onLogout={onLogout} />;
-    case 'cyber': return <EventLive onLogout={onLogout} />;
+    // Keyed so it opens on the active event once that's known.
+    case 'cyber': return <EventLive key={eventId ?? 'cyber'} initialEvent={eventId} onLogout={onLogout} />;
     default: return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
   }
 }
@@ -49,7 +47,7 @@ function TabContent({ state, onLogout, onNavigate, onUpdate }) {
 export default function NuevoApp({ onLogout }) {
   const today = todayISO();
   const [state, setState] = useState(() => parseUrlState(window.location.search, today));
-  const [eventActive, setEventActive] = useState(false);
+  const [activeEvent, setActiveEvent] = useState(null);
 
   // Period changes replace the history entry; tab changes push one, so
   // "back" walks the tabs.
@@ -70,12 +68,14 @@ export default function NuevoApp({ onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The Cyber tab shows only while the event runs (and the day after).
+  // The event tab shows from 3 weeks before an event (to plan it) through
+  // the day after it ends, labelled and opened on that event.
   useEffect(() => {
     let cancelled = false;
-    getEventReport('cyber')
-      .then(r => { if (!cancelled && r.current?.end) setEventActive(todayISO() <= addDays(r.current.end, 1)); })
-      .catch(err => { if (err.message === 'Unauthorized') onLogout(); });
+    Promise.all(EVENT_IDS.map(id => getEventReport(id)
+      .then(r => ({ id, label: r.label, start: r.current?.start, end: r.current?.end }))
+      .catch((err) => { if (err.message === 'Unauthorized') onLogout(); return null; })))
+      .then(windows => { if (!cancelled) setActiveEvent(pickEvent(windows, todayISO())); });
     return () => { cancelled = true; };
   }, [onLogout]);
 
@@ -88,7 +88,8 @@ export default function NuevoApp({ onLogout }) {
     <div className="nv">
       <TopBar
         tab={state.tab}
-        showCyber={eventActive || isCyber}
+        showCyber={!!activeEvent || isCyber}
+        eventLabel={activeEvent?.label ?? 'Cyber'}
         onTab={(tab) => update({ tab }, { push: true })}
         onLogout={onLogout}
         search={<ProductSearch onSelect={(sku) => update({ sku }, { push: true })} />}
@@ -96,7 +97,7 @@ export default function NuevoApp({ onLogout }) {
       <main className="nv-wrap">
         {!isCyber && <PeriodBar state={state} today={today} onChange={(patch) => update(patch)} />}
         {!isCyber && <div className="nv-ai"><InsightsButton {...aiProps} /></div>}
-        <TabContent state={state} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} onUpdate={update} />
+        <TabContent state={state} eventId={activeEvent?.id} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} onUpdate={update} />
       </main>
       {!isCyber && <ChatWidget {...aiProps} />}
       {state.sku && <ProductSheet sku={state.sku} state={state} onClose={() => update({ sku: null }, { push: true })} />}

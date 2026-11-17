@@ -290,8 +290,8 @@ function Side({ data, v, view, now, phase }) {
   );
 }
 
-export default function EventLive({ onLogout }) {
-  const [eventId, setEventId] = useState('cyber');
+export default function EventLive({ onLogout, initialEvent = 'cyber' }) {
+  const [eventId, setEventId] = useState(initialEvent);
   const [view, setView] = useState('total');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);

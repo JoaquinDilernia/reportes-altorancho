@@ -37,18 +37,20 @@ export const EVENTS = {
       officialStart: '2025-11-03', officialEnd: '2025-11-05',
     },
   },
-  // 2025's window is where the web actually spiked (Thu 27/11 → Mon 1/12),
-  // not a planned calendar — 2026's is the same weekdays a year later.
+  // Dates confirmed by Joaquín (2026-11-17): 2025 ran 26/11 → 26/12; sales
+  // dropped after the 15th, so 2026 is cut at 15/12. Days are compared
+  // one by one (same weekday, Black Friday vs Black Friday), so 2025's
+  // 16–26/12 simply don't enter the target.
   black: {
     label: 'Black',
     current: {
-      year: 2026, start: '2026-11-26', end: '2026-11-30',
+      year: 2026, start: '2026-11-25', end: '2026-12-15',
       officialStart: '2026-11-27', officialEnd: '2026-11-27',
       // Not defined for Black yet — assumed the same as Cyber.
       dailyAdBudget: 4_000_000,
     },
     previous: {
-      year: 2025, start: '2025-11-27', end: '2025-12-01',
+      year: 2025, start: '2025-11-26', end: '2025-12-26',
       officialStart: '2025-11-28', officialEnd: '2025-11-28',
     },
   },

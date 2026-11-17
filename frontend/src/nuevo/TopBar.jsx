@@ -3,7 +3,7 @@ const TABS = [
   ['producto', 'Producto'], ['pauta', 'Pauta'], ['mayorista', 'Mayorista'],
 ];
 
-export default function TopBar({ tab, showCyber, onTab, onLogout, search = null }) {
+export default function TopBar({ tab, showCyber, eventLabel = 'Cyber', onTab, onLogout, search = null }) {
   return (
     <header className="nv-top">
       <div className="nv-brand">ALTORANCHO</div>
@@ -14,7 +14,7 @@ export default function TopBar({ tab, showCyber, onTab, onLogout, search = null 
           </button>
         ))}
         {showCyber && (
-          <button type="button" className={`ev${tab === 'cyber' ? ' on' : ''}`} onClick={() => onTab('cyber')}>● Cyber</button>
+          <button type="button" className={`ev${tab === 'cyber' ? ' on' : ''}`} onClick={() => onTab('cyber')}>● {eventLabel}</button>
         )}
       </nav>
       <div className="nv-search-slot">{search}</div>
