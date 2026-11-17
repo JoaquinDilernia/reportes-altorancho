@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor, deliveryNoteFor,
+  buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor, deliveryNoteFor, orderNoteFor,
   planOdooOrders, shippingPartnerKindFor, firstLegMoves, alignFirstLegMoves, findSaleOrdersByRef, readOrderStates,
 } from '../posOdoo.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
@@ -251,4 +251,15 @@ test('deliveryNoteFor: envío, retiro o nada (se lo lleva ahora); sin repetir', 
   assert.equal(deliveryNoteFor([l('ahora'), l('retira_local')], lomas, DEFAULT_LOCALES), 'Retira en Local Las Lomas');
   assert.equal(deliveryNoteFor([l('retira_otro_local', { pickupLocalId: 'AL' }), l('envio')], lomas, DEFAULT_LOCALES), 'Envío a domicilio · Retira en Local Alcorta');
   assert.equal(deliveryNoteFor([l('envio', { status: 'eliminado' })], lomas, DEFAULT_LOCALES), null);
+});
+
+test('orderNoteFor: entrega, vendedor y lo que se fabrica (30 días)', () => {
+  const lomas = DEFAULT_LOCALES[0];
+  const l = (delivery, extra = {}) => ({ delivery, status: 'activo', sku: 'A', ...extra });
+  assert.equal(orderNoteFor([l('ahora')], { sellerName: 'Juan' }, lomas, DEFAULT_LOCALES), 'Vendedor: Juan');
+  assert.equal(
+    orderNoteFor([l('envio', { sku: 'MESA1', toManufacture: true }), l('envio', { sku: 'SILLA2', toManufacture: true }), l('retira_local')], { sellerName: 'Ana' }, lomas, DEFAULT_LOCALES),
+    'Envío a domicilio · Retira en Local Las Lomas · Vendedor: Ana · A fabricar (30 días): MESA1, SILLA2',
+  );
+  assert.equal(orderNoteFor([l('ahora')], {}, lomas, DEFAULT_LOCALES), null);
 });

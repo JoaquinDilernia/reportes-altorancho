@@ -90,3 +90,14 @@ test('validateShipping: subida al domicilio opcional, número >= 0', () => {
   assert.deepEqual(validateShipping({ ...ok, homeServiceAmount: -1 }), ['Subida al domicilio inválida']);
   assert.deepEqual(validateShipping({ ...ok, homeServiceAmount: '5000' }), ['Subida al domicilio inválida']);
 });
+
+test('a fabricar: se marca por línea, no se puede llevar ahora y se edita', () => {
+  const product = { productId: 10, sku: 'QUE001', name: 'Mesa', fullPrice: 100, promoPrice: 100 };
+  const built = buildLine(product, { delivery: 'envio', toManufacture: true }, [], ctx);
+  assert.equal(built.toManufacture, true);
+  assert.equal(buildLine(product, {}, [], ctx).toManufacture, false);
+  assert.match(validateLine(line({ toManufacture: true }), ctx).join(), /A fabricar no se puede llevar ahora/);
+  const edited = editLine(line({ delivery: 'envio' }), { toManufacture: true }, ctx);
+  assert.equal(edited.toManufacture, true);
+  assert.equal(editLine(edited, { toManufacture: false }, ctx).toManufacture, false);
+});

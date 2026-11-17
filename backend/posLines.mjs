@@ -26,6 +26,7 @@ export function validateLine(line, { localId, localeIds }) {
   if (line.delivery === 'ahora' && shipsFromRolon(line.origin)) {
     errors.push(`${sku}: "Se lo lleva ahora" solo sale del local (Stock o Exhibición)`);
   }
+  if (line.toManufacture && line.delivery === 'ahora') errors.push(`${sku}: A fabricar no se puede llevar ahora (elegí envío o retiro)`);
   if (line.delivery === 'retira_rolon' && !shipsFromRolon(line.origin)) errors.push(`${sku}: "Retira en Rolón" sale de Rolón`);
   if (line.delivery === 'retira_otro_local') {
     if (!shipsFromRolon(line.origin)) errors.push(`${sku}: "Retira en otro local" sale de Rolón`);
@@ -73,11 +74,13 @@ export function priceFields(product, pricing = {}) {
   };
 }
 
-export function buildLine(product, { qty = 1, origin = 'stock', delivery = 'ahora', pickupLocalId = null }, lines, ctx, pricing = {}) {
+export function buildLine(product, { qty = 1, origin = 'stock', delivery = 'ahora', pickupLocalId = null, toManufacture = false }, lines, ctx, pricing = {}) {
   const line = {
     lineId: nextLineId(lines), productId: product.productId, sku: product.sku, name: product.name, qty,
     ...priceFields(product, pricing),
     origin, delivery, pickupLocalId: delivery === 'retira_otro_local' ? pickupLocalId : null, status: 'activo',
+    // A fabricar: se entrega a 30 días; va en la nota de Odoo y en los tickets.
+    toManufacture: toManufacture === true,
   };
   const errors = validateLine(line, ctx);
   if (errors.length) throw new Error(errors.join('; '));
@@ -91,6 +94,7 @@ export function editLine(line, changes, ctx) {
   for (const field of ['qty', 'origin', 'delivery', 'pickupLocalId']) {
     if (changes[field] !== undefined) next[field] = changes[field];
   }
+  if (changes.toManufacture !== undefined) next.toManufacture = changes.toManufacture === true;
   if (next.delivery !== 'retira_otro_local') next.pickupLocalId = null;
   const errors = validateLine(next, ctx);
   if (errors.length) throw new Error(errors.join('; '));

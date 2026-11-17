@@ -243,7 +243,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
       const vals = odoo.buildSaleOrderPayload({
         partnerId, pricelistId: odooPricelistId(order, ctx.settings), teamId: ctx.locale.teamId, paymentMethodId,
         warehouseId: group.warehouseId, partnerShippingId: partnerShippingId ?? partnerId, clientOrderRef: order.number, lines: group.odooLines,
-        note: odoo.deliveryNoteFor(group.lines, ctx.locale, ctx.locales),
+        note: odoo.orderNoteFor(group.lines, order, ctx.locale, ctx.locales),
       });
       if (!vals.pricelist_id) delete vals.pricelist_id;
       odooOrderId = await deps.createSaleOrder(vals);
@@ -298,7 +298,7 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
   if (deps.writePickingNotes) {
     const byGroup = odoo.splitByOrigin(lines);
     for (const o of odooOrders) {
-      const note = odoo.deliveryNoteFor(byGroup[o.group] ?? [], ctx.locale, ctx.locales);
+      const note = odoo.orderNoteFor(byGroup[o.group] ?? [], order, ctx.locale, ctx.locales);
       if (!note) continue;
       try {
         await deps.writePickingNotes(o.odooOrderId, note);

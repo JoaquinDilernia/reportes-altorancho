@@ -142,6 +142,19 @@ export function deliveryNoteFor(groupLines, locale, locales) {
   return labels.size ? [...labels].join(' · ') : null;
 }
 
+// Nota completa del pedido y sus remitos: entrega, vendedor (en Odoo opera un
+// usuario técnico) y lo que se fabrica. Puro.
+export const MANUFACTURE_DAYS = 30;
+export function orderNoteFor(groupLines, { sellerName } = {}, locale, locales) {
+  const parts = [];
+  const delivery = deliveryNoteFor(groupLines, locale, locales);
+  if (delivery) parts.push(delivery);
+  if (sellerName) parts.push(`Vendedor: ${sellerName}`);
+  const manufacture = activeLines(groupLines).filter((l) => l.toManufacture).map((l) => l.sku);
+  if (manufacture.length) parts.push(`A fabricar (${MANUFACTURE_DAYS} días): ${manufacture.join(', ')}`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 // Escribe la nota de entrega en los remitos (no cancelados) del pedido.
 export async function writePickingNotes(odooOrderId, note, odoo = defaultOdoo) {
   const pickings = await odoo.read('stock.picking', 'search_read', [[['sale_id', '=', odooOrderId], ['state', '!=', 'cancel']]], { fields: ['id'] });
