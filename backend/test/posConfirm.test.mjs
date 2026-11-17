@@ -174,6 +174,29 @@ test('confirmPosOrder: el costo de envío va en el pedido que tiene la línea co
   assert.deepEqual(named(calls, 'saveOdooLineIds')[0][2].map((l) => l.odooLineId), [71, 72]);
 });
 
+test('confirmPosOrder: el tipo de entrega va en la nota de cada pedido y de sus remitos', async () => {
+  const { deps, calls } = fakeDeps({ writePickingNotes: async (...args) => { calls.push(['writePickingNotes', ...args]); } });
+  const order = baseOrder();
+  order.lines.push({ lineId: 'L3', productId: 12, sku: 'C', qty: 1, basePrice: 1210, origin: 'rolon', delivery: 'envio', status: 'activo' });
+  order.shipping = { street: 'Calle', number: '1', floor: '', city: 'CABA', zip: '1000', phone: '11', notes: '' };
+  await confirmPosOrder(order, 'Caja', ctx, deps);
+  const [local, rolon] = named(calls, 'createSaleOrder').map((c) => c[1]);
+  // Local: todo "se lo lleva ahora" → sin nota.
+  assert.equal(local.note, undefined);
+  assert.equal(rolon.note, 'Envío a domicilio · Retira en Local Las Lomas');
+  assert.deepEqual(named(calls, 'writePickingNotes').map((c) => c.slice(1)), [[9001, 'Envío a domicilio · Retira en Local Las Lomas']]);
+});
+
+test('runPostConfirmSteps: si no se puede escribir la nota del remito → aviso, no tira', async () => {
+  const { deps, calls } = fakeDeps({ writePickingNotes: async () => { throw new Error('timeout'); } });
+  const order = {
+    ...baseOrder(), status: 'confirmado',
+    odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: 'S9000' }, { group: 'rolon', odooOrderId: 9001, odooOrderName: 'S9001' }],
+  };
+  await runPostConfirmSteps(order, 'Caja', ctx, deps);
+  assert.match(named(calls, 'setOrderWarning')[0][2], /No se pudo escribir la nota de entrega en los remitos de S9001 \(timeout\)/);
+});
+
 test('confirmPosOrder: factura solo si la pidieron y está habilitada', async () => {
   process.env.POS_INVOICING_ENABLED = 'true';
   try {

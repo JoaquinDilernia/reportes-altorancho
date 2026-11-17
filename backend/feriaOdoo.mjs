@@ -179,7 +179,7 @@ export async function findIdentificationTypeIds() {
   }
 }
 
-export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, warehouseId, partnerShippingId, clientOrderRef, lines }) {
+export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentMethodId, warehouseId, partnerShippingId, clientOrderRef, lines, note }) {
   const payload = {
     partner_id: partnerId,
     pricelist_id: pricelistId,
@@ -204,6 +204,7 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentM
   // Número interno de la app (F-0012) en "Referencia del cliente": se ve en
   // el pedido, se busca en la lista de ventas y Odoo lo copia a la factura.
   if (clientOrderRef) payload.client_order_ref = clientOrderRef;
+  if (note) payload.note = note;
   return payload;
 }
 

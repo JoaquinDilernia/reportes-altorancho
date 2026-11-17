@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor,
+  buildPartnerVals, partnerUpdate, buildOdooOrderLines, splitByOrigin, pickupLabelFor, deliveryNoteFor,
   planOdooOrders, shippingPartnerKindFor, firstLegMoves, alignFirstLegMoves, findSaleOrdersByRef, readOrderStates,
 } from '../posOdoo.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
@@ -241,4 +241,14 @@ test('buildOdooOrderLines: venta interna → precio con IVA y sin impuestos (tam
   const [fiscal] = buildOdooOrderLines(lines, { lineDiscountPct: 15, shipping: 0 }, null);
   assert.equal(fiscal.unitPrice, 1000);
   assert.ok(!('taxIds' in fiscal));
+});
+
+test('deliveryNoteFor: envío, retiro o nada (se lo lleva ahora); sin repetir', () => {
+  const lomas = DEFAULT_LOCALES[0];
+  const l = (delivery, extra = {}) => ({ delivery, status: 'activo', ...extra });
+  assert.equal(deliveryNoteFor([l('ahora')], lomas, DEFAULT_LOCALES), null);
+  assert.equal(deliveryNoteFor([l('envio'), l('envio')], lomas, DEFAULT_LOCALES), 'Envío a domicilio');
+  assert.equal(deliveryNoteFor([l('ahora'), l('retira_local')], lomas, DEFAULT_LOCALES), 'Retira en Local Las Lomas');
+  assert.equal(deliveryNoteFor([l('retira_otro_local', { pickupLocalId: 'AL' }), l('envio')], lomas, DEFAULT_LOCALES), 'Envío a domicilio · Retira en Local Alcorta');
+  assert.equal(deliveryNoteFor([l('envio', { status: 'eliminado' })], lomas, DEFAULT_LOCALES), null);
 });

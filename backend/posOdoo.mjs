@@ -128,6 +128,26 @@ export function pickupLabelFor(line, locale, locales) {
   return null;
 }
 
+// Nota de entrega del pedido y sus remitos, para que logística lo vea sin
+// abrir la app: "Envío a domicilio", "Retira en Local X" o nada si todo se
+// lo lleva en el momento. Puro.
+export function deliveryNoteFor(groupLines, locale, locales) {
+  const labels = new Set();
+  const active = activeLines(groupLines);
+  if (active.some((l) => l.delivery === 'envio')) labels.add('Envío a domicilio');
+  for (const l of active) {
+    const pickup = pickupLabelFor(l, locale, locales);
+    if (pickup) labels.add(pickup);
+  }
+  return labels.size ? [...labels].join(' · ') : null;
+}
+
+// Escribe la nota de entrega en los remitos (no cancelados) del pedido.
+export async function writePickingNotes(odooOrderId, note, odoo = defaultOdoo) {
+  const pickings = await odoo.read('stock.picking', 'search_read', [[['sale_id', '=', odooOrderId], ['state', '!=', 'cancel']]], { fields: ['id'] });
+  if (pickings.length) await odoo.write('stock.picking', 'write', [pickings.map((p) => p.id), { note }]);
+}
+
 // Venta interna (sin factura fiscal, diario VINTE): precio con IVA incluido y
 // sin impuestos, como las facturas internas de administración.
 const priceOf = (gross, internal) => round2(internal ? gross : netOfIva(gross));

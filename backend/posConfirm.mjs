@@ -110,7 +110,7 @@ function defaultDeps() {
     findSaleOrdersByRef: odoo.findSaleOrdersByRef, readOrderStates: odoo.readOrderStates,
     confirmSaleOrder: odoo.confirmSaleOrder,
     markOrderConfirmed: orders.markOrderConfirmed, getOrder: orders.getOrder,
-    alignFirstLegMoves: odoo.alignFirstLegMoves, validateTwoStep,
+    alignFirstLegMoves: odoo.alignFirstLegMoves, validateTwoStep, writePickingNotes: odoo.writePickingNotes,
     markLinesDelivered: orders.markLinesDelivered, setOrderWarning: orders.setOrderWarning,
     clearPostConfirmPending: orders.clearPostConfirmPending,
     invoice: (order, locale, options) => invoicePosOrder(order, locale, undefined, options),
@@ -243,6 +243,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
       const vals = odoo.buildSaleOrderPayload({
         partnerId, pricelistId: odooPricelistId(order, ctx.settings), teamId: ctx.locale.teamId, paymentMethodId,
         warehouseId: group.warehouseId, partnerShippingId: partnerShippingId ?? partnerId, clientOrderRef: order.number, lines: group.odooLines,
+        note: odoo.deliveryNoteFor(group.lines, ctx.locale, ctx.locales),
       });
       if (!vals.pricelist_id) delete vals.pricelist_id;
       odooOrderId = await deps.createSaleOrder(vals);
@@ -292,6 +293,20 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
   const localOrderId = odooOrders.find((o) => o.group === 'local')?.odooOrderId ?? null;
   const { local } = odoo.splitByOrigin(lines);
   const warnings = [];
+
+  // 3b. Nota de entrega en los remitos (Odoo no la copia del pedido). Reescribirla es inofensivo.
+  if (deps.writePickingNotes) {
+    const byGroup = odoo.splitByOrigin(lines);
+    for (const o of odooOrders) {
+      const note = odoo.deliveryNoteFor(byGroup[o.group] ?? [], ctx.locale, ctx.locales);
+      if (!note) continue;
+      try {
+        await deps.writePickingNotes(o.odooOrderId, note);
+      } catch (err) {
+        warnings.push(`No se pudo escribir la nota de entrega en los remitos de ${o.odooOrderName ?? o.odooOrderId} (${err.message}): agregala en Odoo`);
+      }
+    }
+  }
 
   // 4. Exhibición: el PICK tiene que salir de la exhibición, no del Stock.
   const exhibicion = local.filter((l) => l.origin === 'exhibicion');
