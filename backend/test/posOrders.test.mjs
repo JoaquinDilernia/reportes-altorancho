@@ -136,7 +136,7 @@ test('claimPricing: devolución sola no pide medio de pago; cambio cobra solo el
 
 test('returnCtx: destinos del local y motivos de ajustes', () => {
   const c = returnCtx(DEFAULT_LOCALES[0], DEFAULT_SETTINGS);
-  assert.deepEqual(c.destinationIds, ['stock', 'exhibicion', 'rolon']);
+  assert.deepEqual(c.destinationIds, ['stock', 'exhibicion', 'rolon', 'fallas']);
   assert.deepEqual(c.reasons, DEFAULT_SETTINGS.returnReasons);
 });
 

@@ -92,11 +92,18 @@ test('validateSettings: SKU y monto de subida al domicilio', () => {
 
 const LL = DEFAULT_LOCALES.find((l) => l.id === 'LL');
 
-test('defaultReturnDestinations: stock (por defecto), exhibición y enviar a Rolón', () => {
+test('defaultReturnDestinations: stock (por defecto), exhibición, enviar a Rolón y Fallas (Fall/Stock)', () => {
   const d = defaultReturnDestinations({ ...LL, returnDestinations: undefined }, DEFAULT_SETTINGS);
   assert.deepEqual(d.map((x) => [x.id, x.locationId, x.transferToLocationId, x.default]), [
-    ['stock', 8, null, true], ['exhibicion', 324, null, false], ['rolon', 8, 174, false],
+    ['stock', 8, null, true], ['exhibicion', 324, null, false], ['rolon', 8, 174, false], ['fallas', 8, 192, false],
   ]);
+  // Sin ubicación de fallas en Ajustes: no aparece.
+  assert.ok(!defaultReturnDestinations(LL, { ...DEFAULT_SETTINGS, fallasLocationId: null }).some((x) => x.id === 'fallas'));
+});
+
+test('validateSettings: ubicación de fallas inválida', () => {
+  assert.ok(validateSettings({ ...DEFAULT_SETTINGS, fallasLocationId: 'x' }).includes('Ubicación de fallas inválida'));
+  assert.ok(!validateSettings({ ...DEFAULT_SETTINGS, fallasLocationId: null }).includes('Ubicación de fallas inválida'));
 });
 
 test('returnDestinationsOf: usa los del local (solo activos) y si no hay, los por defecto', () => {

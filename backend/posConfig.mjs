@@ -23,6 +23,8 @@ export const DEFAULT_LOCALES = [
 export const DEFAULT_SETTINGS = {
   rolon: { warehouseId: 28, locationId: 174, outPickingTypeId: 191 },
   web: { locationId: 150 },
+  // Devoluciones por falla: Fall/Stock (central, verificada el 2026-11-17).
+  fallasLocationId: 192,
   // Transferencia interna EC/Stock → RL/Stock al vender stock web (EC, wh 24).
   webTransferPickingTypeId: 166,
   fullPricelistId: 312,
@@ -125,6 +127,7 @@ export function validateSettings(input) {
   if (!isId(input.rolon?.warehouseId) || !isId(input.rolon?.locationId)) errors.push('Rolón: depósito y ubicación obligatorios');
   if (input.rolon?.outPickingTypeId != null && !isId(input.rolon.outPickingTypeId)) errors.push('Rolón: tipo de operación inválido');
   if (!isId(input.web?.locationId)) errors.push('Web: ubicación obligatoria');
+  if (input.fallasLocationId != null && !isId(input.fallasLocationId)) errors.push('Ubicación de fallas inválida');
   if (input.webTransferPickingTypeId != null && !isId(input.webTransferPickingTypeId)) errors.push('Web: tipo de transferencia inválido');
   for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId', 'decoradoraPricelistId', 'directorioPricelistId']) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
@@ -183,6 +186,10 @@ export function defaultReturnDestinations(locale, settings) {
     { id: 'stock', label: 'Stock del local', locationId: locale.stockLocationId, transferToLocationId: null, default: true, active: true },
     { id: 'exhibicion', label: 'Exhibición', locationId: locale.exhibicionLocationId, transferToLocationId: null, default: false, active: true },
     { id: 'rolon', label: 'Enviar a Rolón', locationId: locale.stockLocationId, transferToLocationId: settings.rolon.locationId, default: false, active: true },
+    // Igual que Rolón: entra al stock del local y se traslada a Fall/Stock.
+    ...(settings.fallasLocationId
+      ? [{ id: 'fallas', label: 'Fallas', locationId: locale.stockLocationId, transferToLocationId: settings.fallasLocationId, default: false, active: true }]
+      : []),
   ];
 }
 
