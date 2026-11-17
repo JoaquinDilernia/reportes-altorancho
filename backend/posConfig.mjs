@@ -11,10 +11,13 @@ const CACHE_MS = 30 * 1000;
 // Tipos de remito (spike Fase 2): "Devoluciones" (entrada) y "Transferencias
 // internas" de cada almacén. Los destinos de devolución por defecto se arman
 // con defaultReturnDestinations si el local no tiene los suyos.
+// Diario de venta interna (sin factura) de cada local, verificado el
+// 2026-11-17: Ventas Internas San Isidro (VINSI) 85, Belgrano (VINBE) 86,
+// Alcorta (VINAL) 87.
 export const DEFAULT_LOCALES = [
-  { id: 'LL', name: 'Las Lomas', warehouseId: 1, stockLocationId: 8, exhibicionLocationId: 324, teamId: 6, invoiceJournalId: 32, cashJournalId: 54, internalCashJournalId: 33, address: '', active: true, returnPickingTypeId: 6, internalPickingTypeId: 5 },
-  { id: 'BL', name: 'Belgrano', warehouseId: 40, stockLocationId: 372, exhibicionLocationId: 379, teamId: 18, invoiceJournalId: 65, cashJournalId: 67, internalCashJournalId: 66, address: '', active: true, returnPickingTypeId: 308, internalPickingTypeId: 307 },
-  { id: 'AL', name: 'Alcorta', warehouseId: 41, stockLocationId: 397, exhibicionLocationId: 415, teamId: 25, invoiceJournalId: 78, cashJournalId: 79, internalCashJournalId: 80, address: '', active: true, returnPickingTypeId: 352, internalPickingTypeId: 351 },
+  { id: 'LL', name: 'Las Lomas', warehouseId: 1, stockLocationId: 8, exhibicionLocationId: 324, teamId: 6, invoiceJournalId: 32, internalInvoiceJournalId: 85, cashJournalId: 54, internalCashJournalId: 33, address: '', active: true, returnPickingTypeId: 6, internalPickingTypeId: 5 },
+  { id: 'BL', name: 'Belgrano', warehouseId: 40, stockLocationId: 372, exhibicionLocationId: 379, teamId: 18, invoiceJournalId: 65, internalInvoiceJournalId: 86, cashJournalId: 67, internalCashJournalId: 66, address: '', active: true, returnPickingTypeId: 308, internalPickingTypeId: 307 },
+  { id: 'AL', name: 'Alcorta', warehouseId: 41, stockLocationId: 397, exhibicionLocationId: 415, teamId: 25, invoiceJournalId: 78, internalInvoiceJournalId: 87, cashJournalId: 79, internalCashJournalId: 80, address: '', active: true, returnPickingTypeId: 352, internalPickingTypeId: 351 },
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -34,8 +37,9 @@ export const DEFAULT_SETTINGS = {
   decoradoraDiscountPct: 5,
   directorioPricelistId: 255,
   directorioTagId: 33,
-  // Venta sin factura fiscal: factura interna en "Ventas Internas" (VINTE),
-  // que no va a ARCA; el cobro va a la Caja Interna del local.
+  // Venta sin factura fiscal: factura interna que no va a ARCA, en el diario
+  // de venta interna del local; si el local no tiene, en este general
+  // ("Ventas Internas", VINTE). El cobro va a la Caja Interna del local.
   internalInvoiceJournalId: 28,
   homeServiceSku: 'SERVIDOM',
   homeServiceDefaultAmount: 5000,
@@ -93,6 +97,7 @@ export function validateLocale(input) {
   if (!isId(input.exhibicionLocationId)) errors.push('Ubicación de exhibición inválida');
   if (!isId(input.teamId)) errors.push('Equipo de ventas inválido');
   if (input.invoiceJournalId != null && !isId(input.invoiceJournalId)) errors.push('Diario de facturas inválido');
+  if (input.internalInvoiceJournalId != null && !isId(input.internalInvoiceJournalId)) errors.push('Diario de ventas internas inválido');
   if (input.cashJournalId != null && !isId(input.cashJournalId)) errors.push('Diario de caja inválido');
   if (input.internalCashJournalId != null && !isId(input.internalCashJournalId)) errors.push('Caja interna inválida');
   if (input.returnPickingTypeId != null && !isId(input.returnPickingTypeId)) errors.push('Tipo de remito de devolución inválido');
@@ -202,16 +207,20 @@ export function clearConfigCache() {
 const fresh = () => Date.now() - cache.at < CACHE_MS;
 
 // Locales guardados antes de la Fase 2 no tienen tipos de remito: se completan con los iniciales.
-function withLocaleDefaults(locale) {
+export function withLocaleDefaults(locale) {
   const base = DEFAULT_LOCALES.find((l) => l.id === locale.id) ?? {};
   return {
     ...locale,
+    internalInvoiceJournalId: locale.internalInvoiceJournalId !== undefined ? locale.internalInvoiceJournalId : base.internalInvoiceJournalId ?? null,
     returnPickingTypeId: locale.returnPickingTypeId ?? base.returnPickingTypeId ?? null,
     internalPickingTypeId: locale.internalPickingTypeId ?? base.internalPickingTypeId ?? null,
     cashJournalId: locale.cashJournalId ?? base.cashJournalId ?? null,
     internalCashJournalId: locale.internalCashJournalId ?? base.internalCashJournalId ?? null,
   };
 }
+
+// Diario de la venta interna: el del local o, si no tiene, el general de Ajustes.
+export const internalInvoiceJournalIdOf = (locale, settings) => locale?.internalInvoiceJournalId || settings?.internalInvoiceJournalId || null;
 
 // Diario de Odoo donde se registra el cobro de cada medio (la factura queda
 // paga). 'local' = la caja del local (cashJournalId). Ids verificados el

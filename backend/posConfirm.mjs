@@ -6,6 +6,7 @@
 // factura) no deshace la venta: queda un aviso para resolverlo.
 import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName, paymentJournalId,
+  internalInvoiceJournalIdOf,
 } from './posConfig.mjs';
 import { principalPayment, isDirectorio, round2 } from './posPricing.mjs';
 import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE, webTransferItems } from './posLines.mjs';
@@ -330,8 +331,8 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
 
   // 6. Factura (nunca tira) y 7. aplicación de NC de lo que vuelve / saldos usados.
   let invoiceId = order.invoiceId ?? null;
-  // Fiscal: con la facturación del local habilitada. Interna (VINTE): no va a ARCA, siempre.
-  const internalJournalId = isInternal(order) ? ctx.settings.internalInvoiceJournalId : null;
+  // Fiscal: con la facturación del local habilitada. Interna (diario de venta interna del local): no va a ARCA, siempre.
+  const internalJournalId = isInternal(order) ? internalInvoiceJournalIdOf(ctx.locale, ctx.settings) : null;
   const fiscal = order.wantsInvoice && !isInternal(order) && invoicingEnabledFor(ctx.locale);
   if (!order.invoiceName && (fiscal || internalJournalId)) {
     const result = await deps.invoice(order, ctx.locale, internalJournalId ? { journalId: internalJournalId } : undefined);

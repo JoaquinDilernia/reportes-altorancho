@@ -8,6 +8,7 @@ import {
 import { listUsers, createUser, updateUser, deleteUser } from './posUsers.mjs';
 import {
   getLocales, getSettings, getPaymentMethods, getPaymentMethodsById, saveLocale, saveSettings, savePaymentMethod, localeIdsOf, returnDestinationsOf,
+  internalInvoiceJournalIdOf,
 } from './posConfig.mjs';
 import { searchPurchases, getPurchase, resolvePurchaseLine, manualLine } from './posReturnsService.mjs';
 import { customerBalance, listCreditsForAdmin, extendCredit, SALDO_METHOD } from './posCredits.mjs';
@@ -327,9 +328,9 @@ router.post('/orders/:id/invoice', ...cajas, handle(async (req) => {
   if (order.status !== 'confirmado' || !(order.wantsInvoice || internal)) throw new Error('Este pedido no lleva factura');
   if (order.invoiceName) throw new Error(`Ya tiene la factura ${order.invoiceName}`);
   if (!internal && !invoicingEnabledFor(locale)) throw new Error('La facturación de este local no está habilitada');
-  const settings = await getSettings();
-  if (internal && !settings.internalInvoiceJournalId) throw new Error('Configurá el diario de ventas internas en Admin → Ajustes');
-  const result = await invoicePosOrder(order, locale, undefined, internal ? { journalId: settings.internalInvoiceJournalId } : undefined);
+  const internalJournalId = internal ? internalInvoiceJournalIdOf(locale, await getSettings()) : null;
+  if (internal && !internalJournalId) throw new Error('Configurá el diario de ventas internas del local en Admin → Locales');
+  const result = await invoicePosOrder(order, locale, undefined, internal ? { journalId: internalJournalId } : undefined);
   if (result.status === 'error') throw httpError(result.error, 502);
   return payInvoiceAfterRetry(order.id);
 }));

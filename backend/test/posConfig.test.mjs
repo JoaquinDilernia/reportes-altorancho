@@ -4,7 +4,30 @@ import {
   DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS, validateLocale, validatePaymentMethod,
   resolveOdooPaymentName, originLocationId, validateSettings,
   defaultReturnDestinations, returnDestinationsOf, findDestination,
+  withLocaleDefaults, internalInvoiceJournalIdOf,
 } from '../posConfig.mjs';
+
+test('diario de venta interna por local: VINSI 85, VINBE 86, VINAL 87', () => {
+  const ids = Object.fromEntries(DEFAULT_LOCALES.map((l) => [l.id, l.internalInvoiceJournalId]));
+  assert.deepEqual(ids, { LL: 85, BL: 86, AL: 87 });
+});
+
+test('withLocaleDefaults: un local guardado sin diario de venta interna toma el inicial', () => {
+  const { internalInvoiceJournalId: _omit, ...saved } = DEFAULT_LOCALES.find((l) => l.id === 'BL');
+  assert.equal(withLocaleDefaults(saved).internalInvoiceJournalId, 86);
+  assert.equal(withLocaleDefaults({ ...saved, internalInvoiceJournalId: 99 }).internalInvoiceJournalId, 99);
+});
+
+test('internalInvoiceJournalIdOf: el del local; si no tiene, el general de Ajustes', () => {
+  assert.equal(internalInvoiceJournalIdOf(lomas, DEFAULT_SETTINGS), 85);
+  assert.equal(internalInvoiceJournalIdOf({ ...lomas, internalInvoiceJournalId: null }, DEFAULT_SETTINGS), 28);
+  assert.equal(internalInvoiceJournalIdOf({ ...lomas, internalInvoiceJournalId: null }, { ...DEFAULT_SETTINGS, internalInvoiceJournalId: null }), null);
+});
+
+test('validateLocale: diario de venta interna inválido', () => {
+  assert.deepEqual(validateLocale({ ...lomas, internalInvoiceJournalId: null }), []);
+  assert.ok(validateLocale({ ...lomas, internalInvoiceJournalId: 'x' }).includes('Diario de ventas internas inválido'));
+});
 
 const lomas = DEFAULT_LOCALES.find((l) => l.id === 'LL');
 
