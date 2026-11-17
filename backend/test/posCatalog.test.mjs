@@ -25,8 +25,13 @@ const variantItem = (price) => ({ applied_on: '0_product_variant', product_tmpl_
 test('buildCatalogProduct: full y promo con IVA, base = promo', () => {
   assert.deepEqual(buildCatalogProduct(raw, [variantItem(349990)], [variantItem(299990)]), {
     productId: 10, templateId: 100, sku: 'MSI042BG', name: 'Monitor',
-    fullPrice: 349990, promoPrice: 299990, basePrice: 299990,
+    fullPrice: 349990, promoPrice: 299990, basePrice: 299990, costPrice: null,
   });
+});
+
+test('buildCatalogProduct: costo de Odoo + IVA para Directorio', () => {
+  assert.equal(buildCatalogProduct({ ...raw, standard_price: 32990 }, [variantItem(90990)], []).costPrice, 39917.9);
+  assert.equal(buildCatalogProduct({ ...raw, standard_price: 0 }, [variantItem(90990)], []).costPrice, null);
 });
 
 test('buildCatalogProduct: sin ítem en la lista full → null', () => {

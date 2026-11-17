@@ -128,12 +128,17 @@ export function pickupLabelFor(line, locale, locales) {
   return null;
 }
 
-export function buildOdooOrderLines(lines, totals, shippingProductId) {
+// Venta interna (sin factura fiscal, diario VINTE): precio con IVA incluido y
+// sin impuestos, como las facturas internas de administración.
+const priceOf = (gross, internal) => round2(internal ? gross : netOfIva(gross));
+const noTaxes = (internal) => (internal ? { taxIds: [] } : {});
+
+export function buildOdooOrderLines(lines, totals, shippingProductId, { internal = false } = {}) {
   const result = activeLines(lines).map((l) => ({
-    productId: l.productId, qty: l.qty, unitPrice: round2(netOfIva(l.basePrice)), discountPct: round2(totals.lineDiscountPct),
+    productId: l.productId, qty: l.qty, unitPrice: priceOf(l.basePrice, internal), discountPct: round2(totals.lineDiscountPct), ...noTaxes(internal),
   }));
   if (shippingProductId && totals.shipping > 0) {
-    result.push({ productId: shippingProductId, qty: 1, unitPrice: round2(netOfIva(totals.shipping)), discountPct: 0 });
+    result.push({ productId: shippingProductId, qty: 1, unitPrice: priceOf(totals.shipping, internal), discountPct: 0, ...noTaxes(internal) });
   }
   return result;
 }
@@ -147,20 +152,20 @@ export function splitByOrigin(lines) {
 // después el de Rolón; los grupos vacíos no van. El costo de envío va como
 // última línea del primer grupo que tiene una línea con envío (si ninguna lo
 // tiene, del primer grupo). Puro.
-export function planOdooOrders({ lines, totals, locale, settings, shippingProductId, homeServiceProductId = null }) {
+export function planOdooOrders({ lines, totals, locale, settings, shippingProductId, homeServiceProductId = null, internal = false }) {
   const { local, rolon } = splitByOrigin(lines);
   const groups = [
     { group: 'local', warehouseId: locale.warehouseId, lines: local },
     { group: 'rolon', warehouseId: settings.rolon.warehouseId, lines: rolon },
   ].filter((g) => g.lines.length)
-    .map((g) => ({ ...g, odooLines: buildOdooOrderLines(g.lines, totals, null) }));
+    .map((g) => ({ ...g, odooLines: buildOdooOrderLines(g.lines, totals, null, { internal }) }));
   const target = groups.find((g) => g.lines.some((l) => l.delivery === 'envio')) ?? groups[0];
   if (shippingProductId && totals.shipping > 0 && target) {
-    target.odooLines.push({ productId: shippingProductId, qty: 1, unitPrice: netOfIva(totals.shipping), discountPct: 0 });
+    target.odooLines.push({ productId: shippingProductId, qty: 1, unitPrice: priceOf(totals.shipping, internal), discountPct: 0, ...noTaxes(internal) });
   }
   // Subida al domicilio: línea extra justo después del envío, mismo pedido.
   if (homeServiceProductId && totals.homeService > 0 && target) {
-    target.odooLines.push({ productId: homeServiceProductId, qty: 1, unitPrice: netOfIva(totals.homeService), discountPct: 0 });
+    target.odooLines.push({ productId: homeServiceProductId, qty: 1, unitPrice: priceOf(totals.homeService, internal), discountPct: 0, ...noTaxes(internal) });
   }
   return groups;
 }
@@ -253,6 +258,23 @@ export function readOrderStates(odooOrderIds, odoo = defaultOdoo) {
   return odoo.read('sale.order', 'read', [odooOrderIds], { fields: ['id', 'name', 'state'] });
 }
 
+// Lo que falta cobrar de una factura publicada (amount_residual).
+export async function readInvoiceResidual(invoiceId) {
+  const [move] = await callKwReadWithRetry('account.move', 'read', [[invoiceId]], { fields: ['state', 'amount_residual'] });
+  return move?.state === 'posted' ? Number(move.amount_residual) || 0 : 0;
+}
+
+// Registra un cobro en la factura (asistente "Registrar pago" de Odoo): la
+// factura queda pagada o parcialmente pagada.
+export async function registerInvoicePayment(invoiceId, { journalId, amount, date, memo }) {
+  await ensureAuth();
+  const context = { active_model: 'account.move', active_ids: [invoiceId], active_id: invoiceId };
+  const [wizardId] = await callKw('account.payment.register', 'create', [[{
+    journal_id: journalId, amount, payment_date: date, communication: memo,
+  }]], { context });
+  await callKw('account.payment.register', 'action_create_payments', [[wizardId]], { context });
+}
+
 // Una sola factura para todos los pedidos de la venta (spike S1b): el
 // asistente con todos en sale_order_ids y en active_ids.
 export async function createInvoiceForOrders(odooOrderIds) {
@@ -282,7 +304,7 @@ export {
 // Opciones para los desplegables del Admin (solo lectura).
 export async function listOdooOptions() {
   const read = (model, domain, fields) => callKwReadWithRetry(model, 'search_read', [domain], { fields });
-  const [warehouses, locations, teams, journals, pricelists, pickingTypes, tags] = await Promise.all([
+  const [warehouses, locations, teams, journals, pricelists, pickingTypes, tags, paymentJournals] = await Promise.all([
     read('stock.warehouse', [], ['id', 'name', 'code']),
     read('stock.location', [['usage', '=', 'internal']], ['id', 'complete_name']),
     read('crm.team', [], ['id', 'name']),
@@ -290,6 +312,7 @@ export async function listOdooOptions() {
     read('product.pricelist', [], ['id', 'name']),
     read('stock.picking.type', [['code', '=', 'outgoing']], ['id', 'name', 'warehouse_id']),
     read('res.partner.category', [], ['id', 'name']),
+    read('account.journal', [['type', 'in', ['cash', 'bank']]], ['id', 'name']),
   ]);
-  return { warehouses, locations, teams, journals, pricelists, pickingTypes, tags };
+  return { warehouses, locations, teams, journals, pricelists, pickingTypes, tags, paymentJournals };
 }

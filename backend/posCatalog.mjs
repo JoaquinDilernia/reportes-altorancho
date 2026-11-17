@@ -3,11 +3,11 @@
 // incluyen IVA; list_price del producto nunca se usa. Stock "libre" = cantidad
 // − reservado en Odoo; las reservas de la app se descuentan en groupStock.
 import { callKwReadWithRetry } from './feriaOdoo.mjs';
-import { round2, basePriceOf } from './posPricing.mjs';
+import { round2, basePriceOf, withIva } from './posPricing.mjs';
 
 const WEB_UNLIMITED_FROM = 100000;
 const CACHE_MS = 60 * 1000;
-const PRODUCT_FIELDS = ['id', 'name', 'default_code', 'product_tmpl_id'];
+const PRODUCT_FIELDS = ['id', 'name', 'default_code', 'product_tmpl_id', 'standard_price'];
 
 // Ítems más recientes primero (date_start descendente, sin fecha al final).
 const latestFirst = (items) => [...items].sort((a, b) => (b.date_start || '').localeCompare(a.date_start || ''));
@@ -25,7 +25,8 @@ export function priceFromItems(product, items) {
   return null;
 }
 
-// Sin precio full → null (no vendible, se excluye).
+// Sin precio full → null (no vendible, se excluye). costPrice: costo de Odoo
+// (sin IVA) + IVA, para la lista Directorio; null si no tiene costo cargado.
 export function buildCatalogProduct(raw, fullItems, promoItems) {
   const full = priceFromItems(raw, fullItems);
   if (full == null) return null;
@@ -35,6 +36,7 @@ export function buildCatalogProduct(raw, fullItems, promoItems) {
   return {
     productId: raw.id, templateId: raw.product_tmpl_id[0], sku: raw.default_code ?? '', name: raw.name,
     fullPrice, promoPrice, basePrice: basePriceOf({ fullPrice, promoPrice }),
+    costPrice: raw.standard_price > 0 ? withIva(raw.standard_price) : null,
   };
 }
 

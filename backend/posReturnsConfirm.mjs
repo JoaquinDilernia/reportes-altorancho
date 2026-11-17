@@ -21,7 +21,10 @@ export function defaultReturnDeps() {
     findCreditNoteByRef: rOdoo.findCreditNoteByRef, createCreditNoteFromInvoice: rOdoo.createCreditNoteFromInvoice,
     trimCreditNote: rOdoo.trimCreditNote,
     readCreditNoteState: rOdoo.readCreditNoteState, readMoveResiduals: rOdoo.readMoveResiduals,
-    postCreditNote: (ncId, journalId) => postInvoice(ncId, journalId),
+    postCreditNote: async (ncId, journalId) => {
+      await rOdoo.dateDraftToday(ncId);
+      return postInvoice(ncId, journalId);
+    },
     // Por defecto no se factura; posConfirm lo pisa con invoicingEnabledFor.
     invoicingEnabled: () => false,
     applyCreditNote: rOdoo.applyCreditNote, saveReturnSteps: orders.saveReturnSteps, saveAppliedCreditNotes: orders.saveAppliedCreditNotes,

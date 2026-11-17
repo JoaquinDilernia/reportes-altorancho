@@ -5,9 +5,9 @@
 // existen. Lo que falla después de confirmar (Exhibición, entrega en el acto,
 // factura) no deshace la venta: queda un aviso para resolverlo.
 import {
-  getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName,
+  getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, resolveOdooPaymentName, paymentJournalId,
 } from './posConfig.mjs';
-import { principalPayment } from './posPricing.mjs';
+import { principalPayment, isDirectorio, round2 } from './posPricing.mjs';
 import { shouldAutoRetry, isConfirming, CONFIRMING_MESSAGE, webTransferItems } from './posLines.mjs';
 import * as orders from './posOrders.mjs';
 import * as odoo from './posOdoo.mjs';
@@ -16,8 +16,12 @@ import { withOrderLock } from './feriaDelivery.mjs';
 import { getDb } from './firestore.mjs';
 import { confirmReturnOrder, defaultReturnDeps, applyCreditNotesStep } from './posReturnsConfirm.mjs';
 import { listCustomerCredits } from './posCredits.mjs';
+import { paymentsOf } from './posCash.mjs';
+import { todayArg } from './posReturnsOdoo.mjs';
 
 const RETRY_EVERY_MS = 3 * 60 * 1000;
+
+export const isInternal = (order) => order?.invoiceMode === 'internal';
 const RETRY_USER = 'Reintento automático';
 
 export function invoicingEnabledFor(locale) {
@@ -57,7 +61,8 @@ async function invoicesOf(orderIds, deps) {
 // Factura la venta ya confirmada en el diario del local vendedor (el borrador
 // toma un diario por defecto; postInvoice lo corrige antes de publicar).
 // Nunca tira: el error queda en el pedido y se reintenta desde caja.
-export function invoicePosOrder(order, locale, deps = invoiceDeps()) {
+// `journalId`: otro diario que el fiscal del local (venta interna: VINTE).
+export function invoicePosOrder(order, locale, deps = invoiceDeps(), { journalId = locale.invoiceJournalId } = {}) {
   const orderIds = odooIdsOf(order);
   return withOrderLock(orderIds[0], async () => {
     try {
@@ -67,7 +72,7 @@ export function invoicePosOrder(order, locale, deps = invoiceDeps()) {
         step = odoo.planInvoiceStep(await invoicesOf(orderIds, deps));
         if (step.action === 'create') throw new Error('Odoo no creó la factura');
       }
-      const invoice = step.action === 'done' ? step.invoice : await deps.postInvoice(step.invoiceId, locale.invoiceJournalId);
+      const invoice = step.action === 'done' ? step.invoice : await deps.postInvoice(step.invoiceId, journalId);
       const saved = { invoiceId: invoice.id, invoiceName: invoice.name };
       await deps.markOrderInvoiced(order.id, saved);
       return { status: 'invoiced', ...saved };
@@ -107,7 +112,9 @@ function defaultDeps() {
     alignFirstLegMoves: odoo.alignFirstLegMoves, validateTwoStep,
     markLinesDelivered: orders.markLinesDelivered, setOrderWarning: orders.setOrderWarning,
     clearPostConfirmPending: orders.clearPostConfirmPending,
-    invoice: (order, locale) => invoicePosOrder(order, locale),
+    invoice: (order, locale, options) => invoicePosOrder(order, locale, undefined, options),
+    readInvoiceResidual: odoo.readInvoiceResidual, registerInvoicePayment: odoo.registerInvoicePayment,
+    saveOdooPayments: orders.saveOdooPayments,
     claimOrderForConfirm: orders.claimOrderForConfirm, markOrderError: orders.markOrderError, loadCtx,
   };
 }
@@ -133,6 +140,13 @@ async function shippingPartnerFor(groupLines, order, partnerId, ctx, deps) {
     ? ctx.locales.find((l) => l.id === pickup.pickupLocalId)?.address
     : pickup.delivery === 'retira_local' ? ctx.locale.address : '';
   return childPartnerFor(odoo.buildPickupPartnerVals(partnerId, order.customer.name, label, address), ['name', 'street'], deps);
+}
+
+// Lista de precios del sale.order según la del pedido (los precios de línea
+// van fijos desde la app; la lista queda para reportes en Odoo).
+export function odooPricelistId(order, settings) {
+  const byList = { decoradora: settings.decoradoraPricelistId, directorio: settings.directorioPricelistId };
+  return byList[order.priceList] || settings.orderPricelistId || undefined;
 }
 
 // El medio de Odoo nunca es "saldo": manda el principal de los pagos reales;
@@ -190,7 +204,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
 
   await moveWebStockToRolon(order, ctx, deps);
   const partnerId = await deps.findOrCreatePosPartner(order.customer);
-  const pending = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId: null })
+  const pending = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId: null, internal: isInternal(order) })
     .filter((g) => !existingFor(g.group));
   let paymentMethodId = null;
   let shippingProductId = null;
@@ -198,7 +212,9 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
   if (pending.length) {
     // Un cambio con neto <= 0 no tiene pagos: el pedido va sin medio de pago
     // (buildSaleOrderPayload omite payment_method_ids si es null).
-    paymentMethodId = order.payments.length || ctx.settings.creditOdooPaymentName ? await paymentMethodIdFor(order, ctx, deps) : null;
+    // Directorio tampoco: no se cobra en el momento.
+    paymentMethodId = !isDirectorio(order) && (order.payments.length || ctx.settings.creditOdooPaymentName)
+      ? await paymentMethodIdFor(order, ctx, deps) : null;
     if (order.totals.shipping > 0) {
       shippingProductId = await deps.findProductIdBySku(ctx.settings.shippingProductSku);
       if (!shippingProductId) throw new Error(`Producto de envío no encontrado en Odoo: ${ctx.settings.shippingProductSku}`);
@@ -208,7 +224,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
       if (!homeServiceProductId) throw new Error(`Producto de subida al domicilio no encontrado en Odoo: ${ctx.settings.homeServiceSku}`);
     }
   }
-  const plan = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId, homeServiceProductId });
+  const plan = odoo.planOdooOrders({ lines: order.lines, totals: order.totals, locale: ctx.locale, settings: ctx.settings, shippingProductId, homeServiceProductId, internal: isInternal(order) });
 
   // 1. Un pedido por grupo, en orden; cada uno se guarda ANTES de seguir.
   // Antes de crear se busca en Odoo (solo lectura) por referencia + depósito
@@ -224,7 +240,7 @@ export async function confirmPosOrder(order, user, ctx, deps = defaultDeps()) {
     if (!odooOrderId) {
       const partnerShippingId = await shippingPartnerFor(group.lines, order, partnerId, ctx, deps);
       const vals = odoo.buildSaleOrderPayload({
-        partnerId, pricelistId: ctx.settings.orderPricelistId || undefined, teamId: ctx.locale.teamId, paymentMethodId,
+        partnerId, pricelistId: odooPricelistId(order, ctx.settings), teamId: ctx.locale.teamId, paymentMethodId,
         warehouseId: group.warehouseId, partnerShippingId: partnerShippingId ?? partnerId, clientOrderRef: order.number, lines: group.odooLines,
       });
       if (!vals.pricelist_id) delete vals.pricelist_id;
@@ -314,8 +330,11 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
 
   // 6. Factura (nunca tira) y 7. aplicación de NC de lo que vuelve / saldos usados.
   let invoiceId = order.invoiceId ?? null;
-  if (order.wantsInvoice && !order.invoiceName && invoicingEnabledFor(ctx.locale)) {
-    const result = await deps.invoice(order, ctx.locale);
+  // Fiscal: con la facturación del local habilitada. Interna (VINTE): no va a ARCA, siempre.
+  const internalJournalId = isInternal(order) ? ctx.settings.internalInvoiceJournalId : null;
+  const fiscal = order.wantsInvoice && !isInternal(order) && invoicingEnabledFor(ctx.locale);
+  if (!order.invoiceName && (fiscal || internalJournalId)) {
+    const result = await deps.invoice(order, ctx.locale, internalJournalId ? { journalId: internalJournalId } : undefined);
     if (result?.status === 'invoiced') invoiceId = result.invoiceId;
   }
   if (invoiceId && deps.creditNoteIdsOf) {
@@ -328,14 +347,78 @@ export async function runPostConfirmSteps(order, user, ctx, deps = defaultDeps()
       ncWarnings = [`No se pudieron aplicar las notas de crédito a la factura (${err.message}): aplicalas en Odoo`];
     }
     if (ncWarnings.length) {
+      warnings.push(...ncWarnings);
       try {
-        await deps.setOrderWarning(order.id, [...warnings, ...ncWarnings].join(' · '));
+        await deps.setOrderWarning(order.id, warnings.join(' · '));
       } catch (err) {
         console.error('[pos] no se pudo guardar el aviso de notas de crédito:', err.message);
       }
     }
   }
+  // 8. Cobro registrado en la factura (queda paga). Después de las NC: lo
+  // abierto ya es solo lo que se cobró.
+  if (invoiceId && deps.registerInvoicePayment) {
+    const payWarnings = await payInvoiceStep(order, invoiceId, ctx, deps);
+    if (payWarnings.length) {
+      try {
+        await deps.setOrderWarning(order.id, [...warnings, ...payWarnings].join(' · '));
+      } catch (err) {
+        console.error('[pos] no se pudo guardar el aviso del cobro:', err.message);
+      }
+    }
+  }
   await deps.clearPostConfirmPending(order.id);
+}
+
+// Cobros a registrar en la factura: uno por medio real (el saldo a favor ya
+// está en la NC aplicada), con el diario de Odoo del medio. Puro.
+export function planInvoicePayments(order, methodsById, locale) {
+  return paymentsOf(order).filter((p) => p.methodId !== 'saldo' && p.amount > 0).map((p) => {
+    const method = methodsById.get(p.methodId);
+    return {
+      key: `${p.methodId}:${p.detailId ?? ''}`, label: method?.label ?? p.methodId,
+      // Venta interna: todo a la Caja Interna del local.
+      journalId: isInternal(order) ? locale?.internalCashJournalId ?? null : paymentJournalId(method, locale), amount: round2(p.amount),
+    };
+  });
+}
+
+// Registra los cobros que falten (`odooPayments` del pedido: un reintento no
+// los repite). Nunca pasa de lo abierto de la factura; el último cubre una
+// diferencia de redondeo de hasta $ 1. Nunca tira: devuelve avisos.
+export async function payInvoiceStep(order, invoiceId, ctx, deps) {
+  const warnings = [];
+  const done = { ...(order.odooPayments ?? {}) };
+  try {
+    const plan = planInvoicePayments(order, ctx.methodsById, ctx.locale).filter((p) => !done[p.key]);
+    if (!plan.length) return warnings;
+    let residual = round2(await deps.readInvoiceResidual(invoiceId));
+    for (const [i, p] of plan.entries()) {
+      if (residual < 0.01) break;
+      if (!p.journalId) {
+        warnings.push(`${p.label} no tiene diario de cobro en Admin → Medios de pago: registrá el cobro en Odoo`);
+        continue;
+      }
+      const last = i === plan.length - 1;
+      const amount = last && Math.abs(residual - p.amount) <= 1 ? residual : Math.min(p.amount, residual);
+      await deps.registerInvoicePayment(invoiceId, { journalId: p.journalId, amount, date: todayArg(), memo: `${order.number} · ${p.label}` });
+      done[p.key] = { journalId: p.journalId, amount };
+      await deps.saveOdooPayments(order.id, done);
+      residual = round2(residual - amount);
+    }
+  } catch (err) {
+    warnings.push(`No se pudo registrar el cobro en Odoo (${err.message}): registralo a mano en la factura`);
+  }
+  return warnings;
+}
+
+// "Reintentar factura" en caja: después de facturar, registra el cobro.
+export async function payInvoiceAfterRetry(orderId, deps = defaultDeps()) {
+  const order = await orders.getOrder(orderId);
+  if (!order.invoiceId) return order;
+  const warnings = await payInvoiceStep(order, order.invoiceId, await loadCtx(order.localId), deps);
+  if (warnings.length) await deps.setOrderWarning(order.id, [order.warning, ...warnings].filter(Boolean).join(' · '));
+  return orders.getOrder(orderId);
 }
 
 async function loadCtx(localId) {

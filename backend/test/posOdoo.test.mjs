@@ -231,3 +231,14 @@ test('planOdooOrders: la subida al domicilio va justo después del envío, mismo
   });
   assert.equal(none[0].odooLines.some((l) => l.productId === 57070), false);
 });
+
+test('buildOdooOrderLines: venta interna → precio con IVA y sin impuestos (también el envío)', () => {
+  const lines = [{ lineId: 'L1', productId: 1, qty: 2, basePrice: 1210, status: 'activo' }];
+  assert.deepEqual(buildOdooOrderLines(lines, { lineDiscountPct: 15, shipping: 2420 }, 9, { internal: true }), [
+    { productId: 1, qty: 2, unitPrice: 1210, discountPct: 15, taxIds: [] },
+    { productId: 9, qty: 1, unitPrice: 2420, discountPct: 0, taxIds: [] },
+  ]);
+  const [fiscal] = buildOdooOrderLines(lines, { lineDiscountPct: 15, shipping: 0 }, null);
+  assert.equal(fiscal.unitPrice, 1000);
+  assert.ok(!('taxIds' in fiscal));
+});

@@ -63,8 +63,12 @@ export async function getPurchase(source, id, deps = { readSale: rOdoo.readSaleO
       source: 'app', purchaseId: order.id, label: order.number, saleOrderIds: order.odooOrders.map((o) => o.odooOrderId),
       unitValueFor: (sl) => appUnitValue(byOdooLine.get(sl.id) ?? { basePrice: 0 }, order.totals?.lineDiscountPct),
     });
-    // La app conoce el cliente y el número aunque Odoo tenga otro contacto de entrega.
-    return { ...purchase, partnerVat: order.customer?.docNumber ?? purchase.partnerVat, partnerName: order.customer?.name ?? purchase.partnerName };
+    // La app conoce el cliente, el número y la fecha de la venta aunque Odoo tenga otro contacto de entrega.
+    const purchaseDate = order.confirmedAt ? (order.confirmedAt.toDate?.() ?? new Date(order.confirmedAt)).toISOString() : purchase.date;
+    return {
+      ...purchase, date: purchaseDate, lines: purchase.lines.map((l) => ({ ...l, purchaseDate })),
+      partnerVat: order.customer?.docNumber ?? purchase.partnerVat, partnerName: order.customer?.name ?? purchase.partnerName,
+    };
   }
   throw new Error('Origen de compra inválido');
 }

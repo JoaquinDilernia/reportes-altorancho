@@ -12,9 +12,9 @@ const CACHE_MS = 30 * 1000;
 // internas" de cada almacén. Los destinos de devolución por defecto se arman
 // con defaultReturnDestinations si el local no tiene los suyos.
 export const DEFAULT_LOCALES = [
-  { id: 'LL', name: 'Las Lomas', warehouseId: 1, stockLocationId: 8, exhibicionLocationId: 324, teamId: 6, invoiceJournalId: 32, address: '', active: true, returnPickingTypeId: 6, internalPickingTypeId: 5 },
-  { id: 'BL', name: 'Belgrano', warehouseId: 40, stockLocationId: 372, exhibicionLocationId: 379, teamId: 18, invoiceJournalId: 65, address: '', active: true, returnPickingTypeId: 308, internalPickingTypeId: 307 },
-  { id: 'AL', name: 'Alcorta', warehouseId: 41, stockLocationId: 397, exhibicionLocationId: 415, teamId: 25, invoiceJournalId: 78, address: '', active: true, returnPickingTypeId: 352, internalPickingTypeId: 351 },
+  { id: 'LL', name: 'Las Lomas', warehouseId: 1, stockLocationId: 8, exhibicionLocationId: 324, teamId: 6, invoiceJournalId: 32, cashJournalId: 54, internalCashJournalId: 33, address: '', active: true, returnPickingTypeId: 6, internalPickingTypeId: 5 },
+  { id: 'BL', name: 'Belgrano', warehouseId: 40, stockLocationId: 372, exhibicionLocationId: 379, teamId: 18, invoiceJournalId: 65, cashJournalId: 67, internalCashJournalId: 66, address: '', active: true, returnPickingTypeId: 308, internalPickingTypeId: 307 },
+  { id: 'AL', name: 'Alcorta', warehouseId: 41, stockLocationId: 397, exhibicionLocationId: 415, teamId: 25, invoiceJournalId: 78, cashJournalId: 79, internalCashJournalId: 80, address: '', active: true, returnPickingTypeId: 352, internalPickingTypeId: 351 },
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -27,11 +27,22 @@ export const DEFAULT_SETTINGS = {
   promoPricelistId: 313,
   shippingProductSku: 'ENV002EX',
   decoradorTagId: 1,
+  // Lista Decoradora (pedido en Odoo con la lista "[DESC5-DEC] Lista
+  // Decoradora", que cambia de id cada mes) y Directorio ("Venta Interna
+  // Directorio 2026", al costo; etiqueta de cliente creada el 2026-11-03).
+  decoradoraPricelistId: 333,
+  decoradoraDiscountPct: 5,
+  directorioPricelistId: 255,
+  directorioTagId: 33,
+  // Venta sin factura fiscal: factura interna en "Ventas Internas" (VINTE),
+  // que no va a ARCA; el cobro va a la Caja Interna del local.
+  internalInvoiceJournalId: 28,
   homeServiceSku: 'SERVIDOM',
   homeServiceDefaultAmount: 5000,
   creditValidityDays: null, // null = el saldo a favor no vence
   returnReasons: ['Talle o medida', 'Falla', 'No le gustó', 'Otro'],
   returnSearchDays: 365,
+  returnWindowDays: 30, // pasado este plazo la devolución se hace igual pero queda "fuera de plazo"
   creditOdooPaymentName: null, // payment.method de Odoo si se paga todo con saldo
 };
 
@@ -82,6 +93,8 @@ export function validateLocale(input) {
   if (!isId(input.exhibicionLocationId)) errors.push('Ubicación de exhibición inválida');
   if (!isId(input.teamId)) errors.push('Equipo de ventas inválido');
   if (input.invoiceJournalId != null && !isId(input.invoiceJournalId)) errors.push('Diario de facturas inválido');
+  if (input.cashJournalId != null && !isId(input.cashJournalId)) errors.push('Diario de caja inválido');
+  if (input.internalCashJournalId != null && !isId(input.internalCashJournalId)) errors.push('Caja interna inválida');
   if (input.returnPickingTypeId != null && !isId(input.returnPickingTypeId)) errors.push('Tipo de remito de devolución inválido');
   if (input.internalPickingTypeId != null && !isId(input.internalPickingTypeId)) errors.push('Tipo de transferencia interna inválido');
   errors.push(...validateDestinations(input.returnDestinations));
@@ -93,6 +106,7 @@ export function validatePaymentMethod(input) {
   if (!String(input.label ?? '').trim()) errors.push('Falta el nombre');
   const pct = input.discountPct;
   if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0 || pct > 100) errors.push('El descuento tiene que estar entre 0 y 100');
+  if (input.odooJournal != null && input.odooJournal !== 'local' && !isId(input.odooJournal)) errors.push('Diario de cobro inválido');
   const details = input.details ?? [];
   if (!details.length && !String(input.odooName ?? '').trim()) errors.push('Falta el medio de pago de Odoo');
   for (const d of details) {
@@ -107,9 +121,13 @@ export function validateSettings(input) {
   if (input.rolon?.outPickingTypeId != null && !isId(input.rolon.outPickingTypeId)) errors.push('Rolón: tipo de operación inválido');
   if (!isId(input.web?.locationId)) errors.push('Web: ubicación obligatoria');
   if (input.webTransferPickingTypeId != null && !isId(input.webTransferPickingTypeId)) errors.push('Web: tipo de transferencia inválido');
-  for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId']) {
+  for (const key of ['fullPricelistId', 'promoPricelistId', 'orderPricelistId', 'decoradoraPricelistId', 'directorioPricelistId']) {
     if (input[key] != null && !isId(input[key])) errors.push(`Lista de precios inválida (${key})`);
   }
+  if (input.directorioTagId != null && !isId(input.directorioTagId)) errors.push('Etiqueta de Directorio inválida');
+  if (input.internalInvoiceJournalId != null && !isId(input.internalInvoiceJournalId)) errors.push('Diario de ventas internas inválido');
+  const decoPct = input.decoradoraDiscountPct;
+  if (decoPct != null && !(typeof decoPct === 'number' && decoPct >= 0 && decoPct < 100)) errors.push('Descuento de la lista Decoradora: entre 0 y 99');
   if (!String(input.shippingProductSku ?? '').trim()) errors.push('Falta el SKU del producto de envío');
   if (input.homeServiceSku !== undefined && !String(input.homeServiceSku ?? '').trim()) errors.push('Falta el SKU de la subida al domicilio');
   const homeAmount = input.homeServiceDefaultAmount;
@@ -123,6 +141,8 @@ export function validateSettings(input) {
     if (!Array.isArray(reasons) || !reasons.length) errors.push('Cargá al menos un motivo de devolución');
     else if (reasons.length > 20 || reasons.some((r) => typeof r !== 'string' || !r.trim() || r.length > 60)) errors.push('Motivos de devolución inválidos');
   }
+  const windowDays = input.returnWindowDays;
+  if (windowDays !== undefined && !(Number.isInteger(windowDays) && windowDays >= 1 && windowDays <= 3650)) errors.push('Plazo de devolución: entre 1 y 3650 días');
   const search = input.returnSearchDays;
   if (search !== undefined && !(Number.isInteger(search) && search >= 1 && search <= 1095)) errors.push('Días de búsqueda de compras: entre 1 y 1095');
   const creditName = input.creditOdooPaymentName;
@@ -188,7 +208,20 @@ function withLocaleDefaults(locale) {
     ...locale,
     returnPickingTypeId: locale.returnPickingTypeId ?? base.returnPickingTypeId ?? null,
     internalPickingTypeId: locale.internalPickingTypeId ?? base.internalPickingTypeId ?? null,
+    cashJournalId: locale.cashJournalId ?? base.cashJournalId ?? null,
+    internalCashJournalId: locale.internalCashJournalId ?? base.internalCashJournalId ?? null,
   };
+}
+
+// Diario de Odoo donde se registra el cobro de cada medio (la factura queda
+// paga). 'local' = la caja del local (cashJournalId). Ids verificados el
+// 2026-11-03: Banco Galicia Cta Cte $ 7, Mercado Pago 35, GoCuotas 47.
+export const DEFAULT_PAYMENT_JOURNALS = { efectivo: 'local', transferencia: 7, debito: 35, credito: 35, gocuotas: 47 };
+const withMethodDefaults = (m) => ({ ...m, odooJournal: m.odooJournal !== undefined ? m.odooJournal : DEFAULT_PAYMENT_JOURNALS[m.id] ?? null });
+
+export function paymentJournalId(method, locale) {
+  if (method?.odooJournal === 'local') return locale?.cashJournalId ?? null;
+  return isId(method?.odooJournal) ? method.odooJournal : null;
 }
 
 async function loadAll() {
@@ -200,7 +233,7 @@ async function loadAll() {
   cache = {
     at: Date.now(),
     locales: locSnap.docs.map((d) => withLocaleDefaults({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name, 'es')),
-    methods: methodSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99)),
+    methods: methodSnap.docs.map((d) => withMethodDefaults({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99)),
     settings: { ...DEFAULT_SETTINGS, ...(settingsSnap.exists ? settingsSnap.data() : {}) },
   };
   return cache;

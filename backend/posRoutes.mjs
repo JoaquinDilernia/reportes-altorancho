@@ -15,7 +15,7 @@ import { listPromotions, listActivePromotions, savePromotion } from './posPromot
 import { searchCatalog, fetchFreeStock, groupStock, stockLocationIds } from './posCatalog.mjs';
 import { readReservationsFor, appReservedFor } from './posStock.mjs';
 import * as orders from './posOrders.mjs';
-import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor } from './posConfirm.mjs';
+import { claimAndConfirmPos, annulPosOrder, invoicePosOrder, invoicingEnabledFor, payInvoiceAfterRetry, isInternal } from './posConfirm.mjs';
 import { findPartnerForLookup, listOdooOptions } from './posOdoo.mjs';
 import { lookupArca } from './posArca.mjs';
 import * as cash from './posCash.mjs';
@@ -136,7 +136,11 @@ router.get('/config', ...auth, handle(async () => {
     paymentMethods: paymentMethods.filter((m) => m.active !== false),
     promotions: promotions.filter((p) => p.kind !== 'cupon').map(({ id, name, kind, type, value, requiresPaymentMethodId }) => ({ id, name, kind, type, value, requiresPaymentMethodId })),
     creditMethod: SALDO_METHOD,
-    settings: { decoradorTagId: settings.decoradorTagId, homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons },
+    settings: {
+      decoradorTagId: settings.decoradorTagId, directorioTagId: settings.directorioTagId, decoradoraDiscountPct: settings.decoradoraDiscountPct,
+      homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons,
+      returnWindowDays: settings.returnWindowDays,
+    },
   };
 }));
 
@@ -202,7 +206,7 @@ router.post('/carts', ...sellers, handle(async (req) => {
     localId = req.body?.localId;
     if (!(await getLocales()).some((l) => l.id === localId)) throw new Error('Elegí un local válido');
   }
-  return orders.createCart(actingUser(req, localId), req.body?.line ?? {});
+  return orders.createCart(actingUser(req, localId), req.body?.line ?? {}, req.body?.priceList ?? 'normal');
 }));
 router.post('/carts/:id/lines', ...sellers, handle(async (req) => {
   await orderFor(req);
@@ -215,6 +219,13 @@ router.delete('/carts/:id', ...sellers, handle(async (req) => {
 router.post('/carts/:id/submit', ...sellers, handle(async (req) => {
   await orderFor(req);
   return orders.submitCart(req.params.id, req.posUser, req.body ?? {});
+}));
+
+// ---- Lista de precios (carrito propio o pedido en caja) ----
+router.put('/orders/:id/price-list', ...sellers, handle(async (req) => {
+  const order = await orderFor(req);
+  assertLineEditAccess(order, req.posUser);
+  return orders.setPriceList(req.params.id, actingUser(req, order.localId), req.body?.priceList);
 }));
 
 // ---- Líneas (carrito propio o pedido en caja) ----
@@ -312,12 +323,15 @@ router.post('/orders/:id/confirm', ...cajas, handle(async (req) => {
 router.post('/orders/:id/invoice', ...cajas, handle(async (req) => {
   const order = await orderFor(req);
   const locale = (await getLocales()).find((l) => l.id === order.localId);
-  if (order.status !== 'confirmado' || !order.wantsInvoice) throw new Error('Este pedido no lleva factura');
+  const internal = isInternal(order);
+  if (order.status !== 'confirmado' || !(order.wantsInvoice || internal)) throw new Error('Este pedido no lleva factura');
   if (order.invoiceName) throw new Error(`Ya tiene la factura ${order.invoiceName}`);
-  if (!invoicingEnabledFor(locale)) throw new Error('La facturación de este local no está habilitada');
-  const result = await invoicePosOrder(order, locale);
+  if (!internal && !invoicingEnabledFor(locale)) throw new Error('La facturación de este local no está habilitada');
+  const settings = await getSettings();
+  if (internal && !settings.internalInvoiceJournalId) throw new Error('Configurá el diario de ventas internas en Admin → Ajustes');
+  const result = await invoicePosOrder(order, locale, undefined, internal ? { journalId: settings.internalInvoiceJournalId } : undefined);
   if (result.status === 'error') throw httpError(result.error, 502);
-  return orders.getOrder(order.id);
+  return payInvoiceAfterRetry(order.id);
 }));
 
 router.post('/orders/:id/annul', ...cajas, handle(async (req) => {

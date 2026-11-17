@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   allocateReturned, returnedQtyByMove, readTpvPurchase, readSaleOrderPurchase, searchTpvPurchases, searchWebPurchases,
   allocateToMoves, planCreditNoteCommands, createReturnPicking, validatePicking, createCreditNoteFromInvoice, applyCreditNote, trimCreditNote,
+  todayArg, dateDraftToday,
 } from '../posReturnsOdoo.mjs';
 
 // Odoo falso: responde por modelo+método con funciones (domain, kwargs) → filas.
@@ -208,7 +209,9 @@ test('createCreditNoteFromInvoice: reversión parcial en borrador en el diario d
   const id = await createCreditNoteFromInvoice({ invoiceId: 368292, journalId: 32, reason: 'LL-0042 devolución', items: [{ productId: 68926, qty: 1 }] }, odoo);
   assert.equal(id, 368705);
   const [, , [[vals]]] = calls.find((c) => c[0] === 'account.move.reversal' && c[1] === 'create');
-  assert.deepEqual(vals, { move_ids: [[6, 0, [368292]]], refund_method: 'refund', journal_id: 32, reason: 'LL-0042 devolución', date_mode: 'entry' });
+  assert.deepEqual(vals, {
+    move_ids: [[6, 0, [368292]]], refund_method: 'refund', journal_id: 32, reason: 'LL-0042 devolución', date_mode: 'custom', date: todayArg(),
+  });
   assert.ok(!calls.some((c) => c[1] === 'action_post'));
   assert.deepEqual(calls.find((c) => c[0] === 'account.move' && c[1] === 'write')[2], [[368705], { invoice_line_ids: [[1, 1215806, { quantity: 1 }]] }]);
 });
@@ -292,4 +295,24 @@ test('readMoveResiduals: lo abierto de cada comprobante por id', async () => {
   assert.deepEqual(calls[0][2], [[400, 368705]]);
   assert.deepEqual(calls[0][3].fields, ['id', 'name', 'amount_residual']);
   assert.equal((await readMoveResiduals([], odoo)).size, 0);
+});
+
+test('todayArg: fecha de Argentina (UTC-3)', () => {
+  assert.equal(todayArg(new Date('2026-11-04T02:30:00Z').getTime()), '2026-11-03');
+  assert.equal(todayArg(new Date('2026-11-04T03:30:00Z').getTime()), '2026-11-04');
+});
+
+test('dateDraftToday: un borrador con fecha vieja pasa a hoy; publicado o ya de hoy no se toca', async () => {
+  const now = new Date('2026-11-03T15:00:00Z').getTime();
+  const run = async (state, invoiceDate) => {
+    const { odoo, calls } = fakeOdoo({
+      'account.move.read': () => [{ id: 384717, state, invoice_date: invoiceDate }],
+      'account.move.write': () => true,
+    });
+    await dateDraftToday(384717, odoo, now);
+    return calls.filter((c) => c[1] === 'write');
+  };
+  assert.deepEqual((await run('draft', '2026-10-27'))[0][2], [[384717], { invoice_date: '2026-11-03', date: '2026-11-03' }]);
+  assert.equal((await run('draft', '2026-11-03')).length, 0);
+  assert.equal((await run('posted', '2026-10-27')).length, 0);
 });

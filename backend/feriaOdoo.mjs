@@ -189,6 +189,8 @@ export function buildSaleOrderPayload({ partnerId, pricelistId, teamId, paymentM
       price_unit: l.unitPrice,
       discount: l.discountPct,
       ...(l.name ? { name: l.name } : {}),
+      // Venta interna: sin impuestos (el precio ya trae el IVA).
+      ...(Array.isArray(l.taxIds) ? { tax_id: [[6, 0, l.taxIds]] } : {}),
     }]),
   };
   if (teamId) payload.team_id = teamId;

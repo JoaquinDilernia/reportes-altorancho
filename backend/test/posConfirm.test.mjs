@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps,
+  confirmPosOrder, pairOdooLineIds, invoicingEnabledFor, invoicePosOrder, annulPosOrder, claimAndConfirmPos, runPostConfirmSteps, odooPricelistId, planInvoicePayments, payInvoiceStep,
 } from '../posConfirm.mjs';
-import { DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS } from '../posConfig.mjs';
+import { DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS, DEFAULT_PAYMENT_JOURNALS } from '../posConfig.mjs';
 
 const ctx = {
   locale: DEFAULT_LOCALES[0], locales: DEFAULT_LOCALES, settings: DEFAULT_SETTINGS,
@@ -468,4 +468,92 @@ test('confirmPosOrder: sin subida al domicilio no se busca el producto SERVIDOM'
   const { deps, calls } = fakeDeps();
   await confirmPosOrder(baseOrder(), 'Caja', ctx, deps);
   assert.equal(named(calls, 'productBySku').length, 0);
+});
+
+test('confirmPosOrder: Directorio → lista 255 y sin medio de pago', async () => {
+  const { deps, calls } = fakeDeps();
+  await confirmPosOrder({ ...baseOrder(), priceList: 'directorio', payments: [], totals: { lineDiscountPct: 0, shipping: 0, total: 2420 } }, 'Caja Lomas', ctx, deps);
+  const payloads = named(calls, 'createSaleOrder').map((c) => c[1]);
+  assert.deepEqual(payloads.map((p) => p.pricelist_id), [255, 255]);
+  assert.deepEqual(payloads.map((p) => p.payment_method_ids), [undefined, undefined]);
+  assert.equal(named(calls, 'paymentMethod').length, 0);
+  assert.equal(payloads[0].order_line[0][2].discount, 0);
+});
+
+test('odooPricelistId: Decoradora y Directorio usan su lista; normal, la de pedidos', () => {
+  assert.equal(odooPricelistId({ priceList: 'decoradora' }, DEFAULT_SETTINGS), 333);
+  assert.equal(odooPricelistId({ priceList: 'directorio' }, DEFAULT_SETTINGS), 255);
+  assert.equal(odooPricelistId({}, DEFAULT_SETTINGS), 314);
+  assert.equal(odooPricelistId({ priceList: 'decoradora' }, { ...DEFAULT_SETTINGS, decoradoraPricelistId: null }), 314);
+});
+
+const payCtx = () => ({
+  locale: DEFAULT_LOCALES[0],
+  methodsById: new Map([...DEFAULT_PAYMENT_METHODS.map((m) => [m.id, { ...m, odooJournal: DEFAULT_PAYMENT_JOURNALS[m.id] }]), ['saldo', { id: 'saldo', label: 'Saldo a favor' }]]),
+});
+
+test('planInvoicePayments: un cobro por medio real, con su diario; el saldo a favor no', () => {
+  const order = { totals: { total: 10000 }, payments: [
+    { methodId: 'efectivo', amount: 4000 }, { methodId: 'transferencia', amount: 3000 }, { methodId: 'saldo', amount: 3000 },
+  ] };
+  assert.deepEqual(planInvoicePayments(order, payCtx().methodsById, DEFAULT_LOCALES[0]).map((p) => [p.key, p.journalId, p.amount]), [
+    ['efectivo:', 54, 4000], ['transferencia:', 7, 3000],
+  ]);
+  const single = planInvoicePayments({ totals: { total: 1598.08 }, payments: [{ methodId: 'credito', detailId: '3', amount: null }] }, payCtx().methodsById, DEFAULT_LOCALES[1]);
+  assert.deepEqual(single, [{ key: 'credito:3', label: 'Tarjeta crédito', journalId: 35, amount: 1598.08 }]);
+});
+
+test('payInvoiceStep: registra lo cobrado hasta lo abierto, cubre centavos y no repite en un reintento', async () => {
+  const calls = [];
+  const deps = {
+    readInvoiceResidual: async () => 5595.75,
+    registerInvoicePayment: async (id, vals) => { calls.push(['pay', id, vals.journalId, vals.amount]); },
+    saveOdooPayments: async (id, done) => { calls.push(['save', Object.keys(done)]); },
+  };
+  const order = { id: 'o1', number: 'LL-0016', totals: { collect: 5595.76, total: 5595.76 }, payments: [{ methodId: 'transferencia', amount: null }] };
+  assert.deepEqual(await payInvoiceStep(order, 400, payCtx(), deps), []);
+  assert.deepEqual(calls.filter((c) => c[0] === 'pay'), [['pay', 400, 7, 5595.75]]);
+  calls.length = 0;
+  await payInvoiceStep({ ...order, odooPayments: { 'transferencia:': { amount: 5595.75 } } }, 400, payCtx(), deps);
+  assert.equal(calls.length, 0);
+});
+
+test('payInvoiceStep: sin diario o con error de Odoo → aviso, nunca tira', async () => {
+  const order = { id: 'o1', number: 'LL-1', totals: { total: 100 }, payments: [{ methodId: 'efectivo', amount: null }] };
+  const ctxNoJournal = { ...payCtx(), locale: { ...DEFAULT_LOCALES[0], cashJournalId: null } };
+  const deps = { readInvoiceResidual: async () => 100, registerInvoicePayment: async () => { throw new Error('AFIP'); }, saveOdooPayments: async () => {} };
+  assert.match((await payInvoiceStep(order, 1, ctxNoJournal, deps))[0], /no tiene diario de cobro/);
+  assert.match((await payInvoiceStep(order, 1, payCtx(), deps))[0], /No se pudo registrar el cobro en Odoo \(AFIP\)/);
+});
+
+test('runPostConfirmSteps: venta interna → factura en VINTE (sin depender de ARCA) y cobro en la Caja Interna', async () => {
+  const prev = process.env.POS_INVOICING_ENABLED;
+  delete process.env.POS_INVOICING_ENABLED;
+  try {
+    const calls = [];
+    const { deps } = fakeDeps({
+      invoice: async (order, locale, options) => { calls.push(['invoice', options]); return { status: 'invoiced', invoiceId: 500 }; },
+      creditNoteIdsOf: async () => [],
+      readInvoiceResidual: async () => 2420,
+      registerInvoicePayment: async (id, vals) => { calls.push(['pay', id, vals.journalId, vals.amount]); },
+      saveOdooPayments: async () => {},
+    });
+    const order = {
+      ...baseOrder(), status: 'confirmado', wantsInvoice: false, invoiceMode: 'internal', totals: { total: 2420, lineDiscountPct: 0 },
+      odooOrders: [{ group: 'local', odooOrderId: 9000, odooOrderName: 'S9000' }],
+      lines: [{ lineId: 'L1', productId: 10, sku: 'A', qty: 2, basePrice: 1210, origin: 'stock', delivery: 'retira_local', status: 'activo', odooLineId: 71 }],
+    };
+    await runPostConfirmSteps(order, 'Caja', { ...ctx, methodsById: payCtx().methodsById }, deps);
+    assert.deepEqual(calls, [['invoice', { journalId: 28 }], ['pay', 500, 33, 2420]]);
+    // Directorio: interna y sin pagos → factura a cobrar, sin cobro registrado.
+    calls.length = 0;
+    await runPostConfirmSteps({ ...order, priceList: 'directorio', payments: [] }, 'Caja', { ...ctx, methodsById: payCtx().methodsById }, deps);
+    assert.deepEqual(calls, [['invoice', { journalId: 28 }]]);
+    // Sin factura y sin modo interno (cambio): no factura.
+    calls.length = 0;
+    await runPostConfirmSteps({ ...order, invoiceMode: 'none' }, 'Caja', { ...ctx, methodsById: payCtx().methodsById }, deps);
+    assert.equal(calls.length, 0);
+  } finally {
+    if (prev !== undefined) process.env.POS_INVOICING_ENABLED = prev;
+  }
 });

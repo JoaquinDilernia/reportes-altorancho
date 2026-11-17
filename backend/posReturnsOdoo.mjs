@@ -158,7 +158,7 @@ export async function readTpvPurchase(posOrderId, odoo = defaultOdoo) {
     const productMoves = moves.filter((m) => id(m.product_id) === productId);
     const product = products.get(productId);
     return {
-      source: 'tpv', purchaseId: String(order.id), purchaseLabel: order.name, purchaseLineId: String(l.id), productId,
+      source: 'tpv', purchaseId: String(order.id), purchaseLabel: order.name, purchaseDate: order.date_order, purchaseLineId: String(l.id), productId,
       sku: product?.default_code ?? skuOf(l.product_id[1]), name: product?.name ?? l.product_id[1],
       qtyBought: l.qty, qtyReturnedBefore: (l.refunded_qty ?? 0) + (byApp.get(l.id) ?? 0), unitValue: tpvUnitValue(l),
       lots: mergeLots(productMoves.map((m) => lots.get(m.id) ?? [])), moveIds: productMoves.map((m) => m.id),
@@ -203,7 +203,7 @@ export async function readSaleOrderPurchase({ source, purchaseId, label, saleOrd
     if (sl.product_uom_qty > delivered) pending.push({ sku, name, qty: sl.product_uom_qty - delivered });
     if (!delivered) continue;
     lines.push({
-      source, purchaseId, purchaseLabel: label ?? orders[0].name, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
+      source, purchaseId, purchaseLabel: label ?? orders[0].name, purchaseDate: orders[0].date_order, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
       qtyBought: delivered, qtyReturnedBefore: lineDone.reduce((s, m) => s + (returnedByMove.get(m.id) ?? 0), 0),
       unitValue: unitValueFor(sl), lots: mergeLots(lineDone.map((m) => lots.get(m.id) ?? [])), moveIds: lineDone.map((m) => m.id),
       invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, ...partner,
@@ -341,12 +341,17 @@ export async function latestLotFor(productId, odoo = defaultOdoo) {
   return lot?.id ?? null;
 }
 
+// Fecha de hoy en Argentina (UTC-3), 'YYYY-MM-DD'.
+export const todayArg = (now = Date.now()) => new Date(now - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 // NC parcial: se revierte la factura original y, en borrador, se dejan solo
 // las líneas y cantidades devueltas (spike Fase 2). Se publica aparte.
+// Fecha de hoy, nunca la de la factura original: ARCA rechaza un comprobante
+// con fecha anterior al último autorizado del punto de venta (error 10016).
 export async function createCreditNoteFromInvoice({ invoiceId, journalId, reason, items }, odoo = defaultOdoo) {
   const context = { active_model: 'account.move', active_ids: [invoiceId], active_id: invoiceId };
   const [wizardId] = await odoo.write('account.move.reversal', 'create', [[{
-    move_ids: [[6, 0, [invoiceId]]], refund_method: 'refund', journal_id: journalId, reason, date_mode: 'entry',
+    move_ids: [[6, 0, [invoiceId]]], refund_method: 'refund', journal_id: journalId, reason, date_mode: 'custom', date: todayArg(),
   }]], { context });
   const action = await odoo.write('account.move.reversal', 'reverse_moves', [[wizardId]], { context });
   const creditNoteId = action?.res_id;
@@ -380,6 +385,16 @@ export async function applyCreditNote(invoiceId, creditNoteId, odoo = defaultOdo
   if (!line) return false;
   await odoo.write('account.move', 'js_assign_outstanding_line', [[invoiceId], line.id]);
   return true;
+}
+
+// Antes de publicar, una NC en borrador pasa a la fecha de hoy (una creada
+// antes con la fecha de la factura original la rechaza ARCA).
+export async function dateDraftToday(moveId, odoo = defaultOdoo, now = Date.now()) {
+  const [move] = await odoo.read('account.move', 'read', [[moveId]], { fields: ['id', 'state', 'invoice_date'] });
+  const today = todayArg(now);
+  if (move?.state === 'draft' && move.invoice_date !== today) {
+    await odoo.write('account.move', 'write', [[moveId], { invoice_date: today, date: today }]);
+  }
 }
 
 // Estado actual de una NC (un reintento no recorta ni publica una que ya se publicó).
