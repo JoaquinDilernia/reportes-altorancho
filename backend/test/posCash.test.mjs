@@ -67,3 +67,29 @@ test('computeCashSummary: cambio cobra solo el neto; reintegro en efectivo resta
 test('paymentsOf: devolución sin pagos no suma nada', () => {
   assert.deepEqual(paymentsOf({ payments: [], totals: { total: 0, collect: 0 } }), []);
 });
+
+test('buildPosCashMovement: movimiento entre cajas pide sentido y monto', () => {
+  const ctx = { user: 'Caja', now: new Date(0), id: 'm1' };
+  const m = buildPosCashMovement({ type: 'traspaso', direction: 'a_interna', amount: '1000' }, ctx);
+  assert.equal(m.direction, 'a_interna');
+  assert.equal(m.amount, 1000);
+  assert.equal(m.concept, 'De caja con factura a caja sin factura');
+  assert.equal(buildPosCashMovement({ type: 'traspaso', direction: 'a_fiscal', amount: 5 }, ctx).concept, 'De caja sin factura a caja con factura');
+  assert.throws(() => buildPosCashMovement({ type: 'traspaso', amount: 5 }, ctx), /Elegí entre qué cajas/);
+});
+
+test('computeCashSummary: efectivo por caja (con / sin factura) y movimientos entre cajas; el total no cambia', () => {
+  const orders = [
+    order([{ methodId: 'efectivo' }], 1000, { invoiceMode: 'fiscal' }),
+    order([{ methodId: 'efectivo' }], 400, { invoiceMode: 'internal' }),
+    order([{ methodId: 'debito' }], 700, { invoiceMode: 'fiscal' }),
+  ];
+  const movements = [
+    { type: 'traspaso', direction: 'a_interna', amount: 300 },
+    { type: 'traspaso', direction: 'a_fiscal', amount: 50 },
+    { type: 'traspaso', direction: 'a_interna', amount: 999, voidedAt: new Date() },
+  ];
+  const s = computeCashSummary(orders, { openingCash: 0, movements });
+  assert.deepEqual(s.boxes, { fiscal: 750, internal: 650, toInternal: 300, toFiscal: 50 });
+  assert.equal(s.expectedCash, 1400);
+});

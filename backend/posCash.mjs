@@ -10,7 +10,13 @@ import { round2, collectOf } from './posPricing.mjs';
 
 const SESSIONS = 'pos_cash_sessions';
 export const CASH_METHOD_ID = 'efectivo';
-const MOVEMENT_TYPES = { gasto: 'Gasto', retiro: 'Retiro', ingreso_usd: 'Ingreso en dólares' };
+const MOVEMENT_TYPES = { gasto: 'Gasto', retiro: 'Retiro', ingreso_usd: 'Ingreso en dólares', traspaso: 'Movimiento entre cajas' };
+// Movimiento entre la caja con factura y la sin factura del local: la plata
+// sigue en el mismo cajón (no cambia el efectivo esperado).
+export const TRANSFER_DIRECTIONS = {
+  a_interna: 'De caja con factura a caja sin factura',
+  a_fiscal: 'De caja sin factura a caja con factura',
+};
 
 export function paymentsOf(order) {
   const payments = order.payments ?? [];
@@ -28,6 +34,9 @@ export function computeCashSummary(orders, { openingCash, countedCash = null, mo
   const refundsByMethod = {};
   let creditsUsed = 0;
   let creditsIssued = 0;
+  // Efectivo por caja: venta interna → caja sin factura; el resto → con factura.
+  const cashByBox = { fiscal: 0, internal: 0 };
+  const boxOf = (order) => (order.invoiceMode === 'internal' ? 'internal' : 'fiscal');
   for (const order of sold) {
     for (const { methodId, detailId, amount } of paymentsOf(order)) {
       if (methodId === 'saldo') {
@@ -36,8 +45,12 @@ export function computeCashSummary(orders, { openingCash, countedCash = null, mo
       }
       byMethod[methodId] = round2((byMethod[methodId] ?? 0) + amount);
       if (detailId) byDetail[`${methodId}:${detailId}`] = round2((byDetail[`${methodId}:${detailId}`] ?? 0) + amount);
+      if (methodId === CASH_METHOD_ID) cashByBox[boxOf(order)] = round2(cashByBox[boxOf(order)] + amount);
     }
-    for (const { methodId, amount } of order.refund?.cashBack ?? []) refundsByMethod[methodId] = round2((refundsByMethod[methodId] ?? 0) + amount);
+    for (const { methodId, amount } of order.refund?.cashBack ?? []) {
+      refundsByMethod[methodId] = round2((refundsByMethod[methodId] ?? 0) + amount);
+      if (methodId === CASH_METHOD_ID) cashByBox[boxOf(order)] = round2(cashByBox[boxOf(order)] - amount);
+    }
     creditsIssued = round2(creditsIssued + (order.refund?.credit ?? 0));
   }
   const active = movements.filter((m) => !m.voidedAt);
@@ -45,6 +58,12 @@ export function computeCashSummary(orders, { openingCash, countedCash = null, mo
   const expenses = sumOf('gasto');
   const withdrawals = sumOf('retiro');
   const usd = { amount: sumOf('ingreso_usd', 'usdAmount'), pesos: sumOf('ingreso_usd') };
+  const transferred = (direction) => round2(active.filter((m) => m.type === 'traspaso' && m.direction === direction).reduce((s, m) => s + m.amount, 0));
+  const toInternal = transferred('a_interna');
+  const toFiscal = transferred('a_fiscal');
+  const boxes = {
+    fiscal: round2(cashByBox.fiscal - toInternal + toFiscal), internal: round2(cashByBox.internal + toInternal - toFiscal), toInternal, toFiscal,
+  };
   const total = round2(Object.values(byMethod).reduce((s, v) => s + v, 0));
   const refundsTotal = round2(Object.values(refundsByMethod).reduce((s, v) => s + v, 0));
   const expectedCash = round2(openingCash + (byMethod[CASH_METHOD_ID] ?? 0) - (refundsByMethod[CASH_METHOD_ID] ?? 0) - expenses - withdrawals);
@@ -53,12 +72,12 @@ export function computeCashSummary(orders, { openingCash, countedCash = null, mo
     returns: sold.filter((o) => o.kind === 'devolucion' || o.kind === 'cambio').length,
     annulled: orders.filter((o) => o.status === 'anulado' && o.odooOrderId).length,
     byMethod, byDetail, total, refundsByMethod, refundsTotal, creditsIssued, creditsUsed,
-    openingCash, expenses, withdrawals, usd, expectedCash,
+    openingCash, expenses, withdrawals, usd, expectedCash, boxes,
     countedCash, difference: countedCash == null ? null : round2(countedCash - expectedCash),
   };
 }
 
-export function buildPosCashMovement({ type, concept, amount, usdAmount, rate }, { user, now, id }) {
+export function buildPosCashMovement({ type, concept, amount, usdAmount, rate, direction }, { user, now, id }) {
   if (!MOVEMENT_TYPES[type]) throw new Error(`Tipo de movimiento inválido: ${type}`);
   const text = String(concept ?? '').trim().slice(0, 120);
   if (type === 'gasto' && !text) throw new Error('Escribí el concepto del gasto (ej. librería, ferretería)');
@@ -70,8 +89,10 @@ export function buildPosCashMovement({ type, concept, amount, usdAmount, rate },
     if (r <= 0) throw new Error('Cotización inválida');
     return { id, type, concept: text || 'Ingreso en dólares', usdAmount: usd, rate: r, amount: round2(usd * r), at: now, by: user };
   }
+  if (type === 'traspaso' && !TRANSFER_DIRECTIONS[direction]) throw new Error('Elegí entre qué cajas se mueve la plata');
   const value = parseAmount(amount);
   if (value <= 0) throw new Error('Monto inválido');
+  if (type === 'traspaso') return { id, type, direction, concept: text || TRANSFER_DIRECTIONS[direction], amount: value, at: now, by: user };
   return { id, type, concept: text || MOVEMENT_TYPES[type], amount: value, at: now, by: user };
 }
 
