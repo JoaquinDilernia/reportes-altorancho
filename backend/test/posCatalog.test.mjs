@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { priceFromItems, searchCatalog, buildCatalogProduct, freeByLocation, groupStock } from '../posCatalog.mjs';
+import { priceFromItems, searchCatalog, buildCatalogProduct, freeByLocation, groupStock, resolveBarcodeQuery } from '../posCatalog.mjs';
 import { DEFAULT_LOCALES, DEFAULT_SETTINGS } from '../posConfig.mjs';
 
 const product = { id: 10, product_tmpl_id: [100, 'X'], lst_price: 1000 };
@@ -87,4 +87,13 @@ test('priceFromItems: varios ítems vigentes → el de date_start más reciente;
 test('searchCatalog: consulta de menos de 4 caracteres → [] sin llamar a Odoo', async () => {
   assert.deepEqual(await searchCatalog('abc', DEFAULT_SETTINGS), []);
   assert.deepEqual(await searchCatalog('  ab ', DEFAULT_SETTINGS), []);
+});
+
+test('resolveBarcodeQuery: un código de barras se busca por el SKU del producto', async () => {
+  const byBarcode = { 7791234567890: 'MESA001' };
+  const find = async (code) => byBarcode[code] ?? null;
+  assert.equal(await resolveBarcodeQuery('7791234567890', find), 'MESA001');
+  assert.equal(await resolveBarcodeQuery('mesa', find), 'mesa');
+  // Si falla la búsqueda por código, se busca lo que se escribió.
+  assert.equal(await resolveBarcodeQuery('ABC1', async () => { throw new Error('x'); }), 'ABC1');
 });

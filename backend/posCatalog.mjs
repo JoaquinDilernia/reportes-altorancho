@@ -117,8 +117,24 @@ async function pricedMatches(q, fullPricelistId) {
   return { tmplIds: ids('product_tmpl_id'), variantIds: ids('product_id') };
 }
 
+// Lector de códigos: si lo buscado es el código de barras de un producto, se
+// busca por su SKU (casi siempre son iguales; algunos tienen EAN). Si la
+// búsqueda por código falla, se busca lo que llegó.
+async function skuByBarcode(code) {
+  const [found] = await callKwReadWithRetry('product.product', 'search_read', [[['barcode', '=', code], ['default_code', '!=', false]]], { fields: ['default_code'], limit: 1 });
+  return found?.default_code ?? null;
+}
+export async function resolveBarcodeQuery(q, find = skuByBarcode) {
+  try {
+    return (await find(q)) ?? q;
+  } catch {
+    return q;
+  }
+}
+
 export async function searchCatalog(query, settings) {
-  const q = String(query ?? '').trim();
+  const typed = String(query ?? '').trim();
+  const q = typed.length >= MIN_QUERY_LENGTH && !/\s/.test(typed) ? await resolveBarcodeQuery(typed) : typed;
   if (q.length < MIN_QUERY_LENGTH) return [];
   if (!settings.fullPricelistId) throw new Error('Configurá la lista de precios full en Admin → Ajustes');
   const key = `${settings.fullPricelistId}|${settings.promoPricelistId}|${q.toUpperCase()}`;
