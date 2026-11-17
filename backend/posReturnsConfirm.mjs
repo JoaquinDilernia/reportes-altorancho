@@ -4,7 +4,7 @@
 // Fase 1 → aplicación de la NC. Cada paso se guarda en returnSteps ANTES de
 // seguir; un reintento sigue desde donde quedó y adopta lo que Odoo ya tiene
 // (búsqueda por origen / referencia) en vez de duplicar.
-import { returnDestinationsOf } from './posConfig.mjs';
+import { returnDestinationsOf, isInternalJournal, internalInvoiceJournalIdOf } from './posConfig.mjs';
 import { activeLines } from './posLines.mjs';
 import { invoiceGroups } from './posReturns.mjs';
 import * as rOdoo from './posReturnsOdoo.mjs';
@@ -166,16 +166,24 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
     await save();
   }
 
-  // 4. Notas de crédito (solo con la facturación del local habilitada).
-  if (!deps.invoicingEnabled(ctx.locale)) {
-    steps.creditNotesSkipped = true;
-    await save();
-    return steps;
-  }
+  // 4. Notas de crédito. Compra con factura: NC fiscal, solo con la
+  // facturación del local habilitada. Compra sin factura (diario de venta
+  // interna): NC interna en el diario interno del local ("RVENTI"; no va a
+  // ARCA), siempre.
   // Sin ticket no hay NC: ARCA exige comprobante o período asociado (error
   // 10197) y Odoo no manda el período. Igual que el POS nativo: solo stock.
   const reason = `${order.number} devolución`;
-  const ncGroups = invoiceGroups(order.returnLines).map((g) => ({ key: `nc:${g.invoiceId}`, invoiceId: g.invoiceId, lines: g.lines }));
+  const fiscalEnabled = deps.invoicingEnabled(ctx.locale);
+  const internalJournalId = internalInvoiceJournalIdOf(ctx.locale, ctx.settings);
+  const allGroups = invoiceGroups(order.returnLines).map((g) => {
+    const internal = isInternalJournal(g.lines[0]?.invoiceJournalId, ctx.locales, ctx.settings);
+    return { key: `nc:${g.invoiceId}`, invoiceId: g.invoiceId, lines: g.lines, journalId: internal ? internalJournalId : ctx.locale.invoiceJournalId, internal };
+  });
+  const ncGroups = allGroups.filter((g) => (g.internal ? Boolean(g.journalId) : fiscalEnabled));
+  if (ncGroups.length < allGroups.length || (!fiscalEnabled && !allGroups.length)) {
+    steps.creditNotesSkipped = true;
+    await save();
+  }
   for (const g of ncGroups) {
     let step = steps.creditNotes[g.key];
     if (step?.state === 'posted') continue;
@@ -186,7 +194,7 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
       const found = await deps.findCreditNoteByRef(ref);
       let ncId = found?.id;
       if (!ncId) {
-        ncId = await deps.createCreditNoteFromInvoice({ invoiceId: g.invoiceId, journalId: ctx.locale.invoiceJournalId, reason: ref, items: sumByProduct(g.lines) });
+        ncId = await deps.createCreditNoteFromInvoice({ invoiceId: g.invoiceId, journalId: g.journalId, reason: ref, items: sumByProduct(g.lines) });
         fresh = true;
       }
       step = { id: ncId, name: found?.name ?? null, state: found?.state ?? 'draft' };
@@ -208,7 +216,7 @@ export async function runReturnSteps(order, ctx, deps = defaultReturnDeps()) {
     // Una NC sobre factura en borrador que no se acaba de crear puede ser la
     // reversión completa (falla entre reverse_moves y el recorte): se recorta de nuevo.
     if (g.invoiceId && !fresh && step.state === 'draft') await deps.trimCreditNote(step.id, sumByProduct(g.lines));
-    steps.creditNotes[g.key] = await deps.postCreditNote(step.id, ctx.locale.invoiceJournalId);
+    steps.creditNotes[g.key] = await deps.postCreditNote(step.id, g.journalId);
     await save();
   }
   return steps;

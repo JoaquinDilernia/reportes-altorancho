@@ -141,6 +141,8 @@ router.get('/config', ...auth, handle(async () => {
       decoradorTagId: settings.decoradorTagId, directorioTagId: settings.directorioTagId, decoradoraDiscountPct: settings.decoradoraDiscountPct,
       homeServiceDefaultAmount: settings.homeServiceDefaultAmount, returnReasons: settings.returnReasons,
       returnWindowDays: settings.returnWindowDays,
+      // Diarios de venta interna: una compra facturada en estos fue "sin factura".
+      internalJournalIds: [...new Set([settings.internalInvoiceJournalId, ...locales.map((l) => l.internalInvoiceJournalId)].filter(Boolean))],
     },
   };
 }));

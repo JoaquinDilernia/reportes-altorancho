@@ -229,6 +229,12 @@ export function withLocaleDefaults(locale) {
 // Diario de la venta interna: el del local o, si no tiene, el general de Ajustes.
 export const internalInvoiceJournalIdOf = (locale, settings) => locale?.internalInvoiceJournalId || settings?.internalInvoiceJournalId || null;
 
+// ¿La factura salió de un diario de venta interna (de algún local o el general)?
+export function isInternalJournal(journalId, locales, settings) {
+  if (!journalId) return false;
+  return journalId === settings?.internalInvoiceJournalId || (locales ?? []).some((l) => l.internalInvoiceJournalId === journalId);
+}
+
 // Diario de Odoo donde se registra el cobro de cada medio (la factura queda
 // paga). 'local' = la caja del local (cashJournalId). Ids verificados el
 // 2026-11-03: Banco Galicia Cta Cte $ 7, Mercado Pago 35, GoCuotas 47.

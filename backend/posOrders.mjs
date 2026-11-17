@@ -7,7 +7,7 @@
 import { getDb } from './firestore.mjs';
 import {
   getLocale, getLocales, getSettings, getPaymentMethodsById, originLocationId, localeIdsOf, resolveOdooPaymentName,
-  returnDestinationsOf,
+  returnDestinationsOf, isInternalJournal,
 } from './posConfig.mjs';
 import {
   computeTotals, computeExchangeTotals, collectOf, round2, assertPriceList, isDirectorio, priceListTagError,
@@ -149,13 +149,23 @@ export function returnCtx(locale, settings) {
 }
 
 // Comprobante de la venta: 'fiscal' (factura ARCA), 'internal' (factura interna
-// en VINTE, precio con IVA y sin impuestos) o 'none'. Directorio siempre interna
-// (queda a cobrar). Un cambio sin factura todavía no lleva comprobante interno.
+// en el diario de venta interna del local, precio con IVA y sin impuestos) o
+// 'none'. Directorio siempre interna (queda a cobrar). Un cambio sin factura
+// también lleva factura interna: ahí se aplica la NC interna de lo que vuelve
+// (compensa la cuenta corriente del cliente). Devolución sola: nada.
 export function invoiceModeOf(order) {
   if (isDirectorio(order)) return 'internal';
   if (order.wantsInvoice) return 'fiscal';
-  if ((order.returnLines ?? []).length) return 'none';
   return activeLines(order.lines).length ? 'internal' : 'none';
+}
+
+// Cambio de una compra con factura: lo nuevo se factura (no puede ir sin
+// factura). Sin factura y pagando con tarjeta o transferencia ya lo frena
+// noInvoicePaymentError.
+export function exchangeInvoiceError(order, wantsInvoice, { locales, settings }) {
+  if (wantsInvoice || !activeLines(order.lines).length) return null;
+  const fiscal = (order.returnLines ?? []).some((l) => l.invoiceId && !isInternalJournal(l.invoiceJournalId, locales, settings));
+  return fiscal ? 'La compra original tiene factura: el cambio se confirma con factura' : null;
 }
 
 // Sin factura (venta interna o cambio sin factura) se cobra solo en efectivo.
@@ -610,8 +620,8 @@ export async function updateDraft(orderId, user, patch) {
 // Reclama el pedido para confirmarlo: valida todo, fija precios y totales, y
 // lo ata a la caja abierta del local. Si ya está confirmado, lo devuelve.
 export async function claimOrderForConfirm(orderId, user) {
-  const [methodsById, promotions, locale, settings] = await Promise.all([
-    getPaymentMethodsById(), listActivePromotions(), getLocale(user.localId), getSettings(),
+  const [methodsById, promotions, locale, settings, locales] = await Promise.all([
+    getPaymentMethodsById(), listActivePromotions(), getLocale(user.localId), getSettings(), getLocales(),
   ]);
   const db = getDb();
   const ref = db.collection(COLLECTION).doc(orderId);
@@ -641,6 +651,8 @@ export async function claimOrderForConfirm(orderId, user) {
     const { payments, extraDiscount, totals } = claimPricing(order, { methodsById, promotions, now: Date.now() });
     const cashOnly = order.odooOrderId ? null : noInvoicePaymentError(payments, wantsInvoice);
     if (cashOnly) throw new Error(cashOnly);
+    const exchangeInvoice = order.odooOrderId ? null : exchangeInvoiceError(order, wantsInvoice, { locales, settings });
+    if (exchangeInvoice) throw new Error(exchangeInvoice);
     let refund = null;
     let creditCommit = null;
     let creditAllocation = order.creditAllocation ?? null;

@@ -275,3 +275,20 @@ test('applyCreditNotesStep: las NC propias de la operación se aplican sin leer 
   assert.deepEqual(calls.filter((c) => c[0] === 'apply'), [['apply', 400, 368705]]);
   assert.equal(calls.filter((c) => c[0] === 'residuals').length, 0);
 });
+
+test('runReturnSteps: compra sin factura (diario interno) → NC interna en el diario del local, aunque la facturación esté apagada', async () => {
+  const { deps, calls } = fakeDeps({ invoicingEnabled: () => false });
+  const steps = await runReturnSteps(order({ returnLines: [rl({ invoiceJournalId: 86, invoiceName: 'VINBE/2026/00001' })] }), ctx, deps);
+  assert.equal(named(calls, 'createNc')[0][1].journalId, 85);
+  assert.deepEqual(named(calls, 'postNc').map((c) => c[2]), [85]);
+  assert.equal(steps.creditNotes['nc:368292'].state, 'posted');
+  assert.equal(steps.creditNotesSkipped, false);
+});
+
+test('runReturnSteps: compra con factura y facturación apagada → sin NC fiscal (marcado), la interna sí', async () => {
+  const { deps, calls } = fakeDeps({ invoicingEnabled: () => false });
+  const lines = [rl(), rl({ rlId: 'R2', invoiceId: 999, invoiceJournalId: 28, moveIds: [612603] })];
+  const steps = await runReturnSteps(order({ returnLines: lines }), ctx, deps);
+  assert.deepEqual(named(calls, 'createNc').map((c) => [c[1].invoiceId, c[1].journalId]), [[999, 85]]);
+  assert.equal(steps.creditNotesSkipped, true);
+});

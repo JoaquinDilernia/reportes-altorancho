@@ -68,7 +68,7 @@ const mergeLots = (lists) => {
 
 async function postedInvoice(moveIds, odoo) {
   if (!moveIds.length) return null;
-  const moves = await odoo.read('account.move', 'read', [moveIds], { fields: ['id', 'name', 'state', 'move_type'] });
+  const moves = await odoo.read('account.move', 'read', [moveIds], { fields: ['id', 'name', 'state', 'move_type', 'journal_id'] });
   return moves.find((m) => m.move_type === 'out_invoice' && m.state === 'posted') ?? null;
 }
 
@@ -162,7 +162,7 @@ export async function readTpvPurchase(posOrderId, odoo = defaultOdoo) {
       sku: product?.default_code ?? skuOf(l.product_id[1]), name: product?.name ?? l.product_id[1],
       qtyBought: l.qty, qtyReturnedBefore: (l.refunded_qty ?? 0) + (byApp.get(l.id) ?? 0), unitValue: tpvUnitValue(l),
       lots: mergeLots(productMoves.map((m) => lots.get(m.id) ?? [])), moveIds: productMoves.map((m) => m.id),
-      invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, ...partner,
+      invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, invoiceJournalId: invoice?.journal_id?.[0] ?? null, ...partner,
     };
   });
   return {
@@ -206,7 +206,7 @@ export async function readSaleOrderPurchase({ source, purchaseId, label, saleOrd
       source, purchaseId, purchaseLabel: label ?? orders[0].name, purchaseDate: orders[0].date_order, purchaseLineId: String(sl.id), productId: id(sl.product_id), sku, name,
       qtyBought: delivered, qtyReturnedBefore: lineDone.reduce((s, m) => s + (returnedByMove.get(m.id) ?? 0), 0),
       unitValue: unitValueFor(sl), lots: mergeLots(lineDone.map((m) => lots.get(m.id) ?? [])), moveIds: lineDone.map((m) => m.id),
-      invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, ...partner,
+      invoiceId: invoice?.id ?? null, invoiceName: invoice?.name ?? null, invoiceJournalId: invoice?.journal_id?.[0] ?? null, ...partner,
     });
   }
   return {

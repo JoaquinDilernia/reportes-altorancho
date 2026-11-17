@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   orderKeys, validateCustomer, validatePayments, assertPaymentsMatchTotal, priceOrder, assertCartEditable, assertDraftEditable,
-  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors, invoiceModeOf, noInvoicePaymentError,
+  orderGroups, joinOdooNames, claimPricing, assertCustomerShape, postedCreditNoteIds, priceListErrors, invoiceModeOf, noInvoicePaymentError, exchangeInvoiceError,
 } from '../posOrders.mjs';
 
 const methodsById = new Map([
@@ -254,13 +254,27 @@ test('priceListErrors: etiqueta del cliente y sin cambios', () => {
   ]);
 });
 
-test('invoiceModeOf: fiscal si pide factura; interna si no (y siempre en Directorio); cambio sin factura sin comprobante', () => {
+test('invoiceModeOf: fiscal si pide factura; interna si no (y siempre en Directorio); cambio sin factura → interna (RVENTI se aplica ahí)', () => {
   const lines = [{ status: 'activo' }];
   assert.equal(invoiceModeOf({ wantsInvoice: true, lines }), 'fiscal');
   assert.equal(invoiceModeOf({ wantsInvoice: false, lines }), 'internal');
   assert.equal(invoiceModeOf({ priceList: 'directorio', wantsInvoice: false, lines }), 'internal');
-  assert.equal(invoiceModeOf({ wantsInvoice: false, lines, returnLines: [{ rlId: 'R1' }] }), 'none');
+  assert.equal(invoiceModeOf({ wantsInvoice: false, lines, returnLines: [{ rlId: 'R1' }] }), 'internal');
   assert.equal(invoiceModeOf({ wantsInvoice: false, lines: [], returnLines: [{ rlId: 'R1' }] }), 'none');
+});
+
+test('exchangeInvoiceError: cambio de una compra con factura → solo con factura', () => {
+  const lines = [{ status: 'activo' }];
+  const cfg = { locales: DEFAULT_LOCALES, settings: DEFAULT_SETTINGS };
+  const fiscal = { invoiceId: 1, invoiceJournalId: 32 };
+  const internal = { invoiceId: 2, invoiceJournalId: 85 };
+  assert.match(exchangeInvoiceError({ lines, returnLines: [fiscal] }, false, cfg), /tiene factura/);
+  assert.equal(exchangeInvoiceError({ lines, returnLines: [fiscal] }, true, cfg), null);
+  assert.equal(exchangeInvoiceError({ lines, returnLines: [internal] }, false, cfg), null);
+  // Devolución sola (no se lleva nada): no hay factura nueva.
+  assert.equal(exchangeInvoiceError({ lines: [], returnLines: [fiscal] }, false, cfg), null);
+  // Sin ticket: no hay factura original.
+  assert.equal(exchangeInvoiceError({ lines, returnLines: [{ invoiceId: null }] }, false, cfg), null);
 });
 
 test('noInvoicePaymentError: sin factura solo efectivo; con factura o sin cobro, cualquiera', () => {

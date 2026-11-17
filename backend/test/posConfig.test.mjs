@@ -4,7 +4,7 @@ import {
   DEFAULT_LOCALES, DEFAULT_SETTINGS, DEFAULT_PAYMENT_METHODS, validateLocale, validatePaymentMethod,
   resolveOdooPaymentName, originLocationId, validateSettings,
   defaultReturnDestinations, returnDestinationsOf, findDestination,
-  withLocaleDefaults, internalInvoiceJournalIdOf,
+  withLocaleDefaults, internalInvoiceJournalIdOf, isInternalJournal,
 } from '../posConfig.mjs';
 
 test('diario de venta interna por local: VINSI 85, VINBE 86, VINAL 87', () => {
@@ -147,4 +147,11 @@ test('validateSettings: saldo, motivos y días de búsqueda', () => {
     'Días de búsqueda de compras: entre 1 y 1095',
     'Medio de Odoo para saldo a favor inválido',
   ]);
+});
+
+test('isInternalJournal: diarios de venta interna de los locales y el general', () => {
+  assert.equal(isInternalJournal(86, DEFAULT_LOCALES, DEFAULT_SETTINGS), true);
+  assert.equal(isInternalJournal(28, DEFAULT_LOCALES, DEFAULT_SETTINGS), true);
+  assert.equal(isInternalJournal(32, DEFAULT_LOCALES, DEFAULT_SETTINGS), false);
+  assert.equal(isInternalJournal(null, DEFAULT_LOCALES, DEFAULT_SETTINGS), false);
 });
