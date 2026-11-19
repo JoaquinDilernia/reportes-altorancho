@@ -191,7 +191,8 @@ button {
   text-align: center;
   box-shadow: 0 4px 24px rgba(53, 52, 52, 0.08);
 }
-.login-logo { font-weight: 700; font-size: 24px; margin-bottom: 24px; }
+.login-logo { margin-bottom: 24px; display: flex; justify-content: center; }
+.login-logo img { height: 28px; width: auto; display: block; }
 .login-card input {
   width: 100%;
   padding: 10px 12px;

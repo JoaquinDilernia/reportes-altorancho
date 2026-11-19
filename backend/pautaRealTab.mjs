@@ -173,7 +173,19 @@ export function webSources({ webDocs, orders, summaryChannels }) {
 }
 
 // Campañas: gasto de gineza (igual que el agente) + ganancia de sus pedidos.
+// Pedidos con clic de la plataforma pero sin ID de campaña (típico de PMax en
+// Google) van a una fila aparte; mientras existan, una campaña sin ventas
+// identificadas es "sin dato", no "sin ventas": sus ventas pueden estar ahí.
 export function campaigns({ rows, orders, platform, limit = 30 }) {
+  const mine = orders.filter((o) => o.channel === platform);
+  const unknown = mine.filter((o) => !o.campaignId);
+  // Solo si lo no identificado pesa (≥5 % de los pedidos) se duda de un "sin ventas".
+  const unknownMatters = unknown.length > 0 && unknown.length / mine.length >= 0.05;
+  const unidentified = unknown.length ? {
+    sales: unknown.length,
+    revenue: sum(unknown, (o) => o.total),
+    grossProfit: sum(unknown, (o) => o.grossProfit),
+  } : null;
   const byId = new Map();
   for (const o of orders) {
     if (o.channel !== platform || !o.campaignId) continue;
@@ -183,7 +195,7 @@ export function campaigns({ rows, orders, platform, limit = 30 }) {
     c.sales += 1;
     byId.set(o.campaignId, c);
   }
-  return (rows || [])
+  const list = (rows || [])
     .map((r) => {
       const own = byId.get(String(r.id)) || { revenue: 0, grossProfit: 0, sales: 0 };
       const spend = r.spend || 0;
@@ -197,15 +209,17 @@ export function campaigns({ rows, orders, platform, limit = 30 }) {
         revenue: own.revenue,
         grossProfit: own.grossProfit,
         roas: round(ratio(own.revenue, spend)),
-        reportedRoas: round(r.metaRoas ?? null),
+        // sin valor reportado (Google por campaña no lo trae) → sin dato, no 0x
+        reportedRoas: r.metaValue > 0 ? round(r.metaRoas) : null,
         poas: round(ratio(own.grossProfit, spend)),
         profitAfterAds: own.grossProfit - spend,
-        verdict: verdict({ spend, grossProfit: own.grossProfit, sales: own.sales }),
+        verdict: !own.sales && unknownMatters && spend > 0 ? 'sin-dato' : verdict({ spend, grossProfit: own.grossProfit, sales: own.sales }),
       };
     })
     .filter((c) => c.spend > 0 || c.sales > 0)
     .sort((a, b) => b.spend - a.spend)
     .slice(0, limit);
+  return { rows: list, unidentified };
 }
 
 // Serie diaria: inversión, ventas (web y locales) y ganancia después de pauta.

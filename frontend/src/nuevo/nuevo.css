@@ -388,3 +388,9 @@
 .nv-agent { max-width: 1120px; margin: 0 auto; }
 .nv-agent-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
 .nv-agent .gz { background: transparent; }
+
+/* Logo (wordmark gris de diseño, en blanco sobre la barra oscura) */
+.nv-brand { display: flex; align-items: center; }
+.nv-logo { height: 20px; width: auto; display: block; filter: brightness(0) invert(1); }
+.nv-pr-verdict.nt { background: var(--nv-soft); color: var(--nv-ink2); }
+.nv-pr-unid td { background: var(--nv-soft); }

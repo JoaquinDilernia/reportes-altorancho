@@ -75,13 +75,37 @@ test('platforms: reported vs real ROAS and POAS from attributed orders', () => {
 
 test('campaigns: join spend rows with attributed profit, drop rows with nothing', () => {
   const orders = [{ channel: 'meta', campaignId: 'c1', total: 300, grossProfit: 200 }];
-  const rows = [{ id: 'c1', name: 'Cyber', spend: 100, metaRoas: 6 }, { id: 'c2', name: 'Vieja', spend: 0 }, { id: 'c3', name: 'Sin', spend: 40 }];
-  const c = campaigns({ rows, orders, platform: 'meta' });
+  const rows = [{ id: 'c1', name: 'Cyber', spend: 100, metaRoas: 6, metaValue: 600 }, { id: 'c2', name: 'Vieja', spend: 0 }, { id: 'c3', name: 'Sin', spend: 40 }];
+  const { rows: c, unidentified } = campaigns({ rows, orders, platform: 'meta' });
   assert.deepEqual(c.map((x) => x.id), ['c1', 'c3']);
   assert.equal(c[0].poas, 2);
   assert.equal(c[0].roas, 3);
   assert.equal(c[0].reportedRoas, 6);
   assert.equal(c[1].verdict, 'sin-ventas');
+  assert.equal(unidentified, null);
+});
+
+test('campaigns: orders without campaign id make zero-sale campaigns "sin dato", not "sin ventas"', () => {
+  const orders = [
+    { channel: 'google', campaignId: 'g1', total: 300, grossProfit: 200 },
+    { channel: 'google', campaignId: null, total: 500, grossProfit: 250 },
+  ];
+  const rows = [{ id: 'g1', name: 'Brand', spend: 100 }, { id: 'pmax', name: 'PMax', spend: 400 }];
+  const { rows: c, unidentified } = campaigns({ rows, orders, platform: 'google' });
+  assert.equal(c.find((x) => x.id === 'pmax').verdict, 'sin-dato');
+  assert.equal(c.find((x) => x.id === 'g1').verdict, 'gana');
+  assert.deepEqual(unidentified, { sales: 1, revenue: 500, grossProfit: 250 });
+});
+
+test('campaigns: a handful of unidentified orders (<5 %) does not hide a real "sin ventas"', () => {
+  const orders = [
+    ...Array.from({ length: 40 }, () => ({ channel: 'meta', campaignId: 'c1', total: 10, grossProfit: 5 })),
+    { channel: 'meta', campaignId: null, total: 10, grossProfit: 5 },
+  ];
+  const rows = [{ id: 'c1', spend: 100 }, { id: 'c2', spend: 50 }];
+  const { rows: c, unidentified } = campaigns({ rows, orders, platform: 'meta' });
+  assert.equal(c.find((x) => x.id === 'c2').verdict, 'sin-ventas');
+  assert.equal(unidentified.sales, 1);
 });
 
 test('webSources: without gineza splits paid vs the rest', () => {

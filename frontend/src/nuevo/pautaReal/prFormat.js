@@ -16,6 +16,7 @@ export const VERDICT = {
   justo: { label: 'Empata', tone: 'warn', hint: 'La ganancia apenas cubre lo invertido (POAS entre 1 y 1,3).' },
   pierde: { label: 'Pierde plata', tone: 'dn', hint: 'La ganancia de sus ventas no alcanza a pagar lo invertido (POAS menor a 1).' },
   'sin-ventas': { label: 'Sin ventas', tone: 'dn', hint: 'Gastó y no llegó ninguna venta a la tienda con su clic.' },
+  'sin-dato': { label: 'Sin dato', tone: 'nt', hint: 'No hay ventas con el ID de esta campaña, pero hay ventas de la plataforma sin campaña identificada que pueden ser suyas.' },
 };
 
 export const SOURCE_LABEL = {

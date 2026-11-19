@@ -12,7 +12,8 @@ const SORTS = {
 export default function Campaigns({ campaigns }) {
   const [platform, setPlatform] = useState('meta');
   const [sort, setSort] = useState('spend');
-  const rows = [...(campaigns?.[platform] || [])].sort(SORTS[sort].fn);
+  const rows = [...(campaigns?.[platform]?.rows || [])].sort(SORTS[sort].fn);
+  const unidentified = campaigns?.[platform]?.unidentified;
   const label = platform === 'meta' ? 'Meta' : 'Google';
   return (
     <section className="nv-card nv-sec">
@@ -50,7 +51,9 @@ export default function Campaigns({ campaigns }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {rows.map((c) => {
+                const unknown = c.verdict === 'sin-dato';
+                return (
                 <tr key={c.id}>
                   <td>
                     <div className="nv-adcell">
@@ -62,17 +65,36 @@ export default function Campaigns({ campaigns }) {
                   <td className="r">{c.sales}</td>
                   <td className="r">{money(c.revenue)}</td>
                   <td className="r nv-mute">{times(c.reportedRoas)}</td>
-                  <td className="r">{times(c.roas)}</td>
-                  <td className="r"><b>{times(c.poas)}</b></td>
-                  <td className={`r ${c.profitAfterAds < 0 ? 'nv-red' : ''}`}>{money(c.profitAfterAds)}</td>
+                  <td className="r">{unknown ? '—' : times(c.roas)}</td>
+                  <td className="r"><b>{unknown ? '—' : times(c.poas)}</b></td>
+                  <td className={`r ${!unknown && c.profitAfterAds < 0 ? 'nv-red' : ''}`}>{unknown ? '—' : money(c.profitAfterAds)}</td>
                   <td><VerdictTag verdict={c.verdict} /></td>
                 </tr>
-              ))}
+                );
+              })}
+              {unidentified && (
+                <tr className="nv-pr-unid">
+                  <td>
+                    <span className="nv-adtext">
+                      <span className="nv-name">Sin campaña identificada</span>
+                      <span className="nv-mute">clic de {label} sin el ID de la campaña{platform === 'google' ? ' (suele ser Performance Max)' : ''}</span>
+                    </span>
+                  </td>
+                  <td className="r nv-mute">—</td>
+                  <td className="r">{unidentified.sales}</td>
+                  <td className="r">{money(unidentified.revenue)}</td>
+                  <td className="r nv-mute">—</td>
+                  <td className="r nv-mute">—</td>
+                  <td className="r nv-mute">—</td>
+                  <td className="r">{money(unidentified.grossProfit)}</td>
+                  <td />
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       )}
-      <p className="nv-note">Neto = ganancia bruta de sus ventas − inversión. Las ventas que llegaron con un clic de {label} pero sin campaña identificable no entran acá (sí en el total de arriba).</p>
+      <p className="nv-note">Neto = ganancia bruta de sus ventas − inversión. “Sin dato”: gastó y no tiene ventas con su ID, pero puede tenerlas entre las ventas sin campaña identificada (en esa fila, Neto es la ganancia bruta, sin descontar inversión).</p>
     </section>
   );
 }

@@ -7,7 +7,7 @@ export const MODULE_LABELS = [['reportes', 'Reportes'], ['pauta', 'Pauta'], ['ag
 export default function TopBar({ module = 'reportes', onModule, tab, showCyber, eventLabel = 'Cyber', onTab, onLogout, search = null }) {
   return (
     <header className="nv-top">
-      <div className="nv-brand">ALTORANCHO</div>
+      <div className="nv-brand"><img src="/logo-wordmark.png" alt="altorancho." className="nv-logo" /></div>
       <nav className="nv-mods" aria-label="Módulos">
         {MODULE_LABELS.map(([id, label]) => (
           <button key={id} type="button" className={module === id ? 'on' : ''} aria-current={module === id ? 'page' : undefined} onClick={() => onModule?.(id)}>
