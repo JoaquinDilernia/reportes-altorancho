@@ -68,6 +68,24 @@ async function postAuthed(path, body) {
   return data;
 }
 
+// Costo de un canal sin API de gasto (pinterest | perfit) para un mes AAAA-MM
+export async function putMarketingCost({ key, month, value }) {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+  const res = await fetch(`${API_URL}/api/v3/marketing-costs`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ key, month, value }),
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'No se pudo guardar');
+  return data;
+}
+
 function reportBody({ period, date, start, end, channel }) {
   const body = period === 'custom' ? { period, start, end } : { period, date };
   if (channel) body.channels = channel;

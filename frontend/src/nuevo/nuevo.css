@@ -478,3 +478,8 @@
 .nv-lect-kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
 .nv-lect-kv dt { font-size: 11px; color: var(--nv-ink3); text-transform: uppercase; letter-spacing: .06em; }
 .nv-lect-kv dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Pauta: costo cargado a mano (Pinterest / Perfit) */
+.nv-pr-cost { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 4px 0 10px; }
+.nv-pr-cost label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.nv-pr-cost input { width: 150px; padding: 7px 10px; border: 1px solid var(--nv-line); border-radius: 8px; font: inherit; font-variant-numeric: tabular-nums; background: var(--nv-card); color: inherit; }

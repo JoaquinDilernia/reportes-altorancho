@@ -12,7 +12,8 @@ import { getWeb } from './webReport.mjs';
 import { getLocales } from './localesReport.mjs';
 import { getLectores } from './lectoresReport.mjs';
 import { getPauta } from './pautaReport.mjs';
-import { getPautaReal, getPautaClientes } from './pautaRealReport.mjs';
+import { getPautaReal, getPautaClientes, clearPautaRealCache } from './pautaRealReport.mjs';
+import { getMarketingCosts, setMarketingCost } from './marketingCosts.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
 import { useLocalGineza } from './gineza.mjs';
 import { isVentasConfigured, startVentas } from './ventas/module.mjs';
@@ -199,6 +200,28 @@ app.get('/api/v2/pauta', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[server] v2 pauta error:', err);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Costos de canales sin API de gasto (Pinterest a mano, abono de Perfit), por mes
+app.get('/api/v3/marketing-costs', requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, costs: await getMarketingCosts() });
+  } catch (err) {
+    console.error('[server] marketing-costs:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudieron leer los costos' });
+  }
+});
+app.put('/api/v3/marketing-costs', requireAuth, async (req, res) => {
+  try {
+    const { key, month, value } = req.body || {};
+    const saved = await setMarketingCost({ key, month, value: value === null ? null : Number(value) });
+    clearPautaRealCache();
+    res.json({ ok: true, ...saved });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ ok: false, error: err.message });
+    console.error('[server] marketing-costs:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo guardar el costo' });
   }
 });
 

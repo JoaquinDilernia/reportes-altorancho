@@ -49,9 +49,9 @@ async function paidOrdersOf(channel, from, to) {
 
 // Map id de pedido TN → { channel, campaignId, campaignName, adId, adName }
 export async function fetchPaidAttribution(from, to) {
-  const [meta, google] = await Promise.all([paidOrdersOf('meta', from, to), paidOrdersOf('google', from, to)]);
+  const lists = await Promise.all(['meta', 'google', 'pinterest', 'email'].map((ch) => paidOrdersOf(ch, from, to)));
   const map = new Map();
-  for (const o of [...meta, ...google]) {
+  for (const o of lists.flat()) {
     map.set(String(o.id), {
       channel: o.channel,
       campaignId: o.campaign_id || null,

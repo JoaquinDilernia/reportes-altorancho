@@ -8,9 +8,10 @@ import { argDay } from './events.mjs';
 import { webPlan } from './webReport.mjs';
 import { getCostBySku } from './odooCosts.mjs';
 import { getCustomerTypes } from './customerType.mjs';
+import { getMarketingCosts, costForRange, monthlyCost } from './marketingCosts.mjs';
 import { isGinezaConfigured, fetchPaidAttribution, fetchSummary, fetchCampaigns } from './gineza.mjs';
 import {
-  LOCAL_CHANNELS, headline, withDeltas, platformSpend, attributedOrders, platforms, webSources, campaigns, daily, customerMix,
+  LOCAL_CHANNELS, headline, withDeltas, platformSpend, attributedOrders, platforms, webSources, campaigns, daily, customerMix, paidBlock,
 } from './pautaRealTab.mjs';
 
 async function ginezaFor(range) {
@@ -34,7 +35,7 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
   const today = argDay(now.toISOString());
   const { prevPeriodRange } = webPlan(ranges, today);
 
-  const [webCur, locCur, webPrev, locPrev, metaCur, gCur, metaPrev, gPrev, costs, gz] = await Promise.all([
+  const [webCur, locCur, webPrev, locPrev, metaCur, gCur, metaPrev, gPrev, costs, gz, mkt] = await Promise.all([
     querySalesByRange(['ecommerce'], current.start, current.end),
     querySalesByRange(LOCAL_CHANNELS, current.start, current.end),
     querySalesByRange(['ecommerce'], prevPeriodRange.start, prevPeriodRange.end),
@@ -48,17 +49,28 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
       return { map: new Map(), error: 'No se pudieron leer los costos de Odoo' };
     }),
     ginezaFor(current),
+    getMarketingCosts().catch((err) => { console.error('[pauta-real] costos de marketing:', err.message); return null; }),
   ]);
 
   const costBySku = costs.map;
   const spendBy = platformSpend(metaCur, gCur);
   const spendPrev = platformSpend(metaPrev, gPrev);
-  const totalSpend = spendBy.meta.spend + spendBy.google.spend;
+  // Pinterest (gasto cargado a mano por mes) suma a la inversión en pauta; el abono de Perfit no es pauta.
+  const pin = costForRange(mkt, 'pinterest', current, today);
+  const pinPrev = costForRange(mkt, 'pinterest', prevPeriodRange, today);
+  const perfit = costForRange(mkt, 'perfit', current, today);
+  const totalSpend = spendBy.meta.spend + spendBy.google.spend + (pin.cost || 0);
   const head = headline({ webDocs: webCur, localDocs: locCur, spend: totalSpend, costBySku });
-  const headPrev = headline({ webDocs: webPrev, localDocs: locPrev, spend: spendPrev.meta.spend + spendPrev.google.spend, costBySku });
+  const headPrev = headline({ webDocs: webPrev, localDocs: locPrev, spend: spendPrev.meta.spend + spendPrev.google.spend + (pinPrev.cost || 0), costBySku });
   const fallback = head.fallbackCostRatio;
 
   const orders = gz.attribution ? attributedOrders(webCur, gz.attribution, costBySku, fallback) : [];
+  const extraOrders = gz.attribution ? attributedOrders(webCur, gz.attribution, costBySku, fallback, ['pinterest', 'email']) : [];
+  const month = (current.end < today ? current.end : today).slice(0, 7);
+  const extraBlock = (channel, key, c) => ({
+    ...paidBlock({ spend: c.cost, reportedValue: null, orders: extraOrders.filter((o) => o.channel === channel) }),
+    cost: { key, month, monthly: monthlyCost(mkt, key, month), missing: c.missing, loaded: mkt != null },
+  });
 
   const result = {
     range: current,
@@ -66,6 +78,8 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
     headline: withDeltas(head, headPrev),
     platforms: gz.attribution ? platforms({ spendBy, orders }) : null,
     platformSpend: spendBy,
+    // Canales sin API de gasto: costo cargado a mano (Pinterest) o abono fijo (Perfit)
+    others: gz.attribution ? { pinterest: extraBlock('pinterest', 'pinterest', pin), email: extraBlock('email', 'perfit', perfit) } : null,
     sources: webSources({ webDocs: webCur, orders, summaryChannels: gz.summary?.channels }),
     campaigns: gz.camp ? {
       meta: campaigns({ rows: gz.camp.meta, orders, platform: 'meta' }),
@@ -94,6 +108,8 @@ export async function getPautaClientes(params) {
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const cache = new Map();
+
+export const clearPautaRealCache = () => cache.clear();
 
 export function getPautaReal(params) {
   const { current } = params.period === 'custom' ? getPeriodRanges(params.start, 'custom', params.end) : getPeriodRanges(params.date, params.period);

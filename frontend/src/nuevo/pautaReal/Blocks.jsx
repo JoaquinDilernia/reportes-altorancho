@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { money, pct, toneOf } from '../format.js';
 import { times, perPeso, VERDICT, SOURCE_LABEL, SOURCE_COLOR } from './prFormat.js';
 
@@ -177,5 +178,72 @@ export function Glossary() {
       </dl>
       <p className="nv-note">Montos con IVA. La inversión es la que informa cada plataforma, sin impuestos. El envío que paga el cliente cuenta como venta.</p>
     </section>
+  );
+}
+
+// Pinterest y Perfit: sin API de gasto todavía. El costo se carga por mes
+// (Pinterest: gasto del Administrador de anuncios; Perfit: el abono) y se
+// prorratea por día. Mismo criterio de "lo que llegó": último clic antes de comprar.
+const OTHER = {
+  pinterest: { label: 'Pinterest', color: '#B5176E', costLabel: 'Gasto en anuncios', hint: 'del Administrador de anuncios de Pinterest' },
+  email: { label: 'Email (Perfit)', color: '#E0A100', costLabel: 'Abono de Perfit', hint: 'lo que se paga por mes' },
+};
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const monthName = (ym) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
+
+function CostEditor({ cost, label, onSave }) {
+  const [value, setValue] = useState(cost.monthly ?? '');
+  const [state, setState] = useState({ saving: false, error: null });
+  const save = async (e) => {
+    e.preventDefault();
+    const n = Number(String(value).replace(/\./g, '').replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) { setState({ saving: false, error: 'Poné un monto en pesos' }); return; }
+    setState({ saving: true, error: null });
+    try {
+      await onSave({ key: cost.key, month: cost.month, value: n });
+    } catch (err) {
+      setState({ saving: false, error: err.message });
+    }
+  };
+  return (
+    <form className="nv-pr-cost" onSubmit={save}>
+      <label>
+        <span className="nv-mute">{label} de {monthName(cost.month)}</span>
+        <input type="text" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} placeholder="$ del mes" aria-label={`${label} de ${monthName(cost.month)}`} />
+      </label>
+      <button type="submit" className="nv-btn" disabled={state.saving}>{state.saving ? 'Guardando…' : 'Guardar'}</button>
+      {state.error && <span className="nv-red">{state.error}</span>}
+    </form>
+  );
+}
+
+export function OtherCard({ id, p, onSaveCost }) {
+  const { label, color, costLabel, hint } = OTHER[id];
+  const [editing, setEditing] = useState(false);
+  const noCost = p.spend == null;
+  const max = Math.max(p.real.revenue, Math.max(0, p.grossProfit), 1);
+  const save = async (args) => { await onSaveCost(args); setEditing(false); };
+  return (
+    <div className="nv-card nv-pr-truth" style={{ borderTopColor: color }}>
+      <div className="nv-loc-head">
+        <span className="nv-lbl">{label}</span>
+        <VerdictTag verdict={p.verdict} />
+      </div>
+      <div className="nv-pr-inv">
+        {noCost ? <>{costLabel}: <b>sin cargar</b></> : <>{costLabel} <b>{money(p.spend)}</b>{p.costPerSale != null && <> · <b>{money(p.costPerSale)}</b> por venta</>}</>}
+        {' · '}<button type="button" className="nv-link" onClick={() => setEditing((v) => !v)}>{editing ? 'cancelar' : noCost ? 'cargar' : 'cambiar'}</button>
+      </div>
+      {(editing || noCost) && <CostEditor cost={p.cost} label={costLabel} onSave={save} />}
+      <div className="nv-pr-steps">
+        <Step label="Lo que llegó a la tienda" value={noCost ? '—' : times(p.real.roas)} sub={`${money(p.real.revenue)} · ${p.real.orders} pedidos`} bar={p.real.revenue / max} color={color} />
+        <Step label="Lo que dejó (POAS)" value={noCost ? '—' : times(p.poas)} sub={noCost ? `ganancia ${money(p.grossProfit)}` : `ganancia ${money(p.grossProfit)} · neto ${money(p.profitAfterAds)}`} bar={Math.max(0, p.grossProfit) / max} color="var(--nv-pr-profit)" />
+      </div>
+      <p className="nv-note">
+        {noCost
+          ? `Cargá el ${costLabel.toLowerCase()} de ${monthName(p.cost.month)} (${hint}) para ver ROAS y POAS. `
+          : `${costLabel} ${hint}, repartido por día del período. `}
+        Cuenta solo las compras de quien entró con un clic de {id === 'email' ? 'un mail' : 'un anuncio'} en esa visita.
+      </p>
+    </div>
   );
 }

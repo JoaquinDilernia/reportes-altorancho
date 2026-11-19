@@ -119,29 +119,29 @@ export function verdict({ spend, grossProfit, sales }) {
   return 'pierde';
 }
 
-function paidBlock({ spend, reportedValue, orders }) {
+export function paidBlock({ spend, reportedValue, orders }) {
   const revenue = sum(orders, (o) => o.total);
   const grossProfit = sum(orders, (o) => o.grossProfit);
   return {
     spend,
-    reported: { revenue: reportedValue, roas: round(ratio(reportedValue, spend)) },
+    reported: reportedValue == null ? null : { revenue: reportedValue, roas: round(ratio(reportedValue, spend)) },
     real: { revenue, orders: orders.length, roas: round(ratio(revenue, spend)) },
     grossProfit,
     poas: round(ratio(grossProfit, spend)),
-    profitAfterAds: grossProfit - spend,
-    costPerSale: orders.length ? round(spend / orders.length, 0) : null,
+    profitAfterAds: spend == null ? null : grossProfit - spend,
+    costPerSale: orders.length && spend != null ? round(spend / orders.length, 0) : null,
     // Cuánto "se agranda" la plataforma frente a las ventas que efectivamente llegaron con su clic.
-    overReportPct: revenue > 0 ? round(((reportedValue - revenue) / revenue) * 100, 0) : null,
+    overReportPct: revenue > 0 && reportedValue != null ? round(((reportedValue - revenue) / revenue) * 100, 0) : null,
     verdict: verdict({ spend, grossProfit, sales: orders.length }),
   };
 }
 
 // Pedidos web cruzados con su atribución, con la ganancia de cada uno.
-export function attributedOrders(webDocs, attribution, costBySku, fallback) {
+export function attributedOrders(webDocs, attribution, costBySku, fallback, channels = PAID_CHANNELS) {
   const out = [];
   for (const d of completed(webDocs)) {
     const a = attribution.get(String(d.sourceId));
-    if (!a || !PAID_CHANNELS.includes(a.channel)) continue;
+    if (!a || !channels.includes(a.channel)) continue;
     out.push({ ...a, id: d.sourceId, date: argDay(d.date), total: d.total || 0, grossProfit: orderGrossProfit(d, costBySku, fallback) });
   }
   return out;

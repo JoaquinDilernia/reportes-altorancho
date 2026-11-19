@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getPautaReal, getPautaClientes } from '../../api/client.js';
+import { getPautaReal, getPautaClientes, putMarketingCost } from '../../api/client.js';
 import Customers from './Customers.jsx';
 import { periodParams } from '../urlState.js';
 import Pauta from '../pauta/Pauta.jsx';
-import { Headline, TruthCard, Sources, ProfitDaily, Glossary } from './Blocks.jsx';
+import { Headline, TruthCard, OtherCard, Sources, ProfitDaily, Glossary } from './Blocks.jsx';
 import Campaigns from './Campaigns.jsx';
 
 const TITLE = { week: '¿Cuánto deja la pauta esta semana?', month: '¿Cuánto deja la pauta este mes?', custom: '¿Cuánto dejó la pauta en el rango?' };
@@ -54,6 +54,10 @@ export default function PautaReal({ state, onLogout }) {
   }, [data, period, date, start, end]);
 
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
+  const saveCost = useCallback(async (args) => {
+    await putMarketingCost(args);
+    retry();
+  }, [retry]);
 
   if (loading) return <><h1 className="nv-h1">{TITLE[period]}</h1><Skeleton /></>;
   if (error) {
@@ -72,7 +76,7 @@ export default function PautaReal({ state, onLogout }) {
   return (
     <div className="nv-pauta nv-pr">
       <h1 className="nv-h1">{TITLE[period]}</h1>
-      <div className="nv-sub">Ventas reales de la tienda y los locales, costo de cada producto en Odoo y la inversión de Meta y Google.</div>
+      <div className="nv-sub">Ventas reales de la tienda y los locales, costo de cada producto en Odoo y la inversión en pauta (Meta, Google y Pinterest).</div>
       {(errors.attribution || errors.costs || lowCost) && (
         <div className="nv-running nv-pr-warn">
           {errors.costs || (lowCost && `Solo el ${Math.round(headline.costCoverage * 100)}% de lo vendido tiene costo cargado en Odoo: el resto se estimó con el margen promedio.`)}
@@ -87,6 +91,12 @@ export default function PautaReal({ state, onLogout }) {
         <TruthCard id="meta" p={platforms?.meta} reported={platformSpend.meta} />
         <TruthCard id="google" p={platforms?.google} reported={platformSpend.google} />
       </div>
+      {data.others && (
+        <div className="nv-pr-truths">
+          <OtherCard id="pinterest" p={data.others.pinterest} onSaveCost={saveCost} />
+          <OtherCard id="email" p={data.others.email} onSaveCost={saveCost} />
+        </div>
+      )}
 
       <ProfitDaily rows={data.daily} />
       {platforms ? (
