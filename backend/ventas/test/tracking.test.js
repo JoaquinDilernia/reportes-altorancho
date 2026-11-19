@@ -86,6 +86,22 @@ describe('recorrido de un pedido', () => {
     expect(j.path).toEqual(['meta', 'direct']);
   });
 
+  it('dos compras en la misma visita: cada una ve solo su carrito', async () => {
+    await db.query(`INSERT INTO orders (id, number, created_at, status, payment_status, total, customer_email)
+      VALUES (2100000901, 2, '2026-11-15T15:27:00Z', 'open', 'paid', 100, 'ana@x.com')`);
+    await repo.record(parseBatch({ v: V, s: sid(8), e: [{ t: 'session', url: 'https://altorancho.com/', dev: 'desktop' }, { t: 'add_to_cart', sku: 'GIFT', name: 'Gift 1' }] }), at('2026-11-15T14:55:00Z'));
+    await repo.record(parseBatch({ v: V, s: sid(8), e: [{ t: 'purchase', order: '2100000900' }] }), at('2026-11-15T15:00:30Z'));
+    await repo.record(parseBatch({ v: V, s: sid(8), e: [{ t: 'add_to_cart', sku: 'GIFT', name: 'Gift 2' }] }), at('2026-11-15T15:20:00Z'));
+    await repo.record(parseBatch({ v: V, s: sid(8), e: [{ t: 'purchase', order: '2100000901' }] }), at('2026-11-15T15:27:30Z'));
+    const first = await repo.journeyForOrder('2100000900');
+    expect(first.addToCart).toBe(1);
+    expect(first.timeline[0].carts.map((c) => c.name)).toEqual(['Gift 1']);
+    const second = await repo.journeyForOrder('2100000901');
+    expect(second.addToCart).toBe(1);
+    expect(second.sessions).toBe(1);
+    expect(second.timeline[0].carts.map((c) => c.name)).toEqual(['Gift 2']);
+  });
+
   it('sin visitas registradas lo dice', async () => {
     expect((await repo.journeyForOrder('2100000900')).tracked).toBe(false);
   });

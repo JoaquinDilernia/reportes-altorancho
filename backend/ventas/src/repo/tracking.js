@@ -75,21 +75,31 @@ export function createTrackingRepo(db) {
       }
       if (!visitors.size) return { tracked: false, reason: 'sin visitas registradas (la compra fue antes de instalar el seguimiento o el navegador lo bloqueó)' };
 
+      // Ventana: justo después de la compra anterior hasta esta compra. Cada borde es el
+      // momento en que llegó la página de "gracias" (si se registró) o la hora del pedido.
       const orderAt = new Date(order.created_at);
+      const linkAt = async (id) => (await db.query('SELECT at FROM track_order_links WHERE order_id = $1', [id])).rows[0]?.at;
+      const thisLink = await linkAt(orderId);
+      const to = new Date(Math.max(orderAt.getTime() + 2 * 60e3, thisLink ? new Date(thisLink).getTime() + 1000 : 0));
       let from = new Date(orderAt.getTime() - LOOKBACK_DAYS * 864e5);
       if (order.customer_email) {
         const { rows: [prev] } = await db.query(
-          `SELECT max(created_at) AS at FROM orders WHERE lower(customer_email) = lower($1) AND created_at < $2
-             AND payment_status = 'paid' AND cancelled_at IS NULL`, [order.customer_email, orderAt]);
-        // +30 min: lo que pasó en la visita de esa compra anterior (la página de gracias) no cuenta para esta
-        if (prev?.at && new Date(prev.at).getTime() + 30 * 60e3 > from.getTime()) from = new Date(new Date(prev.at).getTime() + 30 * 60e3);
+          `SELECT id, created_at FROM orders WHERE lower(customer_email) = lower($1) AND created_at < $2 AND id <> $3
+             AND payment_status = 'paid' AND cancelled_at IS NULL ORDER BY created_at DESC LIMIT 1`, [order.customer_email, orderAt, orderId]);
+        if (prev) {
+          const prevLink = await linkAt(prev.id);
+          const prevEnd = new Date(Math.max(new Date(prev.created_at).getTime() + 2 * 60e3, prevLink ? new Date(prevLink).getTime() + 1000 : 0));
+          if (prevEnd > from) from = prevEnd;
+        }
       }
-      const to = new Date(orderAt.getTime() + 30 * 60e3);
       const ids = [...visitors];
-      const [{ rows: sessions }, { rows: events }] = await Promise.all([
-        db.query('SELECT * FROM track_sessions WHERE visitor_id = ANY($1) AND started_at >= $2 AND started_at <= $3 ORDER BY started_at', [ids, from, to]),
-        db.query('SELECT session_id, at, type, data FROM track_events WHERE visitor_id = ANY($1) AND at >= $2 AND at <= $3 ORDER BY at', [ids, from, to]),
-      ]);
+      // eventos dentro de la ventana; visitas con alguna actividad en ella (una visita puede abarcar dos compras)
+      const { rows: events } = await db.query(
+        'SELECT session_id, at, type, data FROM track_events WHERE visitor_id = ANY($1) AND at > $2 AND at <= $3 ORDER BY at', [ids, from, to]);
+      const { rows: sessions } = await db.query(
+        `SELECT * FROM track_sessions WHERE visitor_id = ANY($1) AND started_at <= $3
+           AND (started_at > $2 OR last_at > $2 OR id = ANY($4)) ORDER BY started_at`,
+        [ids, from, to, [...new Set(events.map((e) => e.session_id))]]);
       return { tracked: true, since: from.toISOString(), ...summarizeJourney({ sessions, events, orderAt, visitors: ids }) };
     },
 
