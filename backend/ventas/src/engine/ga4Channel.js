@@ -5,7 +5,7 @@ const ORGANIC = new Set(['Organic Search', 'Direct', 'Referral', 'Organic Shoppi
 
 export function mapGa4Channel(group, source = '', medium = '') {
   if (!group || group === 'Unassigned' || group === '(not set)') return null;
-  if (group === 'Paid Social') return META_SOURCES.test(source) ? 'meta' : 'other';
+  if (group === 'Paid Social') return META_SOURCES.test(source) ? 'meta' : /pinterest/i.test(source) ? 'pinterest' : 'other';
   if (GOOGLE_PAID.has(group)) return /google|youtube/i.test(source) || source === '' ? 'google' : 'other';
   if (group === 'Email') return 'email';
   if (group === 'Organic Social') return 'social_organic';

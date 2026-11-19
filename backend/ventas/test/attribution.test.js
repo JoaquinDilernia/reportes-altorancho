@@ -44,6 +44,24 @@ describe('attribute — Google', () => {
   });
 });
 
+describe('attribute — Pinterest', () => {
+  it('UTMs con nombre de campaña (pinterest / cpc) + epik', () => {
+    const r = attribute(v('https://altorancho.com/productos/x/?utm_campaign=altorancho_lower_conversiones_catalogo_aon&utm_medium=cpc&utm_source=pinterest&epik=dj0zJnU9VVFI'));
+    expect(r).toMatchObject({ channel: 'pinterest', confidence: 'campaign', campaign_name: 'altorancho_lower_conversiones_catalogo_aon', campaign_id: null });
+    expect(r.source_raw.epik).toBe('dj0zJnU9VVFI');
+  });
+  it('UTMs con IDs (Pinterest / PaidSocial): campaña y anuncio', () => {
+    const r = attribute(v('https://altorancho.com/?utm_campaign=626760227913&utm_medium=PaidSocial&utm_source=Pinterest&utm_content=2680092892168'));
+    expect(r).toMatchObject({ channel: 'pinterest', confidence: 'ad', campaign_id: '626760227913', ad_id: '2680092892168', campaign_name: null });
+  });
+  it('solo epik (sin UTMs) también es Pinterest pago', () => {
+    expect(attribute(v('https://altorancho.com/?epik=dj0yJnU9')).channel).toBe('pinterest');
+  });
+  it('pin orgánico (pinterest / social) → redes sin pauta', () => {
+    expect(attribute(v('https://altorancho.com/?utm_source=pinterest&utm_medium=social')).channel).toBe('social_organic');
+  });
+});
+
 describe('attribute — resto de canales', () => {
   it('#59437: link en bio de IG → redes orgánicas (aunque traiga fbclid)', () => {
     expect(attribute(v('https://altorancho.com/?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=PAZX')).channel).toBe('social_organic');

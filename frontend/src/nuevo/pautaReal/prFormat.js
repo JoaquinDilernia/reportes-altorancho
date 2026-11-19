@@ -22,6 +22,7 @@ export const VERDICT = {
 export const SOURCE_LABEL = {
   meta: 'Meta (Facebook / Instagram)',
   google: 'Google',
+  pinterest: 'Pinterest',
   organic: 'Orgánico / directo',
   social_organic: 'Redes sin pauta',
   email: 'Email',
@@ -30,6 +31,6 @@ export const SOURCE_LABEL = {
   resto: 'Orgánico y otros',
 };
 export const SOURCE_COLOR = {
-  meta: '#1877F2', google: '#EA4335', organic: '#1BAF7A', social_organic: '#8E5BD8',
+  meta: '#1877F2', google: '#EA4335', pinterest: '#B5176E', organic: '#1BAF7A', social_organic: '#8E5BD8',
   email: '#E0A100', other: '#9a9897', unknown: '#d4d3d2', resto: '#1BAF7A',
 };

@@ -1,6 +1,6 @@
 import { SOURCE_LABEL, SOURCE_COLOR } from '../pautaReal/prFormat.js';
 
-const SHORT = { meta: 'Meta', google: 'Google', organic: 'Orgánico', social_organic: 'Redes', social: 'Redes', email: 'Email', other: 'Otro link', unknown: 'Sin dato' };
+const SHORT = { meta: 'Meta', google: 'Google', pinterest: 'Pinterest', organic: 'Orgánico', social_organic: 'Redes', social: 'Redes', email: 'Email', other: 'Otro link', unknown: 'Sin dato' };
 export const chShort = (c) => SHORT[c] || c || '—';
 export const chLong = (c) => SOURCE_LABEL[c] || (c === 'social' ? SOURCE_LABEL.social_organic : chShort(c));
 export const chColor = (c) => SOURCE_COLOR[c] || (c === 'social' ? SOURCE_COLOR.social_organic : '#9a9897');

@@ -16,6 +16,7 @@ export function channelOfSource(source, medium) {
   if (!s && !m) return null;
   if (/(facebook|instagram|meta|^fb|^ig)/.test(s)) return m === 'cpc' || m === 'paid' ? 'meta' : 'social';
   if (s === 'google' && m === 'cpc') return 'google';
+  if (s === 'pinterest') return m === 'cpc' || m === 'paid' || m === 'paidsocial' ? 'pinterest' : 'social';
   if (m === 'organic') return 'organic';
   if (m === 'email' || /mail|klaviyo|perfit|doppler/.test(s)) return 'email';
   if (s === '(direct)') return 'organic';
