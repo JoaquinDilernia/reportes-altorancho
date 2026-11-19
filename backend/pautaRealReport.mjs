@@ -9,10 +9,24 @@ import { webPlan } from './webReport.mjs';
 import { getCostBySku } from './odooCosts.mjs';
 import { getCustomerTypes } from './customerType.mjs';
 import { getMarketingCosts, costForRange, monthlyCost } from './marketingCosts.mjs';
+import { getPinterestStatus, queryPinterestDaily } from './pinterestAds.mjs';
 import { isGinezaConfigured, fetchPaidAttribution, fetchSummary, fetchCampaigns } from './gineza.mjs';
 import {
   LOCAL_CHANNELS, headline, withDeltas, platformSpend, attributedOrders, platforms, webSources, campaigns, daily, customerMix, paidBlock,
 } from './pautaRealTab.mjs';
+
+// Pinterest por API: solo si alguna vez sincronizó bien (si no, se usa el gasto cargado a mano).
+async function pinterestApiFor(current, prev) {
+  try {
+    const st = await getPinterestStatus();
+    if (!st.connected) return null;
+    const [cur, prv] = await Promise.all([queryPinterestDaily(current.start, current.end), queryPinterestDaily(prev.start, prev.end)]);
+    return { cur, prev: prv };
+  } catch (err) {
+    console.error('[pauta-real] pinterest:', err.message);
+    return null;
+  }
+}
 
 async function ginezaFor(range) {
   if (!isGinezaConfigured()) return { error: 'La atribución por campaña no está conectada (falta GINEZA_PASSWORD)' };
@@ -35,7 +49,7 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
   const today = argDay(now.toISOString());
   const { prevPeriodRange } = webPlan(ranges, today);
 
-  const [webCur, locCur, webPrev, locPrev, metaCur, gCur, metaPrev, gPrev, costs, gz, mkt] = await Promise.all([
+  const [webCur, locCur, webPrev, locPrev, metaCur, gCur, metaPrev, gPrev, costs, gz, mkt, pinApi] = await Promise.all([
     querySalesByRange(['ecommerce'], current.start, current.end),
     querySalesByRange(LOCAL_CHANNELS, current.start, current.end),
     querySalesByRange(['ecommerce'], prevPeriodRange.start, prevPeriodRange.end),
@@ -50,14 +64,17 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
     }),
     ginezaFor(current),
     getMarketingCosts().catch((err) => { console.error('[pauta-real] costos de marketing:', err.message); return null; }),
+    pinterestApiFor(current, prevPeriodRange),
   ]);
 
   const costBySku = costs.map;
   const spendBy = platformSpend(metaCur, gCur);
   const spendPrev = platformSpend(metaPrev, gPrev);
   // Pinterest (gasto cargado a mano por mes) suma a la inversión en pauta; el abono de Perfit no es pauta.
-  const pin = costForRange(mkt, 'pinterest', current, today);
-  const pinPrev = costForRange(mkt, 'pinterest', prevPeriodRange, today);
+  // Con la API conectada, el gasto y "lo que dice Pinterest" salen de ahí; si no, el gasto cargado a mano.
+  const sumOf = (rows, k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
+  const pin = pinApi ? { cost: Math.round(sumOf(pinApi.cur, 'spend')), missing: [], reported: sumOf(pinApi.cur, 'purchaseValue') } : costForRange(mkt, 'pinterest', current, today);
+  const pinPrev = pinApi ? { cost: Math.round(sumOf(pinApi.prev, 'spend')) } : costForRange(mkt, 'pinterest', prevPeriodRange, today);
   const perfit = costForRange(mkt, 'perfit', current, today);
   const totalSpend = spendBy.meta.spend + spendBy.google.spend + (pin.cost || 0);
   const head = headline({ webDocs: webCur, localDocs: locCur, spend: totalSpend, costBySku });
@@ -68,7 +85,8 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
   const extraOrders = gz.attribution ? attributedOrders(webCur, gz.attribution, costBySku, fallback, ['pinterest', 'email']) : [];
   const month = (current.end < today ? current.end : today).slice(0, 7);
   const extraBlock = (channel, key, c) => ({
-    ...paidBlock({ spend: c.cost, reportedValue: null, orders: extraOrders.filter((o) => o.channel === channel) }),
+    ...paidBlock({ spend: c.cost, reportedValue: c.reported ?? null, orders: extraOrders.filter((o) => o.channel === channel) }),
+    source: c.reported != null ? 'api' : 'manual',
     cost: { key, month, monthly: monthlyCost(mkt, key, month), missing: c.missing, loaded: mkt != null },
   });
 

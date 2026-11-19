@@ -221,7 +221,8 @@ export function OtherCard({ id, p, onSaveCost }) {
   const { label, color, costLabel, hint } = OTHER[id];
   const [editing, setEditing] = useState(false);
   const noCost = p.spend == null;
-  const max = Math.max(p.real.revenue, Math.max(0, p.grossProfit), 1);
+  const fromApi = p.source === 'api';
+  const max = Math.max(p.real.revenue, p.reported?.revenue || 0, Math.max(0, p.grossProfit), 1);
   const save = async (args) => { await onSaveCost(args); setEditing(false); };
   return (
     <div className="nv-card nv-pr-truth" style={{ borderTopColor: color }}>
@@ -231,15 +232,19 @@ export function OtherCard({ id, p, onSaveCost }) {
       </div>
       <div className="nv-pr-inv">
         {noCost ? <>{costLabel}: <b>sin cargar</b></> : <>{costLabel} <b>{money(p.spend)}</b>{p.costPerSale != null && <> · <b>{money(p.costPerSale)}</b> por venta</>}</>}
-        {' · '}<button type="button" className="nv-link" onClick={() => setEditing((v) => !v)}>{editing ? 'cancelar' : noCost ? 'cargar' : 'cambiar'}</button>
+        {!fromApi && <>{' · '}<button type="button" className="nv-link" onClick={() => setEditing((v) => !v)}>{editing ? 'cancelar' : noCost ? 'cargar' : 'cambiar'}</button></>}
       </div>
-      {(editing || noCost) && <CostEditor cost={p.cost} label={costLabel} onSave={save} />}
+      {!fromApi && (editing || noCost) && <CostEditor cost={p.cost} label={costLabel} onSave={save} />}
       <div className="nv-pr-steps">
+        {fromApi && p.reported && <Step label={`Lo que dice ${label}`} value={times(p.reported.roas)} sub={`${money(p.reported.revenue)} en ventas`} bar={p.reported.revenue / max} color="var(--nv-ink3)" />}
         <Step label="Lo que llegó a la tienda" value={noCost ? '—' : times(p.real.roas)} sub={`${money(p.real.revenue)} · ${p.real.orders} pedidos`} bar={p.real.revenue / max} color={color} />
         <Step label="Lo que dejó (POAS)" value={noCost ? '—' : times(p.poas)} sub={noCost ? `ganancia ${money(p.grossProfit)}` : `ganancia ${money(p.grossProfit)} · neto ${money(p.profitAfterAds)}`} bar={Math.max(0, p.grossProfit) / max} color="var(--nv-pr-profit)" />
       </div>
+      {fromApi && p.overReportPct != null && p.overReportPct > 5 && (
+        <p className="nv-note">{label} se adjudica un <b>{pct(p.overReportPct)}</b> más de ventas que las que entraron a la tienda con su clic (cuenta vistas de hasta 1 día, interacciones de hasta 30 días y ventas que también reclama otra plataforma).</p>
+      )}
       <p className="nv-note">
-        {noCost
+        {fromApi ? 'Gasto y ventas reportadas leídos de la cuenta de Pinterest Ads. ' : noCost
           ? `Cargá el ${costLabel.toLowerCase()} de ${monthName(p.cost.month)} (${hint}) para ver ROAS y POAS. `
           : `${costLabel} ${hint}, repartido por día del período. `}
         Cuenta solo las compras de quien entró con un clic de {id === 'email' ? 'un mail' : 'un anuncio'} en esa visita.

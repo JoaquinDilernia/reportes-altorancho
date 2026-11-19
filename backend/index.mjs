@@ -14,6 +14,7 @@ import { getLectores } from './lectoresReport.mjs';
 import { getPauta } from './pautaReport.mjs';
 import { getPautaReal, getPautaClientes, clearPautaRealCache } from './pautaRealReport.mjs';
 import { getMarketingCosts, setMarketingCost } from './marketingCosts.mjs';
+import { syncPinterestAds, getPinterestStatus, isPinterestConfigured } from './pinterestAds.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
 import { useLocalGineza } from './gineza.mjs';
 import { isVentasConfigured, startVentas } from './ventas/module.mjs';
@@ -201,6 +202,21 @@ app.get('/api/v2/pauta', requireAuth, async (req, res) => {
     console.error('[server] v2 pauta error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// Pinterest Ads (gasto y conversiones reportadas por día)
+app.get('/api/v3/pinterest/status', requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await getPinterestStatus()) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+app.post('/api/v3/pinterest/sync', requireAuth, async (req, res) => {
+  if (!isPinterestConfigured()) return res.status(400).json({ ok: false, error: 'Pinterest no está configurado' });
+  const r = await syncPinterestAds({ days: Math.min(365, Number(req.body?.days) || 35) });
+  if (r.ok) clearPautaRealCache();
+  res.status(r.ok ? 200 : 502).json(r);
 });
 
 // Costos de canales sin API de gasto (Pinterest a mano, abono de Perfit), por mes
@@ -536,6 +552,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && reportesJobs) {
     cron.schedule(expr, () => takeDailySnapshots(), { timezone: 'America/Argentina/Buenos_Aires' });
   }
   // Precios de los lectores: cada 6 h a los :30 (no pisa el full sync de las :00)
+  // Pinterest Ads: cada 6 h a los :45
+  if (isPinterestConfigured()) {
+    cron.schedule('45 */6 * * *', () => syncPinterestAds().then((r) => { if (r.ok) clearPautaRealCache(); else console.error('[pinterest] sync:', r.error); }));
+  }
   cron.schedule('30 */6 * * *', () => runPickSync().catch((err) => console.error('[pick] sync programado falló:', err.message)));
   startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
