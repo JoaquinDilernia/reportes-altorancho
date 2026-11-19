@@ -129,7 +129,7 @@ export function mountAgentRoutes(router, {
 
   r.get(`${base}/decisions`, wrap(async (req, res) => {
     const { status } = req.query;
-    if (status && !['pending', 'executed', 'rejected', 'failed'].includes(status)) throw bad('status inválido');
+    if (status && !['pending', 'executed', 'rejected', 'failed', 'archived'].includes(status)) throw bad('status inválido');
     res.json({ decisions: await repo.listDecisions({ status, limit: 100 }) });
   }));
 
