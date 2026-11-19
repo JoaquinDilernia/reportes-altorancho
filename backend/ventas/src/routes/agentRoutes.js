@@ -192,6 +192,9 @@ export function mountAgentRoutes(router, {
     res.json({ question: await repo.dismissQuestion(uuidParam(req.params.id)) });
   }));
 
+  // Empezar de cero: archiva recomendaciones pendientes y descarta preguntas abiertas
+  r.post(`${base}/backlog/archive`, wrap(async (_req, res) => res.json(await repo.archiveBacklog())));
+
   r.get(`${base}/settings`, wrap(async (_req, res) => res.json({ settings: await repo.getSettings() })));
   r.put(`${base}/settings`, wrap(async (req, res) => {
     const patch = {};

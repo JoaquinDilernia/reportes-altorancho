@@ -77,10 +77,19 @@ export function createAdsRepo(db, { platform = 'meta' } = {}) {
     getDecision: (id) => one('SELECT * FROM ad_decisions WHERE id = $1 AND platform = $2', [id, platform], 'No existe esa recomendación.'),
     async listDecisions({ status, limit = 50 } = {}) {
       const { rows } = await db.query(
-        'SELECT * FROM ad_decisions WHERE platform = $3 AND ($1::text IS NULL OR status = $1) ORDER BY created_at DESC LIMIT $2',
+        // Sin estado: todas menos las archivadas (no son historia para el agente ni para el panel)
+        "SELECT * FROM ad_decisions WHERE platform = $3 AND ($1::text IS NULL AND status <> 'archived' OR status = $1) ORDER BY created_at DESC LIMIT $2",
         [status ?? null, limit, platform],
       );
       return rows;
+    },
+    // Empezar de cero: archiva lo pendiente y descarta las preguntas abiertas. Lo aprendido queda.
+    async archiveBacklog() {
+      return db.tx(async (t) => {
+        const d = await t.query("UPDATE ad_decisions SET status = 'archived', decided_at = now() WHERE status = 'pending' AND platform = $1", [platform]);
+        const q = await t.query("UPDATE ad_questions SET status = 'dismissed' WHERE status = 'open' AND platform = $1", [platform]);
+        return { decisions: d.rowCount ?? d.affectedRows ?? 0, questions: q.rowCount ?? q.affectedRows ?? 0 };
+      });
     },
     countPending: async () => (await one("SELECT count(*)::int AS n FROM ad_decisions WHERE status = 'pending' AND platform = $1", [platform])).n,
     // Marca la decisión como tomada solo si seguía pendiente (evita doble aprobación)
