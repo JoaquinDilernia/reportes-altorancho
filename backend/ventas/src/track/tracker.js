@@ -73,7 +73,7 @@
       var items = c.items || [];
       var n = 0;
       for (var i = 0; i < items.length; i++) n += Number(items[i].quantity) || 0;
-      return { items: n, total: Number(c.subtotal) || null, list: items };
+      return { items: n, total: c.subtotal != null ? Number(c.subtotal) / 100 : null, list: items };
     }
 
     var path = location.pathname.toLowerCase();
@@ -114,9 +114,23 @@
       for (var i = 0; i < keys.length; i++) if (o[keys[i]] != null && o[keys[i]] !== '') return o[keys[i]];
       return null;
     }
+    // detail = { cart, cart_item, quantity_added } (precios en centavos)
     document.addEventListener('productAddedToCart', function (e) {
       var d = (e && e.detail) || {};
-      var item = d.cartItem || d.item || d.product || d.variant || d;
+      var ci = d.cart_item || d.cartItem;
+      if (ci) {
+        var cart = d.cart || {};
+        var n = 0;
+        (cart.items || []).forEach(function (it) { n += Number(it.quantity) || 0; before[it.id] = Number(it.quantity) || 0; });
+        send({
+          t: 'add_to_cart', sku: ci.sku || null, name: ci.name || null,
+          qty: Number(d.quantity_added) || 1,
+          price: ci.unit_price != null ? Number(ci.unit_price) / 100 : null,
+          items: n || null, total: cart.subtotal != null ? Number(cart.subtotal) / 100 : null,
+        }, true);
+        return;
+      }
+      var item = d.item || d.product || d.variant || d;
       setTimeout(function () {
         var cs = cartState();
         var added = null;
@@ -131,7 +145,7 @@
           sku: pick(src, ['sku', 'variant_sku']) || pick(item, ['sku']),
           name: pick(src, ['name', 'analytics_name']) || pick(item, ['name']),
           qty: added ? added.qty : Number(pick(item, ['quantity', 'qty'])) || 1,
-          price: Number(pick(src, ['unit_price', 'price'])) || null,
+          price: pick(src, ['unit_price', 'price']) != null ? Number(pick(src, ['unit_price', 'price'])) / 100 : null,
           items: cs.items, total: cs.total,
         }, true);
       }, 1200);
