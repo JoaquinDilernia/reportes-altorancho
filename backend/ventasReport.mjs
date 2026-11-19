@@ -1,7 +1,7 @@
 // Módulo Ventas: listado de pedidos web con su origen y el recorrido de cada uno.
 // Los pedidos y su atribución vienen de gineza; el tipo de cliente de Tienda Nube
 // (si ya está calculado para el período) y el costo de Odoo, de Reportes.
-import { fetchOrders, fetchOrder, fetchCustomerHistory, fetchSummary } from './gineza.mjs';
+import { fetchOrders, fetchOrder, fetchCustomerHistory, fetchSummary, fetchTracking } from './gineza.mjs';
 import { peekCustomerTypes, getCustomerTypes } from './customerType.mjs';
 import { getCostBySku } from './odooCosts.mjs';
 import { buildJourney } from './ventasJourney.mjs';
@@ -43,14 +43,18 @@ export async function listVentas({ range, channel, q, cursor }, today = argDay(n
 
 export async function getVenta(id, today = argDay(new Date().toISOString())) {
   const order = await fetchOrder(id);
-  const [history, costBySku] = await Promise.all([
+  const [history, costBySku, tracking] = await Promise.all([
     fetchCustomerHistory(order.customer_email, today).catch((err) => {
       console.error('[ventas] historial del cliente:', err.message);
       return null;
     }),
     getCostBySku().catch(() => new Map()),
+    fetchTracking(id).catch((err) => {
+      console.error('[ventas] recorrido:', err.message);
+      return { tracked: false, reason: 'no se pudo leer el recorrido' };
+    }),
   ]);
   // gineza busca el mail como texto (ILIKE): "ana@x.com" también trae a "juana@x.com". El nombre lo desempata.
   const sameName = (h) => !order.customer_name || !h.customer_name || h.customer_name.trim().toLowerCase() === order.customer_name.trim().toLowerCase();
-  return buildJourney({ order, history: history ? history.filter(sameName) : null, costBySku });
+  return { ...buildJourney({ order, history: history ? history.filter(sameName) : null, costBySku }), tracking };
 }

@@ -88,6 +88,53 @@ function Journey({ v }) {
   );
 }
 
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// Recorrido completo (script propio en la tienda): cada visita, lo que vio y lo que agregó al carrito
+function FullJourney({ t }) {
+  const [all, setAll] = useState(false);
+  if (!t) return null;
+  if (!t.tracked) return <p className="nv-mute">{t.reason ? `Sin recorrido completo: ${t.reason}.` : 'Sin recorrido completo.'}</p>;
+  const list = all ? t.timeline : t.timeline.slice(-12);
+  const facts = [
+    [plural(t.sessions, 'visita', 'visitas'), t.daysToBuy != null && t.sessions > 1 ? `en ${t.daysToBuy < 1 ? 'el mismo día' : plural(Math.round(t.daysToBuy), 'día', 'días')}` : null],
+    [plural(t.productViews, 'producto visto', 'productos vistos'), plural(t.pageviews, 'página', 'páginas')],
+    [plural(t.addToCart, 'vez agregó al carrito', 'veces agregó al carrito'), null],
+    [plural(t.checkouts, 'checkout empezado', 'checkouts empezados'), null],
+    [t.devices.map((d) => DEVICE[d] || d).join(' y ') || '—', t.visitors > 1 ? plural(t.visitors, 'navegador', 'navegadores') : null],
+  ];
+  return (
+    <div className="nv-v-full">
+      <dl className="nv-v-tfacts">
+        {facts.map(([a, b], i) => <div key={i}><dt>{a}</dt>{b && <dd>{b}</dd>}</div>)}
+      </dl>
+      {t.path.length > 1 && (
+        <p className="nv-v-path">{t.path.map((c, i) => <span key={i}>{i > 0 && <span className="nv-mute" aria-hidden="true"> → </span>}<ChannelChip channel={c} /></span>)}</p>
+      )}
+      <ol className="nv-v-sessions">
+        {t.timeline.length > list.length && (
+          <li><button type="button" className="nv-link" onClick={() => setAll(true)}>ver las {t.timeline.length - list.length} visitas anteriores</button></li>
+        )}
+        {list.map((s, i) => (
+          <li key={i} className={s.purchase ? 'buy' : ''}>
+            <span className="nv-mute nv-v-sat">{when(s.at)}</span>
+            <span>
+              <ChannelChip channel={s.channel} />
+              {(s.campaign || s.source) && <span className="nv-mute"> · {s.campaign || s.source}</span>}
+              <span className="nv-mute"> · {plural(s.pageviews || 0, 'página', 'páginas')}{s.productViews ? `, ${plural(s.productViews, 'producto', 'productos')}` : ''}{s.device ? ` · ${DEVICE[s.device] || s.device}` : ''}</span>
+              {s.carts.map((c, j) => (
+                <span key={j} className="nv-v-cart">🛒 {c.name || c.sku || 'producto'}{c.qty > 1 ? ` ×${c.qty}` : ''}</span>
+              ))}
+              {s.checkout && !s.purchase && <span className="nv-v-cart nv-v-ck">llegó al checkout y no compró</span>}
+              {s.purchase && <b className="nv-v-cart nv-v-buy">compró</b>}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function Behavior({ b }) {
   const facts = [
     ['Desde', DEVICE[b.device] || b.device || '—'],
@@ -157,6 +204,13 @@ export default function VentaDetail({ id, onClose }) {
 
             <h3 className="nv-v-h">El recorrido</h3>
             <Journey v={v} />
+
+            {v.tracking && (
+              <>
+                <h3 className="nv-v-h">Todas sus visitas</h3>
+                <FullJourney t={v.tracking} />
+              </>
+            )}
 
             <h3 className="nv-v-h">Lo que dejó</h3>
             <Economics e={v.economics} />

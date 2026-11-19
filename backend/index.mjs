@@ -51,6 +51,8 @@ export const app = express();
 // Railway pone un proxy delante: confiar solo en 1 salto (no true) para que X-Forwarded-For no se falsee.
 app.set('trust proxy', 1);
 
+// Recorrido de visitantes: script público de la tienda y adonde manda los eventos
+app.use((req, res, next) => (ventas && (req.path === '/t.js' || req.path.startsWith('/t/')) ? ventas.trackRouter(req, res, next) : next()));
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
 // Agente y Ventas (lo que era gineza). Si el módulo corre en este servidor
 // (VENTAS_DATABASE_URL o DATABASE_URL), lo atienden sus rutas; si no, el proxy

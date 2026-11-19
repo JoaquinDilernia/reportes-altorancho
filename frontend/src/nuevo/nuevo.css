@@ -483,3 +483,18 @@
 .nv-pr-cost { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 4px 0 10px; }
 .nv-pr-cost label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .nv-pr-cost input { width: 150px; padding: 7px 10px; border: 1px solid var(--nv-line); border-radius: 8px; font: inherit; font-variant-numeric: tabular-nums; background: var(--nv-card); color: inherit; }
+
+/* Ventas: recorrido completo (todas las visitas) */
+.nv-v-tfacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 0 0 12px; }
+.nv-v-tfacts div { background: var(--nv-bg2, rgba(0,0,0,.03)); border-radius: 8px; padding: 8px 10px; }
+.nv-v-tfacts dt { font-weight: 600; }
+.nv-v-tfacts dd { margin: 2px 0 0; color: var(--nv-ink3); font-size: 12px; }
+.nv-v-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; }
+.nv-v-sessions { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--nv-line); }
+.nv-v-sessions li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 6px 0 6px 12px; font-size: 13px; }
+.nv-v-sessions li.buy { font-weight: 600; }
+.nv-v-sat { font-variant-numeric: tabular-nums; }
+.nv-v-cart { display: block; margin-top: 2px; font-size: 12px; }
+.nv-v-ck { color: var(--nv-ink3); }
+.nv-v-buy { color: #1BAF7A; }
+@media (max-width: 520px) { .nv-v-sessions li { grid-template-columns: 1fr; gap: 2px; } }

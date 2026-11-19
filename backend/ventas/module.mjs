@@ -42,6 +42,8 @@ import { createGa4Sync } from './src/sync/ga4.js';
 import { createIngestRouter } from './src/routes/ingest.js';
 import { createWebhookRouter } from './src/routes/webhooks.js';
 import { createApiRouter } from './src/routes/api.js';
+import { createTrackingRepo } from './src/repo/tracking.js';
+import { createTrackRouter, createTrackApiRouter } from './src/routes/track.js';
 
 export function ventasEnv(source = process.env) {
   const get = (k) => source[`VENTAS_${k}`] || source[k] || undefined;
@@ -121,7 +123,10 @@ export async function startVentas(source = process.env, { log = console, db: inj
 
   // Rutas de la API de gineza, sin su auth: Reportes pone la suya adelante.
   // El del agente va primero: sus rutas fijas (/ads/overview…) si no las agarra GET /ads/:id
+  const trackingRepo = createTrackingRepo(db);
+  const trackRouter = createTrackRouter({ repo: trackingRepo, log });
   const apiRouters = [
+    createTrackApiRouter({ repo: trackingRepo }),
     createAdsRouter({ repo: adsRepo, meta, reports, startRun: startAdsRun, execute, identity, config: e.adsConfig, takeBaseline: takeMetaBaseline }),
     createGadsRouter({ repo: gadsRepo, gads, startRun: startGadsRun, execute: gadsExecute, config: e.adsConfig, takeBaseline: takeGoogleBaseline }),
     createApiRouter({ reports, syncRuns, metaRepo, urlTagger, jobs, jobCatalog }),
@@ -178,6 +183,8 @@ export async function startVentas(source = process.env, { log = console, db: inj
       }, TZ);
     }
     if (ga4Sync) cron.schedule('40 * * * *', () => runJob('ga4'), TZ);
+    // Recorridos: se guardan ~13 meses
+    cron.schedule('20 4 * * *', () => trackingRepo.purge().catch((err) => log.error('[track] purga:', err.message)), TZ);
   }
 
   return {
@@ -186,6 +193,8 @@ export async function startVentas(source = process.env, { log = console, db: inj
     apiRouters,
     webhookRouter,
     ingestRouter,
+    trackRouter,
+    trackingRepo,
     ownsJobs: e.jobs,
     // Lo llama el server (no los scripts ni los tests).
     async startJobs() {

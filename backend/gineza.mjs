@@ -90,6 +90,15 @@ export function fetchOrders({ from, to, channel, q, cursor }) {
   return get(`/orders?${qs(p)}`);
 }
 
+// Recorrido propio (script de la tienda): visitas, carritos y checkouts antes de la compra
+export async function fetchTracking(id) {
+  return get(`/tracking/order/${encodeURIComponent(id)}`);
+}
+
+export async function fetchTrackingStats(hours = 24) {
+  return get(`/tracking/stats?hours=${Number(hours) || 24}`);
+}
+
 export async function fetchOrder(id) {
   return get(`/orders/${encodeURIComponent(id)}`);
 }
