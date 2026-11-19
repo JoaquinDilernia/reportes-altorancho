@@ -11,7 +11,8 @@ import Resumen from './resumen/Resumen.jsx';
 import Producto from './producto/Producto.jsx';
 import Web from './web/Web.jsx';
 import Locales from './locales/Locales.jsx';
-import Pauta from './pauta/Pauta.jsx';
+import PautaReal from './pautaReal/PautaReal.jsx';
+import AgenteModule from '../agente/AgenteModule.jsx';
 import Mayorista from './mayorista/Mayorista.jsx';
 import ProductSearch from './search/ProductSearch.jsx';
 import ProductSheet from './search/ProductSheet.jsx';
@@ -31,11 +32,12 @@ const EVENT_IDS = ['cyber', 'black'];
 
 // Tab content.
 function TabContent({ state, eventId, onLogout, onNavigate, onUpdate }) {
+  if (state.m === 'pauta') return <PautaReal state={state} onLogout={onLogout} />;
+  if (state.m === 'agente') return <AgenteModule onLogout={onLogout} />;
   switch (state.tab) {
     case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
     case 'web': return <Web state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'locales': return <Locales state={state} onUpdate={onUpdate} onLogout={onLogout} />;
-    case 'pauta': return <Pauta state={state} onLogout={onLogout} />;
     case 'mayorista': return <Mayorista state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     case 'producto': return <Producto state={state} onUpdate={onUpdate} onLogout={onLogout} />;
     // Keyed so it opens on the active event once that's known.
@@ -79,7 +81,10 @@ export default function NuevoApp({ onLogout }) {
     return () => { cancelled = true; };
   }, [onLogout]);
 
-  const isCyber = state.tab === 'cyber';
+  const isCyber = state.m === 'reportes' && state.tab === 'cyber';
+  const isAgent = state.m === 'agente';
+  // Las alertas del Resumen que apuntan a la pauta abren el módulo Pauta.
+  const navigate = (tab) => (tab === 'pauta' ? update({ m: 'pauta' }, { push: true }) : update({ m: 'reportes', tab }, { push: true }));
   const aiProps = {
     period: state.period, date: state.date, customStart: state.start ?? today, customEnd: state.end ?? today, channel: null,
   };
@@ -87,6 +92,8 @@ export default function NuevoApp({ onLogout }) {
   return (
     <div className="nv">
       <TopBar
+        module={state.m}
+        onModule={(m) => update({ m }, { push: true })}
         tab={state.tab}
         showCyber={!!activeEvent || isCyber}
         eventLabel={activeEvent?.label ?? 'Cyber'}
@@ -95,11 +102,11 @@ export default function NuevoApp({ onLogout }) {
         search={<ProductSearch onSelect={(sku) => update({ sku }, { push: true })} />}
       />
       <main className="nv-wrap">
-        {!isCyber && <PeriodBar state={state} today={today} onChange={(patch) => update(patch)} />}
-        {!isCyber && <div className="nv-ai"><InsightsButton {...aiProps} /></div>}
-        <TabContent state={state} eventId={activeEvent?.id} onLogout={onLogout} onNavigate={(tab) => update({ tab }, { push: true })} onUpdate={update} />
+        {!isCyber && !isAgent && <PeriodBar state={state} today={today} onChange={(patch) => update(patch)} />}
+        {!isCyber && !isAgent && <div className="nv-ai"><InsightsButton {...aiProps} /></div>}
+        <TabContent state={state} eventId={activeEvent?.id} onLogout={onLogout} onNavigate={navigate} onUpdate={update} />
       </main>
-      {!isCyber && <ChatWidget {...aiProps} />}
+      {!isCyber && !isAgent && <ChatWidget {...aiProps} />}
       {state.sku && <ProductSheet sku={state.sku} state={state} onClose={() => update({ sku: null }, { push: true })} />}
     </div>
   );

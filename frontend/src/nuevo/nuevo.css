@@ -332,3 +332,59 @@
 .nv-kpinote { font-size: 11px; margin-top: 6px; }
 @media (max-width: 1000px) { .nv-locs.nv-ads3 { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .nv-adtext .nv-block { max-width: 170px; } }
+
+/* Módulos (Reportes · Pauta · Agente) */
+.nv-mods { display: flex; background: var(--nv-soft); border-radius: 10px; padding: 3px; gap: 2px; }
+.nv-mods button { background: none; border: 0; font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 8px; color: var(--nv-ink2); transition: background .15s, color .15s; }
+.nv-mods button.on { background: #fff; color: var(--nv-ink); box-shadow: 0 1px 2px rgba(53, 52, 52, .08); }
+.nv-mods button:focus-visible { outline: 2px solid #f5c451; outline-offset: 2px; }
+
+/* Pauta: cuánto deja la pauta */
+.nv-pr { --nv-pr-profit: #0e9f6e; --nv-pr-spend: #353434; --nv-pr-cogs: #d9d7d3; }
+.nv-pr-hero { margin-bottom: 16px; padding: 20px 22px; }
+.nv-pr-say { font-size: 17px; line-height: 1.5; margin: 0 0 18px; max-width: 900px; }
+.nv-pr-say b { font-variant-numeric: tabular-nums; }
+.nv-pr-say b.up { color: var(--nv-up); }
+.nv-pr-say b.dn { color: var(--nv-dn); }
+.nv-pr-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.nv-pr-kpi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 12px 14px; background: var(--nv-soft); border-radius: 12px; }
+.nv-pr-kpi.strong { background: var(--nv-up-bg); }
+.nv-pr-kpi .nv-big { font-size: 24px; margin: 2px 0 4px; }
+.nv-pr-share { margin-top: 18px; }
+.nv-pr-sharebar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; background: var(--nv-pr-profit); }
+.nv-pr-sharebar .spend { background: var(--nv-pr-spend); }
+.nv-pr-sharebar .cogs { background: var(--nv-pr-cogs); }
+.nv-pr-truths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.nv-pr-truth { border-top: 4px solid var(--nv-ink); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.nv-pr-inv { font-size: 13px; color: var(--nv-ink2); font-variant-numeric: tabular-nums; }
+.nv-pr-inv b { color: var(--nv-ink); }
+.nv-pr-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.nv-pr-step { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.nv-pr-roas { font-size: 28px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.nv-pr-verdict { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 8px; white-space: nowrap; }
+.nv-pr-verdict.up { background: var(--nv-up-bg); color: var(--nv-up); }
+.nv-pr-verdict.warn { background: var(--nv-warn-bg); color: var(--nv-warn); }
+.nv-pr-verdict.dn { background: var(--nv-dn-bg); color: var(--nv-dn); }
+.nv-pr-srcrow { grid-template-columns: minmax(0, 210px) 1fr 76px 44px; }
+.nv-pr-gloss dl { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.nv-pr-gloss dt { font-size: 13px; font-weight: 600; }
+.nv-pr-gloss dd { margin: 2px 0 0; font-size: 12.5px; color: var(--nv-ink2); line-height: 1.5; }
+.nv-pr-grid { grid-template-columns: 1fr 1fr; }
+.nv-pr-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.nv-pr-table .nv-adcell .nv-name { max-width: 300px; display: block; }
+.nv-pr-toggle { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--nv-ink3); }
+.nv-pr-warn { background: var(--nv-warn-bg); color: var(--nv-warn); }
+@media (max-width: 1100px) { .nv-pr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .nv-pr-truths, .nv-pr-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .nv-pr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nv-pr-steps { grid-template-columns: 1fr; }
+  .nv-pr-say { font-size: 15px; }
+}
+
+/* Agente dentro del panel */
+.nv-agent { max-width: 1120px; margin: 0 auto; }
+.nv-agent-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.nv-agent .gz { background: transparent; }

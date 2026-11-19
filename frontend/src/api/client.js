@@ -165,6 +165,10 @@ export function getPauta(params) {
   return getAuthed(`/api/v2/pauta?${periodQuery(params)}`, 'Pauta fetch failed');
 }
 
+export function getPautaReal(params) {
+  return getAuthed(`/api/v3/pauta-real?${periodQuery(params)}`, 'Pauta fetch failed');
+}
+
 export function getMayorista(params) {
   return getAuthed(`/api/v2/mayorista?${periodQuery(params)}`, 'Mayorista fetch failed');
 }

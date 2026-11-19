@@ -11,6 +11,8 @@ import { getProducto } from './productoReport.mjs';
 import { getWeb } from './webReport.mjs';
 import { getLocales } from './localesReport.mjs';
 import { getPauta } from './pautaReport.mjs';
+import { getPautaReal } from './pautaRealReport.mjs';
+import ginezaProxy from './ginezaProxy.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
@@ -43,6 +45,8 @@ export const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
+// Agente (gineza) por proxy: antes de express.json() para reenviar el cuerpo crudo.
+app.use('/api/gz', ginezaProxy);
 app.use(express.json());
 // La app de la feria (/api/feria) está apagada: el código sigue en feria*.mjs para la próxima feria.
 app.use('/api/pos', posRoutes);
@@ -148,6 +152,17 @@ app.get('/api/v2/pauta', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getPauta(params)) });
   } catch (err) {
     console.error('[server] v2 pauta error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/pauta-real', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getPautaReal(params)) });
+  } catch (err) {
+    console.error('[server] v3 pauta-real error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
