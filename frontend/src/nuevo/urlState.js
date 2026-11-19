@@ -1,7 +1,7 @@
 // The new report's state lives in the URL (?v=nuevo&tab=…&period=…), so a
 // view can be shared, reloaded or reached with the back button.
 // Panel por módulos (?m=…): Reportes (default, fuera de la URL), Pauta y Agente.
-export const MODULES = ['reportes', 'pauta', 'agente'];
+export const MODULES = ['reportes', 'pauta', 'ventas', 'agente'];
 // Pestañas de Reportes. Pauta pasó a ser un módulo propio (?tab=pauta viejo abre ese módulo).
 export const TABS = ['resumen', 'web', 'locales', 'producto', 'mayorista', 'cyber'];
 const PERIODS = ['week', 'month', 'custom'];

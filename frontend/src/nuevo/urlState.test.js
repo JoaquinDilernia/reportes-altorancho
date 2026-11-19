@@ -7,7 +7,7 @@ const DEFAULT = { m: 'reportes', tab: 'resumen', period: 'week', date: TODAY, st
 describe('urlState', () => {
   it('lists the tabs, without feria', () => {
     expect(TABS).toEqual(['resumen', 'web', 'locales', 'producto', 'mayorista', 'cyber']);
-    expect(MODULES).toEqual(['reportes', 'pauta', 'agente']);
+    expect(MODULES).toEqual(['reportes', 'pauta', 'ventas', 'agente']);
   });
 
   it('defaults to Resumen, this week', () => {

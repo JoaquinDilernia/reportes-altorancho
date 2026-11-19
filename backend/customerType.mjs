@@ -92,7 +92,13 @@ export function getCustomerTypes(range, today) {
     return classify(orders, await priorFirst(ids, start));
   })();
   if (cache.size > 30) cache.delete(cache.keys().next().value);
-  cache.set(key, { at: Date.now(), promise });
-  promise.catch(() => cache.delete(key));
+  const entry = { at: Date.now(), promise, value: null };
+  cache.set(key, entry);
+  promise.then((v) => { entry.value = v; }, () => cache.delete(key));
   return promise;
+}
+
+// Sin esperar: el resultado si ya está calculado para ese rango, si no null.
+export function peekCustomerTypes(range) {
+  return cache.get(`${range.start}|${range.end}`)?.value || null;
 }

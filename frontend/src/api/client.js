@@ -188,3 +188,16 @@ export function getProducto({ ch = 'all', ...params }) {
 export function getProductSheet(sku, params) {
   return getAuthed(`/api/v2/product/${encodeURIComponent(sku)}?${periodQuery(params)}`, 'Product fetch failed');
 }
+
+export function getVentas({ channel, q, cursor, ...params }) {
+  const extra = new URLSearchParams();
+  if (channel) extra.set('channel', channel);
+  if (q) extra.set('q', q);
+  if (cursor) extra.set('cursor', cursor);
+  const tail = extra.toString();
+  return getAuthed(`/api/v3/ventas?${periodQuery(params)}${tail ? `&${tail}` : ''}`, 'Ventas fetch failed');
+}
+
+export function getVenta(id) {
+  return getAuthed(`/api/v3/ventas/${encodeURIComponent(id)}`, 'Venta fetch failed');
+}

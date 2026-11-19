@@ -13,6 +13,7 @@ import Web from './web/Web.jsx';
 import Locales from './locales/Locales.jsx';
 import PautaReal from './pautaReal/PautaReal.jsx';
 import AgenteModule from '../agente/AgenteModule.jsx';
+import Ventas from './ventas/Ventas.jsx';
 import Mayorista from './mayorista/Mayorista.jsx';
 import ProductSearch from './search/ProductSearch.jsx';
 import ProductSheet from './search/ProductSheet.jsx';
@@ -34,6 +35,7 @@ const EVENT_IDS = ['cyber', 'black'];
 function TabContent({ state, eventId, onLogout, onNavigate, onUpdate }) {
   if (state.m === 'pauta') return <PautaReal state={state} onLogout={onLogout} />;
   if (state.m === 'agente') return <AgenteModule onLogout={onLogout} />;
+  if (state.m === 'ventas') return <Ventas state={state} onLogout={onLogout} />;
   switch (state.tab) {
     case 'resumen': return <Resumen state={state} onNavigate={onNavigate} onLogout={onLogout} />;
     case 'web': return <Web state={state} onUpdate={onUpdate} onLogout={onLogout} />;

@@ -13,6 +13,7 @@ import { getLocales } from './localesReport.mjs';
 import { getPauta } from './pautaReport.mjs';
 import { getPautaReal, getPautaClientes } from './pautaRealReport.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
+import { listVentas, getVenta, ventasRange } from './ventasReport.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
@@ -174,6 +175,30 @@ app.get('/api/v3/pauta-real/clientes', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getPautaClientes(params)) });
   } catch (err) {
     console.error('[server] v3 pauta-real clientes error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/ventas', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    const channel = typeof req.query.channel === 'string' && /^[a-z_]{1,20}$/.test(req.query.channel) ? req.query.channel : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : undefined;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor.slice(0, 200) : undefined;
+    res.json({ ok: true, ...(await listVentas({ range: ventasRange(params), channel, q, cursor })) });
+  } catch (err) {
+    console.error('[server] v3 ventas error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/ventas/:id', requireAuth, async (req, res) => {
+  try {
+    if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'id inválido' });
+    res.json({ ok: true, venta: await getVenta(req.params.id) });
+  } catch (err) {
+    console.error('[server] v3 venta error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

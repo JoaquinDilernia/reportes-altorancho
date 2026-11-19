@@ -71,3 +71,46 @@ export async function fetchAds(from, to) {
   const r = await get(`/ads?${qs({ from, to, platform: 'meta', level: 'ad', sort: 'spend' })}`);
   return r.rows;
 }
+
+// Listado de pedidos web (50 por página, con cursor) tal como lo arma gineza.
+export function fetchOrders({ from, to, channel, q, cursor }) {
+  const p = { from, to };
+  if (channel) p.channel = channel;
+  if (q) p.q = q;
+  if (cursor) p.cursor = cursor;
+  return get(`/orders?${qs(p)}`);
+}
+
+export async function fetchOrder(id) {
+  return get(`/orders/${encodeURIComponent(id)}`);
+}
+
+// Todas las compras de un mail desde 2023 (búsqueda por texto de gineza), viejas primero.
+// gineza no acepta rangos de más de 366 días: se busca de a un año, en paralelo.
+export async function fetchCustomerHistory(email, to, { since = '2023-01-01', maxPages = 3 } = {}) {
+  if (!email) return [];
+  const windows = [];
+  let end = to;
+  const shift = (ymd, days) => {
+    const d = new Date(`${ymd}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  while (end >= since && windows.length < 10) {
+    const start = shift(end, -365) < since ? since : shift(end, -365);
+    windows.push([start, end]);
+    end = shift(start, -1);
+  }
+  const chunks = await Promise.all(windows.map(async ([from, until]) => {
+    const out = [];
+    let cursor;
+    for (let i = 0; i < maxPages; i++) {
+      const page = await fetchOrders({ from, to: until, q: email, cursor });
+      out.push(...page.items);
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    return out;
+  }));
+  return chunks.flat().sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+}

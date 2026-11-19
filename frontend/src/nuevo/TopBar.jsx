@@ -2,7 +2,7 @@ const TABS = [
   ['resumen', 'Resumen'], ['web', 'Web'], ['locales', 'Locales'],
   ['producto', 'Producto'], ['mayorista', 'Mayorista'],
 ];
-export const MODULE_LABELS = [['reportes', 'Reportes'], ['pauta', 'Pauta'], ['agente', 'Agente']];
+export const MODULE_LABELS = [['reportes', 'Reportes'], ['pauta', 'Pauta'], ['ventas', 'Ventas'], ['agente', 'Agente']];
 
 export default function TopBar({ module = 'reportes', onModule, tab, showCyber, eventLabel = 'Cyber', onTab, onLogout, search = null }) {
   return (
