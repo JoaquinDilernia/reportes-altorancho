@@ -7,9 +7,10 @@ import { querySalesByRange, queryMetaAdsDailyByRange, queryGoogleAdsDailyByRange
 import { argDay } from './events.mjs';
 import { webPlan } from './webReport.mjs';
 import { getCostBySku } from './odooCosts.mjs';
+import { getCustomerTypes } from './customerType.mjs';
 import { isGinezaConfigured, fetchPaidAttribution, fetchSummary, fetchCampaigns } from './gineza.mjs';
 import {
-  LOCAL_CHANNELS, headline, withDeltas, platformSpend, attributedOrders, platforms, webSources, campaigns, daily,
+  LOCAL_CHANNELS, headline, withDeltas, platformSpend, attributedOrders, platforms, webSources, campaigns, daily, customerMix,
 } from './pautaRealTab.mjs';
 
 async function ginezaFor(range) {
@@ -59,7 +60,7 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
 
   const orders = gz.attribution ? attributedOrders(webCur, gz.attribution, costBySku, fallback) : [];
 
-  return {
+  const result = {
     range: current,
     prevPeriodRange,
     headline: withDeltas(head, headPrev),
@@ -76,6 +77,19 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
     errors: { attribution: gz.error, costs: costs.error },
     generatedAt: now.toISOString(),
   };
+  // Para el endpoint de clientes (no viajan en el JSON): pedidos atribuidos y ventas web.
+  Object.defineProperty(result, 'internal', { value: { orders, webDocs: webCur, spendBy, today, attributed: Boolean(gz.attribution) }, enumerable: false });
+  return result;
+}
+
+// GET /api/v3/pauta-real/clientes: nuevos vs. recurrentes. Aparte porque
+// preguntarle a Tienda Nube la historia de cada cliente tarda (~1 min la
+// primera vez de un período) y el resto del tablero no tiene que esperarlo.
+export async function getPautaClientes(params) {
+  const pr = await getPautaReal(params);
+  const { orders, webDocs, spendBy, today, attributed } = pr.internal;
+  const typeByOrder = await getCustomerTypes(pr.range, today);
+  return { range: pr.range, attributed, ...customerMix({ webDocs, typeByOrder, orders, spendBy }) };
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000;

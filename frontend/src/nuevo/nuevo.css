@@ -394,3 +394,19 @@
 .nv-logo { height: 20px; width: auto; display: block; filter: brightness(0) invert(1); }
 .nv-pr-verdict.nt { background: var(--nv-soft); color: var(--nv-ink2); }
 .nv-pr-unid td { background: var(--nv-soft); }
+
+/* Clientes nuevos vs. recurrentes */
+.nv-pr { --nv-pr-new: #3b6fd8; --nv-pr-ret: #b9c8ea; }
+.nv-pr-say-sm { font-size: 15px; margin-bottom: 14px; }
+.nv-pr-nrhead, .nv-pr-nrrow { display: grid; grid-template-columns: minmax(0, 210px) 1fr 72px 150px 150px; gap: 12px; align-items: center; font-variant-numeric: tabular-nums; }
+.nv-pr-nrhead { font-size: 11px; padding-bottom: 6px; }
+.nv-pr-nrhead .nv-dot { width: 7px; height: 7px; margin-right: 4px; }
+.nv-pr-nrrow { padding: 10px 0; border-top: 1px solid var(--nv-line); font-size: 13px; }
+.nv-pr-nr { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }
+.nv-pr-nr .new { background: var(--nv-pr-new); }
+.nv-pr-nr .ret { background: var(--nv-pr-ret); }
+@media (max-width: 900px) {
+  .nv-pr-nrhead { display: none; }
+  .nv-pr-nrrow { grid-template-columns: 1fr 64px; }
+  .nv-pr-nrrow .nv-pr-nr { grid-column: 1 / -1; order: 3; }
+}

@@ -250,3 +250,48 @@ function nextDay(ymd) {
   t.setUTCDate(t.getUTCDate() + 1);
   return t.toISOString().slice(0, 10);
 }
+
+// Clientes nuevos vs. recurrentes. typeByOrder: id de pedido TN → 'nuevo' |
+// 'recurrente' | 'sin-dato'. El primer pedido de un cliente es único, así que
+// pedidos nuevos = clientes nuevos.
+export function customerMix({ webDocs, typeByOrder, orders, spendBy }) {
+  const empty = () => ({ orders: 0, revenue: 0 });
+  const add = (b, total) => { b.orders += 1; b.revenue += total || 0; };
+  const split = (list, idOf, totalOf) => {
+    const s = { nuevo: empty(), recurrente: empty(), sinDato: empty() };
+    for (const x of list) {
+      const t = typeByOrder.get(String(idOf(x)));
+      add(t === 'nuevo' ? s.nuevo : t === 'recurrente' ? s.recurrente : s.sinDato, totalOf(x));
+    }
+    const known = s.nuevo.orders + s.recurrente.orders;
+    const knownRev = s.nuevo.revenue + s.recurrente.revenue;
+    return {
+      ...s,
+      newPct: known ? round((s.nuevo.orders / known) * 100, 1) : null,
+      newRevenuePct: knownRev ? round((s.nuevo.revenue / knownRev) * 100, 1) : null,
+    };
+  };
+  const web = split(completed(webDocs), (d) => d.sourceId, (d) => d.total);
+  const platform = Object.fromEntries(PAID_CHANNELS.map((ch) => {
+    const s = split(orders.filter((o) => o.channel === ch), (o) => o.id, (o) => o.total);
+    const spend = spendBy?.[ch]?.spend || 0;
+    return [ch, { ...s, costPerNew: s.nuevo.orders ? round(spend / s.nuevo.orders, 0) : null }];
+  }));
+  // Lo que no vino por Meta ni Google (orgánico, email, redes, directo…)
+  const paidIds = new Set(orders.map((o) => String(o.id)));
+  const rest = split(completed(webDocs).filter((d) => !paidIds.has(String(d.sourceId))), (d) => d.sourceId, (d) => d.total);
+  const campaignsNew = {};
+  for (const ch of PAID_CHANNELS) {
+    const by = new Map();
+    for (const o of orders) {
+      if (o.channel !== ch || !o.campaignId) continue;
+      const t = typeByOrder.get(String(o.id));
+      const c = by.get(o.campaignId) || { nuevo: 0, known: 0 };
+      if (t === 'nuevo' || t === 'recurrente') c.known += 1;
+      if (t === 'nuevo') c.nuevo += 1;
+      by.set(o.campaignId, c);
+    }
+    campaignsNew[ch] = Object.fromEntries([...by].map(([id, c]) => [id, { newOrders: c.nuevo, newPct: c.known ? round((c.nuevo / c.known) * 100, 0) : null }]));
+  }
+  return { web, platform, rest, campaigns: campaignsNew };
+}

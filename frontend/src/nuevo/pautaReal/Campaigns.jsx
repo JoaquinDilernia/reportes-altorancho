@@ -3,13 +3,20 @@ import { money } from '../format.js';
 import { times } from './prFormat.js';
 import { VerdictTag } from './Blocks.jsx';
 
+// "…" mientras se calcula; "—" si la campaña no tuvo ventas con cliente identificado
+function newPctOf(byCampaign, platform, id) {
+  if (!byCampaign) return '…';
+  const v = byCampaign[platform]?.[id]?.newPct;
+  return v == null ? '—' : `${v}%`;
+}
+
 const SORTS = {
   spend: { label: 'Más inversión', fn: (a, b) => b.spend - a.spend },
   worst: { label: 'Las que pierden', fn: (a, b) => a.profitAfterAds - b.profitAfterAds },
   best: { label: 'Las que más dejan', fn: (a, b) => b.profitAfterAds - a.profitAfterAds },
 };
 
-export default function Campaigns({ campaigns }) {
+export default function Campaigns({ campaigns, newByCampaign }) {
   const [platform, setPlatform] = useState('meta');
   const [sort, setSort] = useState('spend');
   const rows = [...(campaigns?.[platform]?.rows || [])].sort(SORTS[sort].fn);
@@ -47,6 +54,7 @@ export default function Campaigns({ campaigns }) {
                 <th className="r" title="Ventas que llegaron a la tienda / inversión">ROAS real</th>
                 <th className="r" title="Ganancia de esas ventas / inversión">POAS</th>
                 <th className="r">Neto</th>
+                <th className="r" title="De sus ventas, cuántas fueron la primera compra del cliente">% nuevos</th>
                 <th />
               </tr>
             </thead>
@@ -68,6 +76,7 @@ export default function Campaigns({ campaigns }) {
                   <td className="r">{unknown ? '—' : times(c.roas)}</td>
                   <td className="r"><b>{unknown ? '—' : times(c.poas)}</b></td>
                   <td className={`r ${!unknown && c.profitAfterAds < 0 ? 'nv-red' : ''}`}>{unknown ? '—' : money(c.profitAfterAds)}</td>
+                  <td className="r nv-mute">{newPctOf(newByCampaign, platform, c.id)}</td>
                   <td><VerdictTag verdict={c.verdict} /></td>
                 </tr>
                 );
@@ -87,6 +96,7 @@ export default function Campaigns({ campaigns }) {
                   <td className="r nv-mute">—</td>
                   <td className="r nv-mute">—</td>
                   <td className="r">{money(unidentified.grossProfit)}</td>
+                  <td />
                   <td />
                 </tr>
               )}

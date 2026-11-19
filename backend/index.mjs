@@ -11,7 +11,7 @@ import { getProducto } from './productoReport.mjs';
 import { getWeb } from './webReport.mjs';
 import { getLocales } from './localesReport.mjs';
 import { getPauta } from './pautaReport.mjs';
-import { getPautaReal } from './pautaRealReport.mjs';
+import { getPautaReal, getPautaClientes } from './pautaRealReport.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
@@ -163,6 +163,17 @@ app.get('/api/v3/pauta-real', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await getPautaReal(params)) });
   } catch (err) {
     console.error('[server] v3 pauta-real error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/pauta-real/clientes', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getPautaClientes(params)) });
+  } catch (err) {
+    console.error('[server] v3 pauta-real clientes error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  marginOf, orderGrossProfit, headline, withDeltas, verdict, attributedOrders, platforms, platformSpend, campaigns, daily, webSources,
+  marginOf, orderGrossProfit, headline, withDeltas, verdict, attributedOrders, platforms, platformSpend, campaigns, daily, webSources, customerMix,
 } from '../pautaRealTab.mjs';
 
 const costs = new Map([['A', 40], ['B', 10]]);
@@ -125,4 +125,25 @@ test('daily: fills every day, ART day of each sale', () => {
   });
   assert.equal(d.length, 3);
   assert.deepEqual(d[1], { date: '2026-11-03', spend: 20, web: 100, locales: 0, grossProfit: 60, profitAfterAds: 40 });
+});
+
+test('customerMix: new vs returning for web, per platform (cost per new customer) and per campaign', () => {
+  const webDocs = [
+    doc({ sourceId: '1', total: 100 }), doc({ sourceId: '2', total: 300 }),
+    doc({ sourceId: '3', total: 50 }), doc({ sourceId: '4', total: 20 }),
+  ];
+  const typeByOrder = new Map([['1', 'nuevo'], ['2', 'recurrente'], ['3', 'nuevo'], ['4', 'sin-dato']]);
+  const orders = [
+    { id: '1', channel: 'meta', campaignId: 'c1', total: 100 },
+    { id: '2', channel: 'meta', campaignId: 'c1', total: 300 },
+  ];
+  const mix = customerMix({ webDocs, typeByOrder, orders, spendBy: { meta: { spend: 80 }, google: { spend: 0 } } });
+  assert.equal(mix.web.nuevo.orders, 2);
+  assert.equal(mix.web.sinDato.orders, 1);
+  assert.equal(mix.web.newPct, 66.7);
+  assert.equal(mix.platform.meta.newPct, 50);
+  assert.equal(mix.platform.meta.costPerNew, 80);
+  assert.equal(mix.platform.google.costPerNew, null);
+  assert.equal(mix.rest.nuevo.orders, 1);
+  assert.deepEqual(mix.campaigns.meta.c1, { newOrders: 1, newPct: 50 });
 });

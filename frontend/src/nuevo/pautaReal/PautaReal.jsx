@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getPautaReal } from '../../api/client.js';
+import { getPautaReal, getPautaClientes } from '../../api/client.js';
+import Customers from './Customers.jsx';
 import { periodParams } from '../urlState.js';
 import Pauta from '../pauta/Pauta.jsx';
 import { Headline, TruthCard, Sources, ProfitDaily, Glossary } from './Blocks.jsx';
@@ -39,6 +40,18 @@ export default function PautaReal({ state, onLogout }) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [period, date, start, end, attempt, onLogout]);
+
+  // Clientes nuevos vs. recurrentes: aparte, cuando el tablero ya cargó (tarda más).
+  const [cust, setCust] = useState({ data: null, error: null, loading: false });
+  useEffect(() => {
+    if (!data) return undefined;
+    let cancelled = false;
+    setCust({ data: null, error: null, loading: true });
+    getPautaClientes(periodParams({ period, date, start, end }))
+      .then((d) => { if (!cancelled) setCust({ data: d, error: null, loading: false }); })
+      .catch((err) => { if (!cancelled) setCust({ data: null, error: err.message, loading: false }); });
+    return () => { cancelled = true; };
+  }, [data, period, date, start, end]);
 
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
@@ -82,7 +95,8 @@ export default function PautaReal({ state, onLogout }) {
           <Glossary />
         </div>
       ) : <Glossary />}
-      <Campaigns campaigns={data.campaigns} />
+      <Customers {...cust} />
+      <Campaigns campaigns={data.campaigns} newByCampaign={cust.data?.campaigns} />
 
       <h2 className="nv-section">
         <button type="button" className="nv-link nv-pr-toggle" aria-expanded={showPlatforms} onClick={() => setShowPlatforms((s) => !s)}>
