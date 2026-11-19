@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
-import { requireAuth, generateToken, verifyToken } from './auth.mjs';
+import { requireAuth, requireAuthOrSecret, generateToken } from './auth.mjs';
 import { getProductBySku, getProductsBySku, querySalesByRange } from './firestore.mjs';
 import { buildFullReport, ALL_CHANNELS } from './report.mjs';
 import { getResumen } from './resumenReport.mjs';
@@ -43,7 +43,6 @@ import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
 import { runPickSync, getPickSyncStatus, isPickSyncRunning } from './sync/pickPrices.mjs';
-import crypto from 'node:crypto';
 
 export const app = express();
 // Railway pone un proxy delante: confiar solo en 1 salto (no true) para que X-Forwarded-For no se falsee.
@@ -63,15 +62,7 @@ app.use('/ingest', (req, res, next) => (ventas ? ventas.ingestRouter(req, res, n
 
 // Lectores de precios (ex servicio pick-altorancho). El admin de los lectores
 // manda PICK_SYNC_SECRET; el panel puede usar su token normal.
-function requirePickAuth(req, res, next) {
-  const token = (req.headers.authorization || '').replace(/^Bearers+/i, '');
-  const secret = process.env.PICK_SYNC_SECRET || '';
-  const a = Buffer.from(token);
-  const b = Buffer.from(secret);
-  const bySecret = secret.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
-  if (bySecret || verifyToken(token)) return next();
-  res.status(401).json({ ok: false, error: 'Unauthorized' });
-}
+const requirePickAuth = requireAuthOrSecret('PICK_SYNC_SECRET');
 app.post('/api/pick/sync', requirePickAuth, async (req, res) => {
   try {
     res.json({ ok: true, ...(await runPickSync()) });

@@ -60,3 +60,21 @@ test('rutas /api/pick: sin token o con secreto equivocado → 401', async () => 
     assert.equal((await request(app)[method](path).set('Authorization', 'Bearer ')).status, 401);
   }
 });
+
+test('requireAuthOrSecret: acepta el secreto o el token del panel, nada más', async () => {
+  const { requireAuthOrSecret, generateToken } = await import('../auth.mjs');
+  process.env.PICK_SYNC_SECRET = 'secreto-de-prueba';
+  const mw = requireAuthOrSecret('PICK_SYNC_SECRET');
+  const run = (authorization) => {
+    let passed = false; let status = 200;
+    mw({ headers: authorization === undefined ? {} : { authorization } }, { status(c) { status = c; return this; }, json() {} }, () => { passed = true; });
+    return passed ? 'ok' : status;
+  };
+  assert.equal(run('Bearer secreto-de-prueba'), 'ok');
+  assert.equal(run(`Bearer ${generateToken(60)}`), 'ok');
+  assert.equal(run('secreto-de-prueba'), 401);
+  assert.equal(run('Bearer secreto-de-prueb'), 401);
+  assert.equal(run(undefined), 401);
+  process.env.PICK_SYNC_SECRET = '';
+  assert.equal(run('Bearer '), 401);
+});
