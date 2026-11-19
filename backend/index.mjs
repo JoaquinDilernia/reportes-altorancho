@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
-import { requireAuth, generateToken } from './auth.mjs';
+import { requireAuth, generateToken, verifyToken } from './auth.mjs';
 import { getProductBySku, getProductsBySku, querySalesByRange } from './firestore.mjs';
 import { buildFullReport, ALL_CHANNELS } from './report.mjs';
 import { getResumen } from './resumenReport.mjs';
@@ -42,6 +42,8 @@ import { syncMetaAds } from './sync/metaAds.mjs';
 import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
+import { runPickSync, getPickSyncStatus, isPickSyncRunning } from './sync/pickPrices.mjs';
+import crypto from 'node:crypto';
 
 export const app = express();
 // Railway pone un proxy delante: confiar solo en 1 salto (no true) para que X-Forwarded-For no se falsee.
@@ -58,6 +60,34 @@ let ventas = null;
 app.use('/api/gz', (req, res, next) => (ventas ? ventasApi : ginezaProxy)(req, res, next));
 app.use('/webhooks', (req, res, next) => (ventas ? ventas.webhookRouter(req, res, next) : next()));
 app.use('/ingest', (req, res, next) => (ventas ? ventas.ingestRouter(req, res, next) : next()));
+
+// Lectores de precios (ex servicio pick-altorancho). El admin de los lectores
+// manda PICK_SYNC_SECRET; el panel puede usar su token normal.
+function requirePickAuth(req, res, next) {
+  const token = (req.headers.authorization || '').replace(/^Bearers+/i, '');
+  const secret = process.env.PICK_SYNC_SECRET || '';
+  const a = Buffer.from(token);
+  const b = Buffer.from(secret);
+  const bySecret = secret.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (bySecret || verifyToken(token)) return next();
+  res.status(401).json({ ok: false, error: 'Unauthorized' });
+}
+app.post('/api/pick/sync', requirePickAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await runPickSync()) });
+  } catch (err) {
+    if (err.status !== 409) console.error('[pick] error de sync:', err.message);
+    res.status(err.status || 500).json({ ok: false, error: err.status === 409 ? err.message : 'No se pudo sincronizar los precios' });
+  }
+});
+app.get('/api/pick/status', requirePickAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, running: isPickSyncRunning(), lastSync: await getPickSyncStatus() });
+  } catch (err) {
+    console.error('[pick] error de estado:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo leer el estado' });
+  }
+});
 
 export async function mountVentas(v, { selfUrl, mintToken = () => generateToken(300) } = {}) {
   for (const r of v.apiRouters) ventasApi.use(r);
@@ -479,6 +509,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && reportesJobs) {
   for (const expr of ['5 0 * * *', '0 6 * * *', '0 12 * * *']) {
     cron.schedule(expr, () => takeDailySnapshots(), { timezone: 'America/Argentina/Buenos_Aires' });
   }
+  // Precios de los lectores: cada 6 h a los :30 (no pisa el full sync de las :00)
+  cron.schedule('30 */6 * * *', () => runPickSync().catch((err) => console.error('[pick] sync programado falló:', err.message)));
   startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
