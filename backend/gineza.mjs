@@ -8,12 +8,21 @@ const DEFAULT_URL = 'https://web-production-71431.up.railway.app';
 const PAGE_LIMIT = 60; // 50 pedidos por página → hasta 3.000 pedidos pagos por canal
 
 export const ginezaBaseUrl = () => (process.env.GINEZA_URL || DEFAULT_URL).replace(/\/+$/, '');
-export const isGinezaConfigured = () => Boolean(process.env.GINEZA_PASSWORD);
 export const ginezaAuthHeader = () => `Bearer ${process.env.GINEZA_PASSWORD}`;
 
+// Con el módulo Ventas corriendo en este mismo servidor, las lecturas van a su
+// API local (/api/gz) con un token propio en vez de salir a gineza por internet.
+let local = null;
+export function useLocalGineza({ apiRoot, authHeader }) {
+  local = { apiRoot, authHeader };
+}
+export const isGinezaConfigured = () => Boolean(local || process.env.GINEZA_PASSWORD);
+const apiRoot = () => (local ? local.apiRoot : `${ginezaBaseUrl()}/api`);
+const authHeader = () => (local ? local.authHeader() : ginezaAuthHeader());
+
 async function get(path) {
-  const res = await fetch(`${ginezaBaseUrl()}/api${path}`, {
-    headers: { Authorization: ginezaAuthHeader() },
+  const res = await fetch(`${apiRoot()}${path}`, {
+    headers: { Authorization: authHeader() },
     signal: AbortSignal.timeout(30_000),
   });
   if (res.status === 401) throw new Error('gineza rechazó la contraseña (GINEZA_PASSWORD)');

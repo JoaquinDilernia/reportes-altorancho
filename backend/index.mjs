@@ -13,6 +13,8 @@ import { getLocales } from './localesReport.mjs';
 import { getPauta } from './pautaReport.mjs';
 import { getPautaReal, getPautaClientes } from './pautaRealReport.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
+import { useLocalGineza } from './gineza.mjs';
+import { isVentasConfigured, startVentas } from './ventas/module.mjs';
 import { listVentas, getVenta, ventasRange } from './ventasReport.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
@@ -46,8 +48,29 @@ export const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
-// Agente (gineza) por proxy: antes de express.json() para reenviar el cuerpo crudo.
-app.use('/api/gz', ginezaProxy);
+// Agente y Ventas (lo que era gineza). Si el módulo corre en este servidor
+// (VENTAS_DATABASE_URL o DATABASE_URL), lo atienden sus rutas; si no, el proxy
+// a gineza. Todo antes de express.json(): el webhook de Tienda Nube firma el
+// cuerpo crudo y las piezas del agente se suben como archivo.
+const ventasApi = express.Router();
+ventasApi.use(requireAuth, express.json({ limit: '2mb' }));
+let ventas = null;
+app.use('/api/gz', (req, res, next) => (ventas ? ventasApi : ginezaProxy)(req, res, next));
+app.use('/webhooks', (req, res, next) => (ventas ? ventas.webhookRouter(req, res, next) : next()));
+app.use('/ingest', (req, res, next) => (ventas ? ventas.ingestRouter(req, res, next) : next()));
+
+export async function mountVentas(v, { selfUrl, mintToken = () => generateToken(300) } = {}) {
+  for (const r of v.apiRouters) ventasApi.use(r);
+  ventasApi.use((_req, res) => res.status(404).json({ error: 'no encontrado' }));
+  // eslint-disable-next-line no-unused-vars
+  ventasApi.use((err, _req, res, _next) => {
+    if (!err.status || err.status >= 500) console.error('[ventas] api:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  });
+  ventas = v;
+  if (selfUrl) useLocalGineza({ apiRoot: `${selfUrl}/api/gz`, authHeader: () => `Bearer ${mintToken()}` });
+}
+
 app.use(express.json());
 // La app de la feria (/api/feria) está apagada: el código sigue en feria*.mjs para la próxima feria.
 app.use('/api/pos', posRoutes);
@@ -436,7 +459,16 @@ async function runLiveSalesSync() {
   ]);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// REPORTES_JOBS=off: solo HTTP, sin syncs, snapshots ni reintentos del POS
+// (que escriben en Firestore, Odoo y ARCA). Para una segunda instancia de
+// prueba mientras la de producción sigue siendo la dueña de esas tareas.
+const reportesJobs = !/^(off|0|false)$/i.test(process.env.REPORTES_JOBS || '');
+
+if (process.argv[1] === fileURLToPath(import.meta.url) && !reportesJobs) {
+  console.log('[server] REPORTES_JOBS=off: sin crons ni reintentos del POS');
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url) && reportesJobs) {
   // Crons only when run as the server: importing { app } from a script must never sync.
   cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
   console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
@@ -450,5 +482,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(PORT, () => console.log(`[server] listening on :${PORT} (clarity=${isClarityConfigured() ? "si" : "no"}, ga4=${isGa4Configured() ? "si" : "no"})`));
+  // Ventas (ex gineza): si falla al arrancar, Reportes sigue andando y /api/gz cae al proxy.
+  if (isVentasConfigured()) {
+    startVentas()
+      .then(async (v) => {
+        await mountVentas(v, { selfUrl: `http://127.0.0.1:${PORT}` });
+        console.log('[ventas] módulo montado en /api/gz, /webhooks e /ingest');
+        await v.startJobs();
+      })
+      .catch((err) => console.error('[ventas] no arrancó, sigo con el proxy a gineza:', err));
+  }
 }

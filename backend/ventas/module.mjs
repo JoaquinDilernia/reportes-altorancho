@@ -71,9 +71,10 @@ const need = (v, name) => {
   return v;
 };
 
-export async function startVentas(source = process.env, { log = console } = {}) {
+// opts.db: una base ya abierta (tests con PGlite); si no, se conecta a DATABASE_URL.
+export async function startVentas(source = process.env, { log = console, db: injected } = {}) {
   const e = ventasEnv(source);
-  const db = createPgDb(need(e.databaseUrl, 'DATABASE_URL'));
+  const db = injected || createPgDb(need(e.databaseUrl, 'DATABASE_URL'));
   const applied = await migrate(db);
   if (applied.length) log.log('[ventas] migraciones aplicadas:', applied.join(', '));
 
