@@ -470,3 +470,11 @@
   .nv-v-search input { width: 100%; }
   .nv-v-econ, .nv-v-facts { grid-template-columns: 1fr 1fr; }
 }
+
+/* Lector de precios (Locales) */
+.nv-lect { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.nv-lect-loc { border: 1px solid var(--nv-line); border-radius: 12px; padding: 14px 16px; }
+.nv-lect-u { font-size: 13px; font-weight: 500; letter-spacing: 0; }
+.nv-lect-kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
+.nv-lect-kv dt { font-size: 11px; color: var(--nv-ink3); text-transform: uppercase; letter-spacing: .06em; }
+.nv-lect-kv dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }

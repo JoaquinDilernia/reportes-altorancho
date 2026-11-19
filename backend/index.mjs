@@ -10,6 +10,7 @@ import { getResumen } from './resumenReport.mjs';
 import { getProducto } from './productoReport.mjs';
 import { getWeb } from './webReport.mjs';
 import { getLocales } from './localesReport.mjs';
+import { getLectores } from './lectoresReport.mjs';
 import { getPauta } from './pautaReport.mjs';
 import { getPautaReal, getPautaClientes } from './pautaRealReport.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
@@ -255,6 +256,17 @@ app.get('/api/v2/locales', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[server] v2 locales error:', err);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/lectores', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getLectores(params)) });
+  } catch (err) {
+    console.error('[server] lectores error:', err);
+    res.status(500).json({ ok: false, error: 'No se pudieron leer las consultas de los lectores' });
   }
 });
 
