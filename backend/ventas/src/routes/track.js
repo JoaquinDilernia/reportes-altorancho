@@ -59,5 +59,13 @@ export function createTrackApiRouter({ repo }) {
       res.json(await repo.stats(Math.min(24 * 30, Number(req.query.hours) || 24)));
     } catch (err) { next(err); }
   });
+  router.get('/tracking/channels', async (req, res, next) => {
+    try {
+      const from = new Date(String(req.query.from || ''));
+      const to = new Date(String(req.query.to || ''));
+      if (Number.isNaN(+from) || Number.isNaN(+to) || to <= from) return res.status(400).json({ error: 'rango inválido' });
+      res.json(await repo.channelSummary(from, to));
+    } catch (err) { next(err); }
+  });
   return router;
 }

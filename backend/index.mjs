@@ -16,7 +16,7 @@ import { getPautaReal, getPautaClientes, clearPautaRealCache } from './pautaReal
 import { getMarketingCosts, setMarketingCost } from './marketingCosts.mjs';
 import { syncPinterestAds, getPinterestStatus, isPinterestConfigured } from './pinterestAds.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
-import { useLocalGineza } from './gineza.mjs';
+import { useLocalGineza, fetchTrackingChannels } from './gineza.mjs';
 import { isVentasConfigured, startVentas } from './ventas/module.mjs';
 import { listVentas, getVenta, ventasRange } from './ventasReport.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
@@ -275,6 +275,19 @@ app.get('/api/v3/ventas', requireAuth, async (req, res) => {
     res.json({ ok: true, ...(await listVentas({ range: ventasRange(params), channel, q, cursor })) });
   } catch (err) {
     console.error('[server] v3 ventas error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Visitas, carritos y compras por canal (script propio de la tienda)
+app.get('/api/v3/visitas', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    const range = ventasRange(params);
+    res.json({ ok: true, range, ...(await fetchTrackingChannels(range.start, range.end)) });
+  } catch (err) {
+    console.error('[server] v3 visitas error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

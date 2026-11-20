@@ -102,6 +102,19 @@ describe('recorrido de un pedido', () => {
     expect(second.timeline[0].carts.map((c) => c.name)).toEqual(['Gift 2']);
   });
 
+  it('resumen por canal: visitas, carritos, compras y participación', async () => {
+    await repo.record(parseBatch({ v: V, s: sid(1), e: [{ t: 'session', url: 'https://altorancho.com/?utm_source=google&utm_medium=cpc' }, { t: 'page', product: true }, { t: 'add_to_cart', sku: 'A' }] }), at('2026-11-14T10:00:00Z'));
+    await repo.record(parseBatch({ v: V, s: sid(2), e: [{ t: 'session', url: 'https://altorancho.com/?utm_source=meta&utm_medium=cpc' }, { t: 'page' }, { t: 'page' }, { t: 'purchase', order: '2100000900' }] }), at('2026-11-15T15:01:00Z'));
+    await repo.record(parseBatch({ v: 'dddddddd-3333-4333-8333-333333333333', s: sid(3), e: [{ t: 'session', url: 'https://altorancho.com/' }, { t: 'page' }] }), at('2026-11-15T16:00:00Z'));
+    const r = await repo.channelSummary(new Date('2026-11-01T00:00:00Z'), new Date('2026-12-01T00:00:00Z'));
+    const g = r.channels.find((c) => c.channel === 'google');
+    const m = r.channels.find((c) => c.channel === 'meta');
+    expect(g).toMatchObject({ visits: 1, productViews: 1, adds: 1, sessionsWithCart: 1, orders: 0, assistedOrders: 1, assistedRevenue: 100 });
+    expect(m).toMatchObject({ visits: 1, pageviews: 2, orders: 1, revenue: 100, assistedOrders: 1 });
+    expect(r.channels.find((c) => c.channel === 'direct')).toMatchObject({ visits: 1, bounces: 1 });
+    expect(r.total).toMatchObject({ visits: 3, orders: 1, revenue: 100, adds: 1 });
+  });
+
   it('sin visitas registradas lo dice', async () => {
     expect((await repo.journeyForOrder('2100000900')).tracked).toBe(false);
   });

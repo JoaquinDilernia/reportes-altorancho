@@ -220,6 +220,10 @@ export function getVentas({ channel, q, cursor, ...params }) {
   return getAuthed(`/api/v3/ventas?${periodQuery(params)}${tail ? `&${tail}` : ''}`, 'Ventas fetch failed');
 }
 
+export function getVisitas(params) {
+  return getAuthed(`/api/v3/visitas?${periodQuery(params)}`, 'Visitas fetch failed');
+}
+
 export function getVenta(id) {
   return getAuthed(`/api/v3/ventas/${encodeURIComponent(id)}`, 'Venta fetch failed');
 }

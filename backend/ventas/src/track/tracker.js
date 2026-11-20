@@ -32,8 +32,11 @@
 
     var params = {};
     try { new URL(location.href).searchParams.forEach(function (v, k) { params[k.toLowerCase()] = v; }); } catch (e) {}
-    var sig = CAMPAIGN_KEYS.map(function (k) { return params[k] || ''; }).join('|');
-    var hasCampaign = sig.replace(/\|/g, '') !== '';
+    var hasCampaign = CAMPAIGN_KEYS.some(function (k) { return params[k]; });
+    // Firma de la campaña: fuente/medio/campaña y qué click id trajo (no su valor ni el
+    // anuncio puntual): tocar varios productos del mismo carrusel sigue siendo una visita.
+    var sig = ['utm_source', 'utm_medium', 'utm_campaign'].map(function (k) { return params[k] || ''; })
+      .concat(CAMPAIGN_KEYS.slice(4).filter(function (k) { return params[k]; })).join('|');
 
     var now = Date.now();
     var sess = null;

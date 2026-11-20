@@ -115,6 +115,47 @@ export function createTrackingRepo(db) {
       return { sinceHours, ...r };
     },
 
+    // Visitas, carritos y compras por canal en un rango (from incluido, to excluido).
+    // "orders" = canal de la visita en la que compró; "assisted" = el canal trajo al
+    // comprador al menos una vez en los 30 días antes de la compra.
+    async channelSummary(from, to) {
+      const [{ rows: sessions }, { rows: carts }, { rows: last }, { rows: assisted }, { rows: [first] }] = await Promise.all([
+        db.query(
+          `SELECT channel, count(*)::int AS visits, count(DISTINCT visitor_id)::int AS visitors,
+                  coalesce(sum(pageviews), 0)::int AS pageviews, coalesce(sum(product_views), 0)::int AS product_views,
+                  (count(*) FILTER (WHERE pageviews <= 1))::int AS bounces
+             FROM track_sessions WHERE started_at >= $1 AND started_at < $2 GROUP BY channel`, [from, to]),
+        db.query(
+          `SELECT s.channel, count(*)::int AS adds, count(DISTINCT s.id)::int AS sessions_with_cart
+             FROM track_events e JOIN track_sessions s ON s.id = e.session_id
+            WHERE e.type = 'add_to_cart' AND s.started_at >= $1 AND s.started_at < $2 GROUP BY s.channel`, [from, to]),
+        db.query(
+          `SELECT coalesce(s.channel, 'unknown') AS channel, count(*)::int AS orders, coalesce(sum(o.total), 0)::float AS revenue
+             FROM track_order_links l JOIN orders o ON o.id = l.order_id LEFT JOIN track_sessions s ON s.id = l.session_id
+            WHERE o.created_at >= $1 AND o.created_at < $2 AND o.cancelled_at IS NULL GROUP BY 1`, [from, to]),
+        db.query(
+          `SELECT channel, count(*)::int AS orders, coalesce(sum(total), 0)::float AS revenue FROM (
+             SELECT DISTINCT s.channel, l.order_id, o.total
+               FROM track_order_links l JOIN orders o ON o.id = l.order_id
+               JOIN track_sessions s ON s.visitor_id = l.visitor_id AND s.started_at <= l.at AND s.started_at > l.at - interval '30 days'
+              WHERE o.created_at >= $1 AND o.created_at < $2 AND o.cancelled_at IS NULL) x GROUP BY channel`, [from, to]),
+        db.query('SELECT min(started_at) AS at FROM track_sessions'),
+      ]);
+      const by = new Map();
+      const row = (ch) => {
+        if (!by.has(ch)) by.set(ch, { channel: ch, visits: 0, visitors: 0, pageviews: 0, productViews: 0, bounces: 0, adds: 0, sessionsWithCart: 0, orders: 0, revenue: 0, assistedOrders: 0, assistedRevenue: 0 });
+        return by.get(ch);
+      };
+      for (const s of sessions) Object.assign(row(s.channel), { visits: s.visits, visitors: s.visitors, pageviews: s.pageviews, productViews: s.product_views, bounces: s.bounces });
+      for (const c of carts) Object.assign(row(c.channel), { adds: c.adds, sessionsWithCart: c.sessions_with_cart });
+      for (const o of last) Object.assign(row(o.channel), { orders: o.orders, revenue: Number(o.revenue) });
+      for (const a of assisted) Object.assign(row(a.channel), { assistedOrders: a.orders, assistedRevenue: Number(a.revenue) });
+      const channels = [...by.values()].sort((a, b) => b.visits - a.visits || b.orders - a.orders);
+      const keys = ['visits', 'visitors', 'pageviews', 'productViews', 'bounces', 'adds', 'sessionsWithCart', 'orders', 'revenue'];
+      const total = Object.fromEntries(keys.map((k) => [k, channels.reduce((n, c) => n + c[k], 0)]));
+      return { trackingSince: first?.at || null, channels, total };
+    },
+
     async purge(days = 400) {
       const before = new Date(Date.now() - days * 864e5);
       await db.query('DELETE FROM track_events WHERE at < $1', [before]);

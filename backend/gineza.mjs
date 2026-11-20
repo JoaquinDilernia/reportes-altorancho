@@ -95,6 +95,13 @@ export async function fetchTracking(id) {
   return get(`/tracking/order/${encodeURIComponent(id)}`);
 }
 
+// Visitas / carritos / compras por canal. start y end son días (YYYY-MM-DD) de Argentina, end incluido.
+export async function fetchTrackingChannels(start, end) {
+  const from = new Date(`${start}T00:00:00-03:00`);
+  const to = new Date(new Date(`${end}T00:00:00-03:00`).getTime() + 864e5);
+  return get(`/tracking/channels?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`);
+}
+
 export async function fetchTrackingStats(hours = 24) {
   return get(`/tracking/stats?hours=${Number(hours) || 24}`);
 }
