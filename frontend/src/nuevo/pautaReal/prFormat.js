@@ -28,11 +28,13 @@ export const SOURCE_LABEL = {
   email: 'Email',
   whatsapp: 'WhatsApp (bot y difusiones)',
   vendedor: 'Links de vendedores',
+  influencer: 'Influencers',
+  ai: 'IA (ChatGPT y similares)',
   other: 'Otros links',
   unknown: 'Sin datos de origen',
   resto: 'Orgánico y otros',
 };
 export const SOURCE_COLOR = {
   meta: '#1877F2', google: '#EA4335', pinterest: '#B5176E', organic: '#1BAF7A', social_organic: '#8E5BD8',
-  email: '#E0A100', whatsapp: '#25D366', vendedor: '#a86f00', other: '#9a9897', unknown: '#d4d3d2', resto: '#1BAF7A',
+  email: '#E0A100', whatsapp: '#25D366', vendedor: '#a86f00', influencer: '#E1306C', ai: '#10A37F', other: '#9a9897', unknown: '#d4d3d2', resto: '#1BAF7A',
 };

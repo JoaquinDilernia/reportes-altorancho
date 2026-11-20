@@ -122,3 +122,10 @@ it('las UTMs de Revie (estrellas de reseñas en la tienda) no pisan el canal', (
   expect(attribute({ landingUrl: 'https://altorancho.com/?gclid=abc', visitLandingPage: null, visitUtm: revie }).channel).toBe('google');
   expect(attribute(v('https://altorancho.com/productos/x/?utm_source=revie&utm_medium=revie_star&utm_campaign=revie')).channel).toBe('organic');
 });
+
+it('influencers, IA y difusiones wpp tienen su canal', () => {
+  expect(attribute(v('https://altorancho.com/?utm_source=webinstagram&utm_medium=hotsale&utm_campaign=valen'))).toMatchObject({ channel: 'influencer', campaign_name: 'valen' });
+  expect(attribute(v('https://altorancho.com/productos/x/?utm_source=chatgpt.com')).channel).toBe('ai');
+  expect(attribute(v('https://altorancho.com/?utm_source=wpp&utm_medium=wpp&utm_campaign=10off'))).toMatchObject({ channel: 'whatsapp', campaign_name: '10off' });
+  expect(attribute(v('https://altorancho.com/?utm_source=nube-app&utm_medium=referral')).channel).toBe('other');
+});

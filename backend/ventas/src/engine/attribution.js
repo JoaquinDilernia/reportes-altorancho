@@ -1,6 +1,6 @@
 // Reglas de atribución de una orden de Tienda Nube a partir de su customer_visit.
 // Puro: no toca la DB. Los IDs faltantes se completan después con ordersRepo.resolveMetaIds().
-export const RULES_VERSION = 5;
+export const RULES_VERSION = 6;
 
 // Apps de la tienda que le ponen UTMs a links internos (Revie: las estrellas de reseñas
 // llevan utm_source=revie). No son un origen: si se toman, pisan el canal real.
@@ -20,6 +20,8 @@ const SOCIAL_MEDIUMS = new Set(['social', 'organic_social']);
 const GOOGLE_CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'gad_campaignid'];
 const RAW_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_id',
   'fbclid', 'gclid', 'gbraid', 'wbraid', 'gad_campaignid', 'epik'];
+
+const AI_SOURCE = /^(chatgpt.com|chat.openai.com|openai|perplexity(.ai)?|gemini.google.com|copilot.microsoft.com|claude.ai)$/;
 
 const numericId = (v) => (typeof v === 'string' && /^\d{6,}$/.test(v) ? v : null);
 
@@ -81,9 +83,13 @@ export function attribute(visit) {
     return result('pinterest', ad_id ? 'ad' : (campaign_id || campaign_name) ? 'campaign' : 'none', { ad_id, campaign_id, campaign_name });
   }
   // WhatsApp: el bot (links de productos y carritos: medium bot) y las difusiones (medium difusion)
-  if (src === 'whatsapp' || src === 'wa') return result('whatsapp', 'none', { campaign_name: p.utm_campaign || med || null });
+  if (src === 'whatsapp' || src === 'wa' || src === 'wpp') return result('whatsapp', 'none', { campaign_name: p.utm_campaign || med || null });
   // Links que mandan los vendedores: utm_source=vendedor&utm_campaign=<nombre>
   if (src === 'vendedor' || src === 'vendedores') return result('vendedor', 'none', { campaign_name: p.utm_campaign || null });
+  // Influencers: links de Instagram con el nombre de la persona (utm_source=webinstagram&utm_campaign=valen)
+  if (src === 'webinstagram' || src === 'influencer' || src === 'influencers' || med === 'influencer') return result('influencer', 'none', { campaign_name: p.utm_campaign || null });
+  // Asistentes de IA: ChatGPT (y similares) agregan utm_source=chatgpt.com a los links que recomiendan
+  if (AI_SOURCE.test(src)) return result('ai', 'none', { campaign_name: src });
   if (med === 'email') return result('email', 'none', { campaign_name: p.utm_campaign || null });
   // fbclid sin UTMs: FB/IG lo agregan a cualquier link (bio, posteos, historias), no prueba un anuncio
   if (SOCIAL_MEDIUMS.has(med) || META_SOURCES.has(src) || src === 'pinterest' || (p.fbclid && !src && !med)) return result('social_organic');

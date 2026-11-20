@@ -168,3 +168,7 @@ describe('visitas desde WhatsApp', () => {
     expect(classifySession({ url: 'https://altorancho.com/', referrer: 'https://web.whatsapp.com/' }).channel).toBe('whatsapp');
   });
 });
+
+it('una visita que llega desde ChatGPT es canal IA', () => {
+  expect(classifySession({ url: 'https://altorancho.com/productos/x/', referrer: 'https://chatgpt.com/' }).channel).toBe('ai');
+});
