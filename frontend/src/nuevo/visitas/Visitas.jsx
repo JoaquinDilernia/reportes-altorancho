@@ -14,7 +14,7 @@ const DEVICE = { mobile: 'Celular', desktop: 'Computadora', tablet: 'Tablet' };
 function Bar({ v, max, tone = 'var(--nv-info)' }) {
   return (
     <span className="nv-vz-bar" aria-hidden="true">
-      <span style={{ width: `${max ? Math.max(2, (v / max) * 100) : 0}%`, background: tone }} />
+      <span style={{ width: `${max && v ? Math.max(2, (v / max) * 100) : 0}%`, background: tone }} />
     </span>
   );
 }
