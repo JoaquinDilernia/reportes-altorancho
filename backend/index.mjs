@@ -3,14 +3,23 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
-import { requireAuth, generateToken } from './auth.mjs';
+import { requireAuth, requireAuthOrSecret, generateToken } from './auth.mjs';
 import { getProductBySku, getProductsBySku, querySalesByRange } from './firestore.mjs';
 import { buildFullReport, ALL_CHANNELS } from './report.mjs';
 import { getResumen } from './resumenReport.mjs';
 import { getProducto } from './productoReport.mjs';
 import { getWeb } from './webReport.mjs';
 import { getLocales } from './localesReport.mjs';
+import { getLectores } from './lectoresReport.mjs';
 import { getPauta } from './pautaReport.mjs';
+import { getPautaReal, getPautaClientes, clearPautaRealCache } from './pautaRealReport.mjs';
+import { getMarketingCosts, setMarketingCost } from './marketingCosts.mjs';
+import { syncPinterestAds, getPinterestStatus, isPinterestConfigured } from './pinterestAds.mjs';
+import ginezaProxy from './ginezaProxy.mjs';
+import { useLocalGineza, fetchTrackingChannels, fetchTrackingInsights, fetchTrackingAlerts } from './gineza.mjs';
+import { isPerfitConfigured, getPerfitSummary, snapshotAutomations } from './perfit.mjs';
+import { isVentasConfigured, startVentas } from './ventas/module.mjs';
+import { listVentas, getVenta, ventasRange } from './ventasReport.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
@@ -39,12 +48,58 @@ import { syncMetaAds } from './sync/metaAds.mjs';
 import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
 import { analyzeReport, chatAboutReport } from './insights.mjs';
+import { runPickSync, getPickSyncStatus, isPickSyncRunning } from './sync/pickPrices.mjs';
 
 export const app = express();
 // Railway pone un proxy delante: confiar solo en 1 salto (no true) para que X-Forwarded-For no se falsee.
 app.set('trust proxy', 1);
 
+// Recorrido de visitantes: script público de la tienda y adonde manda los eventos
+app.use((req, res, next) => (ventas && (req.path === '/t.js' || req.path.startsWith('/t/')) ? ventas.trackRouter(req, res, next) : next()));
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
+// Agente y Ventas (lo que era gineza). Si el módulo corre en este servidor
+// (VENTAS_DATABASE_URL o DATABASE_URL), lo atienden sus rutas; si no, el proxy
+// a gineza. Todo antes de express.json(): el webhook de Tienda Nube firma el
+// cuerpo crudo y las piezas del agente se suben como archivo.
+const ventasApi = express.Router();
+ventasApi.use(requireAuth, express.json({ limit: '2mb' }));
+let ventas = null;
+app.use('/api/gz', (req, res, next) => (ventas ? ventasApi : ginezaProxy)(req, res, next));
+app.use('/webhooks', (req, res, next) => (ventas ? ventas.webhookRouter(req, res, next) : next()));
+app.use('/ingest', (req, res, next) => (ventas ? ventas.ingestRouter(req, res, next) : next()));
+
+// Lectores de precios (ex servicio pick-altorancho). El admin de los lectores
+// manda PICK_SYNC_SECRET; el panel puede usar su token normal.
+const requirePickAuth = requireAuthOrSecret('PICK_SYNC_SECRET');
+app.post('/api/pick/sync', requirePickAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await runPickSync()) });
+  } catch (err) {
+    if (err.status !== 409) console.error('[pick] error de sync:', err.message);
+    res.status(err.status || 500).json({ ok: false, error: err.status === 409 ? err.message : 'No se pudo sincronizar los precios' });
+  }
+});
+app.get('/api/pick/status', requirePickAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, running: isPickSyncRunning(), lastSync: await getPickSyncStatus() });
+  } catch (err) {
+    console.error('[pick] error de estado:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo leer el estado' });
+  }
+});
+
+export async function mountVentas(v, { selfUrl, mintToken = () => generateToken(300) } = {}) {
+  for (const r of v.apiRouters) ventasApi.use(r);
+  ventasApi.use((_req, res) => res.status(404).json({ error: 'no encontrado' }));
+  // eslint-disable-next-line no-unused-vars
+  ventasApi.use((err, _req, res, _next) => {
+    if (!err.status || err.status >= 500) console.error('[ventas] api:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  });
+  ventas = v;
+  if (selfUrl) useLocalGineza({ apiRoot: `${selfUrl}/api/gz`, authHeader: () => `Bearer ${mintToken()}` });
+}
+
 // Evidencia y etiquetas de cambios web (cuerpos grandes) no pasan por el parser
 // global: las parsea su router con 25 MB después del guard. El resto, igual que siempre.
 app.use(jsonExceptBigBodies(express.json()));
@@ -156,6 +211,120 @@ app.get('/api/v2/pauta', requireAuth, async (req, res) => {
   }
 });
 
+// Pinterest Ads (gasto y conversiones reportadas por día)
+app.get('/api/v3/pinterest/status', requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await getPinterestStatus()) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+app.post('/api/v3/pinterest/sync', requireAuth, async (req, res) => {
+  if (!isPinterestConfigured()) return res.status(400).json({ ok: false, error: 'Pinterest no está configurado' });
+  const r = await syncPinterestAds({ days: Math.min(365, Number(req.body?.days) || 35) });
+  if (r.ok) clearPautaRealCache();
+  res.status(r.ok ? 200 : 502).json(r);
+});
+
+// Perfit: campañas del período y automatizaciones
+app.get('/api/v3/perfit', requireAuth, async (req, res) => {
+  try {
+    if (!isPerfitConfigured()) return res.json({ ok: true, configured: false });
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, configured: true, ...(await getPerfitSummary(ventasRange(params), argDay(new Date().toISOString()))) });
+  } catch (err) {
+    console.error('[server] perfit error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Costos de canales sin API de gasto (Pinterest a mano, abono de Perfit), por mes
+app.get('/api/v3/marketing-costs', requireAuth, async (req, res) => {
+  try {
+    res.json({ ok: true, costs: await getMarketingCosts() });
+  } catch (err) {
+    console.error('[server] marketing-costs:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudieron leer los costos' });
+  }
+});
+app.put('/api/v3/marketing-costs', requireAuth, async (req, res) => {
+  try {
+    const { key, month, value } = req.body || {};
+    const saved = await setMarketingCost({ key, month, value: value === null ? null : Number(value) });
+    clearPautaRealCache();
+    res.json({ ok: true, ...saved });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ ok: false, error: err.message });
+    console.error('[server] marketing-costs:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo guardar el costo' });
+  }
+});
+
+app.get('/api/v3/pauta-real', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getPautaReal(params)) });
+  } catch (err) {
+    console.error('[server] v3 pauta-real error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/pauta-real/clientes', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getPautaClientes(params)) });
+  } catch (err) {
+    console.error('[server] v3 pauta-real clientes error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/ventas', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    const channel = typeof req.query.channel === 'string' && /^[a-z_]{1,20}$/.test(req.query.channel) ? req.query.channel : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : undefined;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor.slice(0, 200) : undefined;
+    res.json({ ok: true, ...(await listVentas({ range: ventasRange(params), channel, q, cursor })) });
+  } catch (err) {
+    console.error('[server] v3 ventas error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Visitas, carritos y compras por canal (script propio de la tienda)
+app.get('/api/v3/visitas', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    const range = ventasRange(params);
+    const [channels, insights, alerts] = await Promise.all([
+      fetchTrackingChannels(range.start, range.end),
+      fetchTrackingInsights(range.start, range.end),
+      fetchTrackingAlerts().catch((err) => ({ alerts: [], error: err.message })),
+    ]);
+    res.json({ ok: true, range, ...channels, insights, alerts: alerts.alerts });
+  } catch (err) {
+    console.error('[server] v3 visitas error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/ventas/:id', requireAuth, async (req, res) => {
+  try {
+    if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'id inválido' });
+    res.json({ ok: true, venta: await getVenta(req.params.id) });
+  } catch (err) {
+    console.error('[server] v3 venta error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/v2/locales', requireAuth, async (req, res) => {
   try {
     const { params, error } = parseReportParams(req.query);
@@ -164,6 +333,17 @@ app.get('/api/v2/locales', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[server] v2 locales error:', err);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/v3/lectores', requireAuth, async (req, res) => {
+  try {
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, ...(await getLectores(params)) });
+  } catch (err) {
+    console.error('[server] lectores error:', err);
+    res.status(500).json({ ok: false, error: 'No se pudieron leer las consultas de los lectores' });
   }
 });
 
@@ -389,7 +569,16 @@ async function runLiveSalesSync() {
   ]);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// REPORTES_JOBS=off: solo HTTP, sin syncs, snapshots ni reintentos del POS
+// (que escriben en Firestore, Odoo y ARCA). Para una segunda instancia de
+// prueba mientras la de producción sigue siendo la dueña de esas tareas.
+const reportesJobs = !/^(off|0|false)$/i.test(process.env.REPORTES_JOBS || '');
+
+if (process.argv[1] === fileURLToPath(import.meta.url) && !reportesJobs) {
+  console.log('[server] REPORTES_JOBS=off: sin crons ni reintentos del POS');
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url) && reportesJobs) {
   // Crons only when run as the server: importing { app } from a script must never sync.
   assertSafeDevEnv();
   if (backgroundJobsEnabled()) {
@@ -402,11 +591,36 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const expr of ['5 0 * * *', '0 6 * * *', '0 12 * * *']) {
       cron.schedule(expr, () => takeDailySnapshots(), { timezone: 'America/Argentina/Buenos_Aires' });
     }
+    // Precios de los lectores: cada 6 h a los :30 (no pisa el full sync de las :00)
+    // Pinterest Ads: cada 6 h a los :45
+    if (isPinterestConfigured()) {
+      cron.schedule('45 */6 * * *', () => syncPinterestAds().then((r) => { if (r.ok) clearPautaRealCache(); else console.error('[pinterest] sync:', r.error); }));
+    }
+    // Perfit: foto diaria de las automatizaciones (sus totales son históricos; el período sale de restar fotos)
+    if (isPerfitConfigured()) {
+      const snap = () => snapshotAutomations(argDay(new Date().toISOString())).catch((err) => console.error('[perfit] foto:', err.message));
+      cron.schedule('55 23 * * *', snap, { timezone: 'America/Argentina/Buenos_Aires' });
+      snap();
+    }
+    cron.schedule('30 */6 * * *', () => runPickSync().catch((err) => console.error('[pick] sync programado falló:', err.message)));
     startPosAutoRetry();
   } else {
     console.log('[server] modo dev: crons apagados, escrituras Odoo simuladas');
   }
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(PORT, () => console.log(`[server] listening on :${PORT} (clarity=${isClarityConfigured() ? "si" : "no"}, ga4=${isGa4Configured() ? "si" : "no"})`));
+  // Ventas (ex gineza): si falla al arrancar, Reportes sigue andando y /api/gz cae al proxy.
+  if (isVentasConfigured()) {
+    startVentas()
+      .then(async (v) => {
+        await mountVentas(v, { selfUrl: `http://127.0.0.1:${PORT}` });
+        console.log('[ventas] módulo montado en /api/gz, /webhooks e /ingest');
+        await v.startJobs();
+      })
+      .catch((err) => console.error('[ventas] no arrancó, sigo con el proxy a gineza:', err));
+  }
 }

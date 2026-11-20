@@ -1,0 +1,121 @@
+import { artDate, addDays } from '../engine/dates.js';
+import { centsToArs, metaTotals, realMetrics, summarizeMetaRow } from './metrics.js';
+import { metaFamily, familyMetrics } from './families.js';
+
+const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
+const LEVELS = ['campaign', 'adset', 'ad'];
+
+function channelSummary(s) {
+  return {
+    orders: s.orders, revenue: Math.round(s.revenue),
+    meta: { spend: Math.round(s.meta.spend), sales: s.meta.orders, revenue: Math.round(s.meta.revenue), roas: r1(s.meta.roas), metaPurchases: s.meta.reported.purchases },
+    byChannel: s.channels.map((c) => ({ channel: c.channel, orders: c.orders, revenue: Math.round(c.revenue) })),
+  };
+}
+
+// Foto de la cuenta: estructura en vivo de Meta + ventas reales de la tienda por campaña/conjunto/anuncio.
+// La usan el Resumen del panel y el contexto del agente.
+export async function buildSnapshot({ meta, reports, now = new Date() }) {
+  const today = artDate(now);
+  const w7 = { from: addDays(today, -6), to: today };
+  const prev = { from: addDays(today, -13), to: addDays(today, -7) };
+  const monthFrom = `${today.slice(0, 7)}-01`;
+  const [runningCampaigns, runningAdsets, runningAds, todayRows, monthRows, adWeek, store7, storeMonth, adPrev, campaignWeek, campaignPrev, adsetWeek, adsetPrev, ...ranks] = await Promise.all([
+    meta.getCampaigns({ running: true }),
+    meta.getAdsets({ running: true }),
+    meta.getAds({ running: true }),
+    meta.getInsights('account', today, today),
+    meta.getInsights('account', monthFrom, today),
+    meta.getInsights('ad', w7.from, today),
+    reports.summary(w7),
+    reports.summary({ from: monthFrom, to: today }),
+    // Métricas de Meta por objeto (las que decide el agente, según el objetivo de cada campaña)
+    // Toda la cuenta, no solo lo que gastó: platformPrev7d de cada anuncio necesita su semana anterior
+    meta.getInsights('ad', prev.from, prev.to),
+    meta.getInsights('campaign', w7.from, w7.to),
+    meta.getInsights('campaign', prev.from, prev.to),
+    meta.getInsights('adset', w7.from, w7.to),
+    meta.getInsights('adset', prev.from, prev.to),
+    ...LEVELS.flatMap((level) => [reports.adsRanking({ ...w7, level }), reports.adsRanking({ ...prev, level })]),
+  ]);
+  // Lo pausado que gastó o vendió en las últimas dos semanas se pide aparte, por id
+  const recent = { campaign: new Set(), adset: new Set(), ad: new Set() };
+  for (const r of adWeek) {
+    if (!Number(r.spend)) continue;
+    recent.campaign.add(r.campaign_id);
+    recent.adset.add(r.adset_id);
+    recent.ad.add(r.ad_id);
+  }
+  for (const [i, level] of LEVELS.entries()) {
+    for (const rows of [ranks[i * 2].rows, ranks[i * 2 + 1].rows]) {
+      for (const r of rows) if (r.spend || r.sales) recent[level].add(r.id);
+    }
+  }
+  const missing = (level, have) => {
+    const ids = new Set(have.map((o) => o.id));
+    return [...recent[level]].filter((id) => id && !ids.has(id));
+  };
+  const extra = async (level, have) => {
+    const ids = missing(level, have);
+    return ids.length ? meta.getByIds(level, ids) : [];
+  };
+  const [moreCampaigns, moreAdsets, moreAds] = await Promise.all([
+    extra('campaign', runningCampaigns), extra('adset', runningAdsets), extra('ad', runningAds),
+  ]);
+  const campaigns = [...runningCampaigns, ...moreCampaigns];
+  const adsets = [...runningAdsets, ...moreAdsets];
+  const ads = [...runningAds, ...moreAds];
+
+  const real = {};
+  LEVELS.forEach((level, i) => {
+    real[level] = { w7: new Map(ranks[i * 2].rows.map((r) => [r.id, r])), prev: new Map(ranks[i * 2 + 1].rows.map((r) => [r.id, r])) };
+  });
+  const metaByAd = new Map(adWeek.map((r) => [r.ad_id, summarizeMetaRow(r)]));
+  const byId = (rows, key) => new Map(rows.map((r) => [r[key], r]));
+  const platform = {
+    campaign: { w7: byId(campaignWeek, 'campaign_id'), prev: byId(campaignPrev, 'campaign_id') },
+    adset: { w7: byId(adsetWeek, 'adset_id'), prev: byId(adsetPrev, 'adset_id') },
+    ad: { w7: byId(adWeek, 'ad_id'), prev: byId(adPrev, 'ad_id') },
+  };
+  const familyByCampaign = new Map(campaigns.map((c) => [c.id, metaFamily(c.objective)]));
+  // Ventas de la tienda (referencia; last7d/prev7d son alias para el panel) + métricas de Meta de la familia del objeto
+  const windows = (level, id, family) => {
+    const asFamily = (row) => {
+      const s = summarizeMetaRow(row);
+      return familyMetrics(family, { ...s, purchases: s.metaPurchases, purchaseValue: s.metaValue });
+    };
+    const store7d = realMetrics(real[level].w7.get(id));
+    const storePrev7d = realMetrics(real[level].prev.get(id));
+    return {
+      family, platform7d: asFamily(platform[level].w7.get(id)), platformPrev7d: asFamily(platform[level].prev.get(id)),
+      store7d, storePrev7d, last7d: store7d, prev7d: storePrev7d,
+    };
+  };
+  const familyOf = (campaignId) => familyByCampaign.get(campaignId) ?? 'engagement';
+
+  const live = (o) => !['DELETED', 'ARCHIVED'].includes(o.effective_status);
+  return {
+    generatedAt: now.toISOString(),
+    today,
+    spendToday: metaTotals(todayRows).spend,
+    month: { ...metaTotals(monthRows), store: channelSummary(storeMonth) },
+    last7d: channelSummary(store7),
+    campaigns: campaigns.filter(live).map((c) => ({
+      id: c.id, name: c.name, objective: c.objective, status: c.status, effectiveStatus: c.effective_status,
+      dailyBudgetArs: centsToArs(c.daily_budget), isCbo: c.daily_budget != null || c.lifetime_budget != null,
+      bidStrategy: c.bid_strategy ?? null, createdAt: c.created_time, ...windows('campaign', c.id, familyOf(c.id)),
+    })),
+    adsets: adsets.filter(live).map((a) => ({
+      id: a.id, name: a.name, campaignId: a.campaign_id, status: a.status, effectiveStatus: a.effective_status,
+      dailyBudgetArs: centsToArs(a.daily_budget), optimizationGoal: a.optimization_goal,
+      learningStage: a.learning_stage_info?.status ?? null, targeting: a.targeting, createdAt: a.created_time,
+      ...windows('adset', a.id, familyOf(a.campaign_id)),
+    })),
+    ads: ads.filter(live).map((a) => ({
+      id: a.id, name: a.name, adsetId: a.adset_id, campaignId: a.campaign_id, status: a.status, effectiveStatus: a.effective_status,
+      createdAt: a.created_time, copy: a.creative?.body ?? null, thumbnail: a.creative?.thumbnail_url ?? null,
+      ...windows('ad', a.id, familyOf(a.campaign_id)),
+      delivery7d: metaByAd.get(a.id) ?? summarizeMetaRow(),
+    })),
+  };
+}

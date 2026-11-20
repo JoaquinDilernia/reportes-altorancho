@@ -19,7 +19,7 @@ function Skeleton() {
   );
 }
 
-export default function Pauta({ state, onLogout }) {
+export default function Pauta({ state, onLogout, embedded = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +43,7 @@ export default function Pauta({ state, onLogout }) {
 
   const retry = useCallback(() => setAttempt(a => a + 1), []);
 
-  if (loading) return <><h1 className="nv-h1">{TITLE[period]}</h1><Skeleton /></>;
+  if (loading) return <>{!embedded && <h1 className="nv-h1">{TITLE[period]}</h1>}<Skeleton /></>;
   if (error) {
     return (
       <section className="nv-card nv-error">
@@ -57,7 +57,7 @@ export default function Pauta({ state, onLogout }) {
 
   return (
     <div className="nv-pauta">
-      <h1 className="nv-h1">{TITLE[period]}</h1>
+      {!embedded && <h1 className="nv-h1">{TITLE[period]}</h1>}
       <div className="nv-sub">Meta: compras a 1 día del clic · Google: ventas de GA4 de google / cpc. El ROAS de Google incluye la búsqueda de marca.</div>
       {data.prevRange.partial && (
         <div className="nv-running">Período en curso: todo se compara con los mismos días del período anterior y de {data.prevYear} (hasta el {ddmm(data.prevRange.end)}).</div>

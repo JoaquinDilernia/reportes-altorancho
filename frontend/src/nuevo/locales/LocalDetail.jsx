@@ -1,6 +1,7 @@
 import { money, num, pct, toneOf } from '../format.js';
 import OriginsCard from '../producto/OriginsCard.jsx';
 import { STORES } from './stores.js';
+import { LectoresTop } from './Lectores.jsx';
 
 const delta = (cur, prev) => (prev > 0 ? ((cur / prev) - 1) * 100 : null);
 
@@ -108,7 +109,7 @@ function Payments({ rows, color }) {
   );
 }
 
-export default function LocalDetail({ data, loc, onUpdate, onOpenSku }) {
+export default function LocalDetail({ data, loc, onUpdate, onOpenSku, lectores }) {
   const store = STORES.find(s => s.id === loc) ?? STORES[0];
   const d = data.detail[store.id];
   const asOf = data.stockAsOf.split('-').reverse().slice(0, 2).join('/');
@@ -124,6 +125,7 @@ export default function LocalDetail({ data, loc, onUpdate, onOpenSku }) {
       </div>
       <StockStrip stock={d.stock} label={store.label} asOf={asOf} />
       <TopTable rows={d.topModels} prevYear={data.prevYear} label={store.label} onOpenSku={onOpenSku} exhibitionKnown={d.stock.exhibitionKnown} />
+      <LectoresTop local={lectores?.byLocal[store.id]} label={store.label} onOpenSku={onOpenSku} />
       <div className="nv-grid2">
         <CategoriesTable rows={d.categories} prevYear={data.prevYear} />
         <div>

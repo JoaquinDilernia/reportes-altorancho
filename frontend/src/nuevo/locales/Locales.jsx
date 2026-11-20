@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getLocales } from '../../api/client.js';
+import { getLocales, getLectores } from '../../api/client.js';
 import { periodParams } from '../urlState.js';
 import DailyStacked from '../resumen/DailyStacked.jsx';
 import CompareCards from './CompareCards.jsx';
 import HoursCard from './HoursCard.jsx';
 import LocalDetail from './LocalDetail.jsx';
 import { STORES } from './stores.js';
+import { LectoresSummary } from './Lectores.jsx';
 
 const TITLE = { week: 'Locales de la semana', month: 'Locales del mes', custom: 'Locales del rango' };
 const ddmm = (iso) => iso.split('-').reverse().slice(0, 2).join('/');
@@ -24,6 +25,9 @@ export default function Locales({ state, onUpdate, onLogout }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  // Lectores de precios: aparte y sin bloquear la pestaña (tarda unos segundos)
+  const [lectores, setLectores] = useState(null);
+  const [lectoresError, setLectoresError] = useState(false);
   const { period, date, start, end, loc } = state;
 
   useEffect(() => {
@@ -40,6 +44,16 @@ export default function Locales({ state, onUpdate, onLogout }) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [period, date, start, end, attempt, onLogout]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLectores(null);
+    setLectoresError(false);
+    getLectores(periodParams({ period, date, start, end }))
+      .then(d => { if (!cancelled) setLectores(d); })
+      .catch(() => { if (!cancelled) setLectoresError(true); });
+    return () => { cancelled = true; };
+  }, [period, date, start, end, attempt]);
 
   const retry = useCallback(() => setAttempt(a => a + 1), []);
   const openSku = (sku) => onUpdate({ sku }, { push: true });
@@ -66,7 +80,8 @@ export default function Locales({ state, onUpdate, onLogout }) {
       <CompareCards compare={data.compare} period={period} prevYear={data.prevYear} prevRange={data.prevRange} />
       <DailyStacked daily={data.daily} prevYear={data.prevYear} groups={STORES} subtitle="apilado por local" prevLabel={data.inflationAdjusted ? 'ajustado' : 'nominal'} />
       <HoursCard hours={data.hours} />
-      <LocalDetail data={data} loc={loc} onUpdate={onUpdate} onOpenSku={openSku} />
+      <LectoresSummary lectores={lectores} error={lectoresError} period={period} />
+      <LocalDetail data={data} loc={loc} onUpdate={onUpdate} onOpenSku={openSku} lectores={lectores} />
     </div>
   );
 }

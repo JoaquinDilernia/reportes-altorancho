@@ -1,0 +1,179 @@
+import { describe, it, expect, vi } from 'vitest';
+import { createMetaClient } from '../src/services/meta.js';
+
+const ok = (body) => ({ json: async () => body });
+const make = (fetchFn, extra = {}) => createMetaClient({ accessToken: 'tok', accountId: 'act_1', fetchFn, sleep: vi.fn().mockResolvedValue(), pollMs: 0, ...extra });
+
+describe('cliente meta', () => {
+  it('getObjectInsights pide los insights de un objeto y devuelve la primera fila o {}', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(ok({ data: [{ spend: '9000' }, { spend: '1' }] }))
+      .mockResolvedValueOnce(ok({ data: [] }));
+    const m = make(fetchFn);
+    expect(await m.getObjectInsights('902', '2026-10-15', '2026-10-21')).toEqual({ spend: '9000' });
+    const url = new URL(fetchFn.mock.calls[0][0]);
+    expect(url.pathname).toBe('/v23.0/902/insights');
+    expect(JSON.parse(url.searchParams.get('time_range'))).toEqual({ since: '2026-10-15', until: '2026-10-21' });
+    expect(url.searchParams.get('fields')).toMatch(/reach.*clicks.*cpc.*actions,action_values/);
+    expect(await m.getObjectInsights('902', '2026-10-15', '2026-10-21')).toEqual({});
+  });
+  it('pagina siguiendo paging.cursors.after mientras haya paging.next', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(ok({ data: [{ id: '1' }], paging: { cursors: { after: 'A' }, next: 'https://x' } }))
+      .mockResolvedValueOnce(ok({ data: [{ id: '2' }], paging: { cursors: { after: 'B' } } }));
+    const r = await make(fetchFn).getDailyAdInsights('2026-10-01', '2026-10-01');
+    expect(r).toEqual([{ id: '1' }, { id: '2' }]);
+    const second = new URL(fetchFn.mock.calls[1][0]);
+    expect(second.searchParams.get('after')).toBe('A');
+    expect(second.pathname).toBe('/v23.0/act_1/insights');
+  });
+  it('el catálogo también trae lo archivado (segunda pasada filtrada) sin duplicar', async () => {
+    const fetchFn = vi.fn(async (url) => {
+      const filtering = new URL(url).searchParams.get('filtering');
+      return ok({ data: filtering ? [{ id: '2' }, { id: '1' }] : [{ id: '1' }] });
+    });
+    const r = await make(fetchFn).listCampaigns();
+    expect(r.map((c) => c.id)).toEqual(['1', '2']);
+    const filters = fetchFn.mock.calls.map((c) => new URL(c[0]).searchParams.get('filtering')).filter(Boolean);
+    expect(JSON.parse(filters[0])).toEqual([{ field: 'effective_status', operator: 'IN', value: ['ARCHIVED'] }]);
+  });
+  it('el catálogo incremental pide en una sola pasada lo cambiado desde una fecha, archivado incluido', async () => {
+    const fetchFn = vi.fn(async () => ok({ data: [{ id: '7' }] }));
+    const r = await make(fetchFn).listAds({ updatedSince: new Date('2026-10-23T10:00:00Z') });
+    expect(r.map((a) => a.id)).toEqual(['7']);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const filtering = JSON.parse(new URL(fetchFn.mock.calls[0][0]).searchParams.get('filtering'));
+    expect(filtering).toContainEqual({ field: 'updated_time', operator: 'GREATER_THAN', value: 1792749600 });
+    expect(filtering.find((f) => f.field === 'effective_status').value).toEqual(expect.arrayContaining(['ACTIVE', 'PAUSED', 'ARCHIVED', 'ADSET_PAUSED']));
+  });
+  it('la foto del agente pide solo lo que está entregando, y lo demás por id de a 50', async () => {
+    const fetchFn = vi.fn(async (url) => {
+      const ids = new URL(url).searchParams.get('ids');
+      return ok(ids ? Object.fromEntries(ids.split(',').map((id) => [id, { id }])) : { data: [] });
+    });
+    const meta = make(fetchFn);
+    await meta.getAds({ running: true });
+    const filtering = JSON.parse(new URL(fetchFn.mock.calls[0][0]).searchParams.get('filtering'));
+    expect(filtering[0].value).toContain('ACTIVE');
+    expect(filtering[0].value).not.toContain('PAUSED');
+    const ids = Array.from({ length: 60 }, (_, i) => String(i));
+    expect((await meta.getByIds('ad', ids)).map((o) => o.id)).toEqual(ids);
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(new URL(fetchFn.mock.calls[1][0]).pathname).toBe('/v23.0/');
+  });
+  it('getByIds saltea ids que Meta no reconoce (un id malo rechaza el lote entero) y los que no son números', async () => {
+    const fetchFn = vi.fn(async (url) => {
+      const ids = new URL(url).searchParams.get('ids').split(',');
+      if (ids.includes('666')) return ok({ error: { code: 100, message: 'Unsupported get request.', error_subcode: 33 } });
+      return ok(Object.fromEntries(ids.map((id) => [id, { id }])));
+    });
+    const r = await make(fetchFn).getByIds('ad', ['1', '666', '2', '{{ad.id}}', '3']);
+    expect(r.map((o) => o.id)).toEqual(['1', '2', '3']);
+    for (const [url] of fetchFn.mock.calls) expect(new URL(url).searchParams.get('ids')).not.toContain('{{');
+  });
+  it('listAds pide páginas chicas (con el creativo Meta responde "reduce the amount of data" a 500)', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ data: [] }));
+    await make(fetchFn).listAds();
+    expect(new URL(fetchFn.mock.calls[0][0]).searchParams.get('limit')).toBe('100');
+  });
+  it('error 1 "reduce the amount of data" se reintenta pidiendo la mitad', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(ok({ error: { code: 1, message: 'Please reduce the amount of data you\'re asking for, then retry your request' } }))
+      .mockResolvedValue(ok({ data: [{ id: '1' }] }));
+    const r = await make(fetchFn).getDailyAdInsights('2026-10-01', '2026-10-01');
+    expect(r).toEqual([{ id: '1' }]);
+    expect(new URL(fetchFn.mock.calls[1][0]).searchParams.get('limit')).toBe('250');
+  });
+  it('el catálogo pide objetivo, presupuesto, fechas y aprendizaje', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ data: [] }));
+    const meta = make(fetchFn);
+    await meta.listCampaigns();
+    await meta.listAdsets();
+    await meta.listAds();
+    const fields = fetchFn.mock.calls.map((c) => new URL(c[0]).searchParams.get('fields'));
+    expect(fields).toContain('id,name,effective_status,objective,daily_budget,created_time,updated_time');
+    expect(fields).toContain('id,name,effective_status,campaign_id,daily_budget,created_time,updated_time,learning_stage_info');
+    expect(fields).toContain('id,name,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,thumbnail_url,url_tags}');
+  });
+  it('getDailyAdInsights pide nivel ad, por día, con time_range', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ data: [] }));
+    await make(fetchFn).getDailyAdInsights('2026-10-05', '2026-10-06');
+    const u = new URL(fetchFn.mock.calls[0][0]);
+    expect(u.searchParams.get('level')).toBe('ad');
+    expect(u.searchParams.get('time_increment')).toBe('1');
+    expect(JSON.parse(u.searchParams.get('time_range'))).toEqual({ since: '2026-10-05', until: '2026-10-06' });
+  });
+  it('getDailyAdInsightsAsync crea el reporte, espera y lee resultados', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(ok({ report_run_id: 'R1' }))
+      .mockResolvedValueOnce(ok({ async_status: 'Job Running', async_percent_completion: 50 }))
+      .mockResolvedValueOnce(ok({ async_status: 'Job Completed', async_percent_completion: 100 }))
+      .mockResolvedValueOnce(ok({ data: [{ ad_id: '9' }] }));
+    const rows = await make(fetchFn).getDailyAdInsightsAsync('2026-01-01', '2026-01-31');
+    expect(rows).toEqual([{ ad_id: '9' }]);
+    expect(fetchFn.mock.calls[0][1].method).toBe('POST');
+    expect(new URL(fetchFn.mock.calls[3][0]).pathname).toBe('/v23.0/R1/insights');
+  });
+  it('reporte asincrónico fallido → error', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(ok({ report_run_id: 'R1' }))
+      .mockResolvedValueOnce(ok({ async_status: 'Job Failed' }));
+    await expect(make(fetchFn).getDailyAdInsightsAsync('2026-01-01', '2026-01-31')).rejects.toThrow(/Job Failed/);
+  });
+  it('reintenta rate limit (17) con backoff y después tira', async () => {
+    const sleep = vi.fn().mockResolvedValue();
+    const fetchFn = vi.fn().mockResolvedValue(ok({ error: { code: 17, message: 'User request limit reached' } }));
+    const meta = createMetaClient({ accessToken: 't', accountId: 'act_1', fetchFn, sleep, maxRetries: 2 });
+    await expect(meta.listCampaigns()).rejects.toMatchObject({ code: 17 });
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([5000, 10000]);
+  });
+  it('error no recuperable (190 token) no se reintenta', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ error: { code: 190, message: 'Invalid OAuth access token' } }));
+    await expect(make(fetchFn).listCampaigns()).rejects.toThrow(/Meta 190/);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+  it('updateAdCreative hace POST al anuncio con el creative_id', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ success: true }));
+    await make(fetchFn).updateAdCreative('AD1', 'CR2');
+    const [url, opts] = fetchFn.mock.calls[0];
+    expect(new URL(url).pathname).toBe('/v23.0/AD1');
+    expect(JSON.parse(opts.body)).toEqual({ creative: { creative_id: 'CR2' } });
+  });
+  it('escrituras: estado y presupuesto diario en centavos', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ success: true }));
+    const meta = make(fetchFn);
+    await meta.setStatus('AD1', 'PAUSED');
+    await meta.setDailyBudget('C1', 55000.4);
+    await meta.getObject('C1', 'daily_budget');
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ status: 'PAUSED' });
+    expect(JSON.parse(fetchFn.mock.calls[1][1].body)).toEqual({ daily_budget: 5500040 });
+    expect(new URL(fetchFn.mock.calls[2][0]).searchParams.get('fields')).toBe('daily_budget');
+  });
+  it('agente de pauta: imagen a la biblioteca, página con Instagram y video al host de videos', async () => {
+    const fetchFn = vi.fn(async (url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/adimages')) return ok({ images: { 'bytes': { hash: 'abc', url: 'https://img/abc.png' } } });
+      if (u.pathname.endsWith('/promote_pages')) return ok({ data: [{ id: 'P1' }, { id: 'P2', instagram_business_account: { id: 'IG2' } }] });
+      if (u.hostname === 'graph-video.facebook.com') return ok({ id: 'V1' });
+      return { status: 502, json: async () => { throw new SyntaxError('vacío'); } };
+    });
+    const meta = make(fetchFn);
+    expect(await meta.uploadImage(Buffer.from('x'))).toEqual({ hash: 'abc', url: 'https://img/abc.png' });
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toEqual({ bytes: Buffer.from('x').toString('base64') });
+    expect(await meta.discoverIdentity()).toEqual({ pageId: 'P2', igUserId: 'IG2' });
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const tmp = path.join(os.tmpdir(), `meta-test-${Date.now()}.mp4`);
+    fs.writeFileSync(tmp, 'video');
+    try {
+      expect(await meta.uploadVideoFile(tmp, 'Reel')).toBe('V1');
+      const form = fetchFn.mock.calls.at(-1)[1].body;
+      expect(form.get('name')).toBe('Reel');
+    } finally {
+      fs.rmSync(tmp);
+    }
+    await expect(meta.getObject('1', 'status')).rejects.toThrow(/HTTP 502 sin datos válidos/);
+  });
+});

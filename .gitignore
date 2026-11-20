@@ -7,3 +7,4 @@ JUNIO_extracted/
 *.log
 .worktrees/
 .superpowers/
+vite.config.js.timestamp-*

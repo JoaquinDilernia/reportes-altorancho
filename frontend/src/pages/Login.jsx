@@ -14,7 +14,7 @@ export default function Login({ onLogin, error }) {
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="login-logo">altorancho.</div>
+        <div className="login-logo"><img src="/logo-wordmark.png" alt="altorancho." /></div>
         <form onSubmit={handleSubmit}>
           <input
             type="password"

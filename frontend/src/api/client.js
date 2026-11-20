@@ -68,6 +68,24 @@ async function postAuthed(path, body) {
   return data;
 }
 
+// Costo de un canal sin API de gasto (pinterest | perfit) para un mes AAAA-MM
+export async function putMarketingCost({ key, month, value }) {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+  const res = await fetch(`${API_URL}/api/v3/marketing-costs`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ key, month, value }),
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'No se pudo guardar');
+  return data;
+}
+
 function reportBody({ period, date, start, end, channel }) {
   const body = period === 'custom' ? { period, start, end } : { period, date };
   if (channel) body.channels = channel;
@@ -165,6 +183,14 @@ export function getPauta(params) {
   return getAuthed(`/api/v2/pauta?${periodQuery(params)}`, 'Pauta fetch failed');
 }
 
+export function getPautaReal(params) {
+  return getAuthed(`/api/v3/pauta-real?${periodQuery(params)}`, 'Pauta fetch failed');
+}
+
+export function getPautaClientes(params) {
+  return getAuthed(`/api/v3/pauta-real/clientes?${periodQuery(params)}`, 'Clientes fetch failed');
+}
+
 export function getMayorista(params) {
   return getAuthed(`/api/v2/mayorista?${periodQuery(params)}`, 'Mayorista fetch failed');
 }
@@ -173,10 +199,35 @@ export function getLocales(params) {
   return getAuthed(`/api/v2/locales?${periodQuery(params)}`, 'Locales fetch failed');
 }
 
+export function getLectores(params) {
+  return getAuthed(`/api/v3/lectores?${periodQuery(params)}`, 'Lectores fetch failed');
+}
+
 export function getProducto({ ch = 'all', ...params }) {
   return getAuthed(`/api/v2/producto?${periodQuery(params)}&ch=${encodeURIComponent(ch)}`, 'Producto fetch failed');
 }
 
 export function getProductSheet(sku, params) {
   return getAuthed(`/api/v2/product/${encodeURIComponent(sku)}?${periodQuery(params)}`, 'Product fetch failed');
+}
+
+export function getVentas({ channel, q, cursor, ...params }) {
+  const extra = new URLSearchParams();
+  if (channel) extra.set('channel', channel);
+  if (q) extra.set('q', q);
+  if (cursor) extra.set('cursor', cursor);
+  const tail = extra.toString();
+  return getAuthed(`/api/v3/ventas?${periodQuery(params)}${tail ? `&${tail}` : ''}`, 'Ventas fetch failed');
+}
+
+export function getVisitas(params) {
+  return getAuthed(`/api/v3/visitas?${periodQuery(params)}`, 'Visitas fetch failed');
+}
+
+export function getPerfit(params) {
+  return getAuthed(`/api/v3/perfit?${periodQuery(params)}`, 'Perfit fetch failed');
+}
+
+export function getVenta(id) {
+  return getAuthed(`/api/v3/ventas/${encodeURIComponent(id)}`, 'Venta fetch failed');
 }

@@ -44,3 +44,15 @@ export function requireAuth(req, res, next) {
   }
   next();
 }
+
+// Token del panel o, para clientes que no tienen login (p. ej. el admin de los
+// lectores de precios), un secreto compartido leído de la variable `secretEnv`.
+export function requireAuthOrSecret(secretEnv) {
+  return (req, res, next) => {
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const secret = process.env[secretEnv] || '';
+    if ((secret && token && safeEqual(token, secret)) || verifyToken(token)) return next();
+    res.status(401).json({ ok: false, error: 'Unauthorized' });
+  };
+}
