@@ -263,9 +263,6 @@ export function OtherCard({ id, p, onSaveCost, track, trackSince, perfit }) {
           : `${costLabel} ${hint}, repartido por día del período. `}
         Cuenta solo las compras de quien entró con un clic de {id === 'email' ? 'un mail' : 'un anuncio'} en esa visita.
       </p>
-      {perfit?.campaignTotals.withoutUtms > 0 && (
-        <p className="nv-note nv-pr-warnline">{perfit.campaignTotals.withoutUtms} de {perfit.campaignTotals.count} campañas salieron <b>sin UTMs</b> (opción "Google Analytics" apagada en Perfit): sus clics no se pueden verificar.</p>
-      )}
       <TrackLine t={track} since={trackSince} />
     </div>
   );

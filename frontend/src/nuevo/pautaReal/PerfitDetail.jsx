@@ -47,21 +47,20 @@ export default function PerfitDetail({ state, onLogout }) {
       <p className="nv-note">
         Perfit cuenta como suya cualquier compra de alguien que <b>abrió</b> un mail en los días anteriores, aunque haya entrado por Google o por un anuncio.
         Por eso suele dar mucho más que "lo que llegó a la tienda" con un clic de mail.
-        {t.withoutUtms > 0 && <> <b>{t.withoutUtms} campañas salieron sin UTMs</b>: activá "Google Analytics" en el paso de envío de cada campaña (y en los links de las automatizaciones) para poder verificarlas.</>}
+        Las campañas llegan con UTMs (se ven en Email con el nombre de la campaña); las automatizaciones no: hay que agregarles utm_source=perfit&amp;utm_medium=email&amp;utm_campaign=&lt;nombre&gt; a los links para poder medirlas.
       </p>
       {open && (
         <>
           <h3 className="nv-sub-h">Campañas del período</h3>
           <div className="nv-tscroll">
             <table className="nv-table">
-              <thead><tr><th>Campaña</th><th>Envío</th><th className="num">Enviados</th><th className="num">Clics</th><th className="num">% clic</th><th className="num">Perfit dice</th><th>UTMs</th></tr></thead>
+              <thead><tr><th>Campaña</th><th>Envío</th><th className="num">Enviados</th><th className="num">Clics</th><th className="num">% clic</th><th className="num">Perfit dice</th></tr></thead>
               <tbody>
                 {data.campaigns.map((c) => (
                   <tr key={c.id}>
                     <td>{c.name}</td><td>{day(c.launchedAt)}</td><td className="num">{num(c.sent)}</td><td className="num">{num(c.clicked)}</td>
                     <td className="num">{pct(share(c.clicked, c.sent), { decimals: 1 })}</td>
                     <td className="num">{c.conversions ? `${c.conversions} · ${money(c.conversionsAmount)}` : '—'}</td>
-                    <td>{c.utms === false ? <span className="nv-bad">no</span> : c.utms ? 'sí' : '—'}</td>
                   </tr>
                 ))}
               </tbody>
