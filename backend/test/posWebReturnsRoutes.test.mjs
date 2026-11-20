@@ -437,3 +437,31 @@ test('router: con auth, evidencia y etiqueta aceptan cuerpos grandes (parser de 
     assert.equal((await fetch(`${base}/admin/web-returns/r1/evidence`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: big })).status, 401);
   } finally { server.close(); }
 });
+
+test('router: buscar el pedido al editar descuenta todo menos la propia solicitud (?exclude=<id>)', async () => {
+  const { resolveWebPurchase } = await import('../posWebReturnsPurchase.mjs');
+  const pending = { id: 'r1', number: 'CW-000001', status: 'pendiente_aprobacion', purchase: { purchaseId: '77' }, returnLines: [{ purchaseLineId: '10', qty: 2 }], odoo: { steps: {} } };
+  const pdeps = {
+    findOrderByNumber: async () => ({ id: 999, number: '123', customer: {} }),
+    findSaleOrder: async () => ({ id: 77, warehouse_id: [24, 'EC'] }),
+    getPurchase: async () => ({ source: 'web', purchaseId: '77', date: '2026-11-02 13:00:00', lines: [{ ...purchaseLine, purchaseLineId: '10' }] }),
+    readReturnMoves: async () => [],
+    activeRequests: async () => [pending],
+    settings: { webReturns: { warehouseId: 24 } },
+  };
+  const deps = mkDeps({ resolve: (n, opts) => resolveWebPurchase(n, pdeps, opts) });
+  const app = express();
+  app.use(express.json());
+  app.use('/api/pos', createWebReturnsRouter({ admins: [requirePosAuth, requirePosRole('admin')], deps }));
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${server.address().port}/api/pos`;
+  try {
+    const headers = { Authorization: `Bearer ${generateToken({ id: 'a1', role: 'admin', name: 'Admin' })}` };
+    const own = await fetch(`${base}/admin/web-returns/purchase/123?exclude=r1`, { headers });
+    assert.equal(own.status, 200);
+    assert.equal((await own.json()).returnable[0].available, 2);
+    const fresh = await fetch(`${base}/admin/web-returns/purchase/123`, { headers });
+    assert.match((await fresh.json()).error, /ya no tiene productos para devolver/);
+    assert.equal((await fetch(`${base}/admin/web-returns/purchase/123?exclude=a.b`, { headers })).status, 400);
+  } finally { server.close(); }
+});

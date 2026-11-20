@@ -125,8 +125,9 @@ export function webReturnActions(deps = defaultDeps()) {
       };
     },
 
-    purchase(tnNumber) {
-      return deps.resolve(requireTn(tnNumber));
+    // excludeRequestId: al editar, la propia solicitud no descuenta lo disponible.
+    purchase(tnNumber, excludeRequestId = null) {
+      return deps.resolve(requireTn(tnNumber), { excludeRequestId: excludeRequestId || null });
     },
 
     async createManual(body, user) {
@@ -238,7 +239,9 @@ export function createWebReturnsRouter({ admins, deps } = {}) {
 
   router.get('/admin/web-returns', ...admins, handle((req) => a.list(req.query)));
   router.get('/admin/web-returns/count', ...admins, handle(() => a.count()));
-  router.get('/admin/web-returns/purchase/:tnNumber', ...admins, handle((req) => a.purchase(req.params.tnNumber)));
+  // ?exclude=<id>: la solicitud que se edita (mismo formato que el id de la ruta).
+  const excludeId = (req, res, next) => (req.query.exclude == null ? next() : id({ params: { id: String(req.query.exclude) } }, res, next));
+  router.get('/admin/web-returns/purchase/:tnNumber', ...admins, excludeId, handle((req) => a.purchase(req.params.tnNumber, req.query.exclude ?? null)));
   router.get('/admin/web-returns/:id', ...admins, id, handle((req) => a.detail(req.params.id)));
   router.post('/admin/web-returns', ...admins, handle((req) => a.createManual(req.body ?? {}, user(req))));
   router.patch('/admin/web-returns/:id', ...admins, id, handle((req) => a.patch(req.params.id, req.body ?? {}, user(req))));
