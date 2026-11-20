@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planWebReturnPickings, runApprovalSteps, runReceiveSteps } from '../posWebReturnsOdoo.mjs';
+import { planWebReturnPickings, runApprovalSteps, runReceiveSteps, adoptableOrigin } from '../posWebReturnsOdoo.mjs';
 import { buildOdooNoteLines } from '../posWebReturns.mjs';
 import { netOfIva, round2 } from '../posPricing.mjs';
 import {
@@ -209,50 +209,82 @@ const withDry = async (fn) => {
   }
 };
 const isOpenSearch = ([mo, me, [d]]) => mo === 'stock.move' && me === 'search_read' && d?.[1]?.[1] === 'not in';
-const openReturn = (pickingId, qty = 1) => ({
+const ORIG = 'EC/OUT/47954';
+const OURS = 'CW-000123 · pick:192311:fallas';
+const openReturn = (pickingId, qty = 1, extra = []) => ({
   'stock.move.search_read': ([domain]) => (domain[1]?.[1] === 'not in'
-    ? [{ picking_id: [pickingId, 'EC/RET/7'], product_id: [70417, 'x'], product_uom_qty: qty }] : []),
+    ? [{ picking_id: [pickingId, 'EC/RET/7'], product_id: [70417, 'x'], product_uom_qty: qty }, ...extra] : []),
+});
+// stock.picking.read por id: el EC/OUT original y la devolución con el origin dado.
+const pickings = (returnId, origin, name = 'EC/RET/7') => ({
+  'stock.picking.read': ([ids]) => [ids[0] === 192311
+    ? { id: 192311, name: ORIG, state: 'done', origin: 'TN1700000000' }
+    : ids[0] === returnId ? { id: returnId, name, state: 'assigned', origin }
+      : { id: ids[0], name: 'EC/RET/00100', state: 'assigned', origin: false }],
+});
+const originWrites = (calls) => calls.filter(([mo, me]) => mo === 'stock.picking' && me === 'write').map((c) => c[2]);
+
+test('adoptableOrigin: vacío, el nuestro o el del asistente del mismo remito', () => {
+  for (const o of [false, '', '  ', OURS, `Retorno de ${ORIG}`, ` Return of ${ORIG} `, `Devolución de ${ORIG}`]) {
+    assert.equal(adoptableOrigin(o, OURS, ORIG), true, String(o));
+  }
+  for (const o of ['CW-000999 · pick:192311:fallas', `Retorno de EC/OUT/47955`, `Retorno de ${ORIG} bis`, 'Lorena', `Retorno de ECXOUTX47954`]) {
+    assert.equal(adoptableOrigin(o, OURS, ORIG), false, o);
+  }
+  assert.equal(adoptableOrigin(`Retorno de ${ORIG}`, OURS, null), false);
 });
 
-test('reintento con una devolución abierta sin origin: la adopta, le escribe el origin y no crea otra', async () => {
-  const { odoo, calls } = fakeOdoo({
-    ...openReturn(4500),
-    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: false }],
-  });
+test('reintento con una devolución abierta "Retorno de <mismo EC/OUT>": la adopta, le escribe el origin y no crea otra', async () => {
+  const { odoo, calls } = fakeOdoo({ ...openReturn(4500), ...pickings(4500, `Retorno de ${ORIG}`) });
   const steps = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
   assert.deepEqual(calls.find(isOpenSearch)[2][0], [['origin_returned_move_id', 'in', [612602]], ['state', 'not in', ['done', 'cancel']]]);
   assert.ok(!writes(calls).some((w) => w.startsWith('stock.return.picking')));
-  assert.deepEqual(callOf(calls, 'stock.picking.write')[2], [[4500], { origin: 'CW-000123 · pick:192311:fallas' }]);
+  assert.deepEqual(originWrites(calls), [[[4500], { origin: OURS }]]);
   assert.deepEqual(steps.pickings['pick:192311:fallas'], { id: 4500, name: 'EC/RET/7', state: 'assigned', lots: {} });
 });
 
+test('devolución abierta sin origin: se adopta y se le escribe el nuestro', async () => {
+  const { odoo, calls } = fakeOdoo({ ...openReturn(4500), ...pickings(4500, false) });
+  const steps = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
+  assert.ok(!writes(calls).some((w) => w.startsWith('stock.return.picking')));
+  assert.deepEqual(originWrites(calls), [[[4500], { origin: OURS }]]);
+  assert.equal(steps.pickings['pick:192311:fallas'].id, 4500);
+});
+
 test('devolución abierta con nuestro origin exacto: se adopta sin reescribirlo', async () => {
-  const { odoo, calls } = fakeOdoo({
-    ...openReturn(4500),
-    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: 'CW-000123 · pick:192311:fallas' }],
-  });
+  const { odoo, calls } = fakeOdoo({ ...openReturn(4500), ...pickings(4500, OURS) });
   const steps = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
   assert.ok(!writes(calls).some((w) => w.startsWith('stock.return.picking') || w === 'stock.picking.write'));
   assert.equal(steps.pickings['pick:192311:fallas'].id, 4500);
 });
 
-test('devolución abierta con otro origin o que no cubre la cantidad: no se adopta', async () => {
-  const other = fakeOdoo({ ...openReturn(4500), 'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: 'Lorena' }] });
-  await runApprovalSteps(request({ evidence: [] }), settings, depsFor(other.odoo));
-  assert.ok(writes(other.calls).includes('stock.return.picking.create_returns'), 'otro origin');
-  assert.ok(!other.calls.some(([mo, me, args]) => mo === 'stock.picking' && me === 'write' && args[0][0] === 4500));
-
-  const short = fakeOdoo({ ...openReturn(4500, 1), 'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: false }] });
-  const deps = depsFor(short.odoo);
-  deps.readMoves = async (ids) => ids.map((i) => move(i, 192311, 2));
-  await runApprovalSteps(request({ evidence: [], returnLines: [rline({ qty: 2 })] }), settings, deps);
-  assert.ok(writes(short.calls).includes('stock.return.picking.create_returns'), 'menos cantidad');
+test('devolución abierta de otra solicitud (CW-000999 · …) u otro origin: no se adopta, se crea', async () => {
+  for (const origin of ['CW-000999 · pick:192311:fallas', 'Retorno de EC/OUT/11111', 'Lorena']) {
+    const { odoo, calls } = fakeOdoo({ ...openReturn(4500), ...pickings(4500, origin) });
+    await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
+    assert.ok(writes(calls).includes('stock.return.picking.create_returns'), origin);
+    assert.ok(!originWrites(calls).some(([[id]]) => id === 4500), origin);
+  }
 });
 
-test('createReturnPicking tira "Se creó la devolución 77": guarda el id; el reintento la lee, le marca el origin y no la recrea', async () => {
-  const { odoo, calls } = fakeOdoo({
-    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/77', state: 'assigned', origin: false }],
-  });
+test('devolución abierta con más cantidad, menos cantidad u otro producto: no se adopta', async () => {
+  const cases = [
+    ['más cantidad', openReturn(4500, 2), 1],
+    ['menos cantidad', openReturn(4500, 1), 2],
+    ['producto de más', openReturn(4500, 1, [{ picking_id: [4500, 'EC/RET/7'], product_id: [80000, 'y'], product_uom_qty: 1 }]), 1],
+  ];
+  for (const [why, over, qty] of cases) {
+    const { odoo, calls } = fakeOdoo({ ...over, ...pickings(4500, `Retorno de ${ORIG}`) });
+    const deps = depsFor(odoo);
+    deps.readMoves = async (ids) => ids.map((i) => move(i, 192311, 2));
+    await runApprovalSteps(request({ evidence: [], returnLines: [rline({ qty })] }), settings, deps);
+    assert.ok(writes(calls).includes('stock.return.picking.create_returns'), why);
+    assert.ok(!originWrites(calls).some(([[id]]) => id === 4500), why);
+  }
+});
+
+test('createReturnPicking tira "Se creó la devolución 77": guarda el id; el reintento reescribe el "Retorno de …" y no la recrea', async () => {
+  const { odoo, calls } = fakeOdoo(pickings(77, `Retorno de ${ORIG}`, 'EC/RET/77'));
   const saved = [];
   const deps = depsFor(odoo, { saved });
   deps.createReturnPicking = async () => { throw new Error('Se creó la devolución 77 en Odoo pero no se pudo marcar: timeout'); };
@@ -261,7 +293,7 @@ test('createReturnPicking tira "Se creó la devolución 77": guarda el id; el re
   calls.length = 0;
   deps.createReturnPicking = async () => assert.fail('no la recrea');
   const steps = await runApprovalSteps(request({ evidence: [], odoo: { steps: saved.at(-1) } }), settings, deps);
-  assert.deepEqual(callOf(calls, 'stock.picking.write')[2], [[77], { origin: 'CW-000123 · pick:192311:fallas' }]);
+  assert.deepEqual(originWrites(calls), [[[77], { origin: OURS }]]);
   assert.deepEqual(steps.pickings['pick:192311:fallas'], { id: 77, name: 'EC/RET/77', state: 'assigned', lots: {} });
 });
 

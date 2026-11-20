@@ -162,14 +162,27 @@ async function readPicking(odoo, id) {
   return p ?? null;
 }
 
-// Marca nuestro origin en una devolución que quedó sin él.
+// Deja nuestro origin en la devolución si no lo tiene ya (vacío o el del asistente).
 async function ensureOrigin(odoo, picking, origin) {
-  if (!picking.origin) await odoo.write('stock.picking', 'write', [[picking.id], { origin }]);
+  if (picking.origin === origin) return;
+  await odoo.write('stock.picking', 'write', [[picking.id], { origin }]);
+  picking.origin = origin;
 }
 
-// Una devolución abierta de los moves del grupo que quedó sin origin (se
-// perdió la respuesta o falló el write del origin): se adopta si cubre los
-// mismos productos con al menos la misma cantidad.
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Origin adoptable: vacío, el nuestro, o el que pone el asistente de Odoo al
+// crear la devolución ("Retorno de EC/OUT/47954" con es_AR).
+export function adoptableOrigin(current, ours, originalPickingName) {
+  const o = String(current || '').trim();
+  if (!o || o === ours) return true;
+  if (!originalPickingName) return false;
+  return new RegExp(`^(Retorno de|Return of|Devolución de) ${escapeRe(originalPickingName)}$`).test(o);
+}
+
+// Una devolución abierta de los moves del grupo que quedó sin nuestro origin
+// (se perdió la respuesta o falló el write del origin): se adopta solo si trae
+// exactamente los mismos productos y cantidades (nunca más stock del pedido).
 async function findOpenReturn(group, origin, odoo) {
   const moveIds = group.items.map((i) => i.moveId);
   const moves = await odoo.read('stock.move', 'search_read', [[
@@ -183,11 +196,13 @@ async function findOpenReturn(group, origin, odoo) {
     if (!byPicking.has(pid)) byPicking.set(pid, []);
     byPicking.get(pid).push({ productId: m.product_id?.[0], qty: Number(m.product_uom_qty) || 0 });
   }
+  let originalName;
   for (const [pid, rows] of byPicking) {
     const have = sumQty(rows, (r) => r.qty);
-    if (![...need].every(([prod, q]) => (have.get(prod) ?? 0) >= q)) continue;
+    if (have.size !== need.size || ![...need].every(([prod, q]) => have.get(prod) === q)) continue;
+    if (originalName === undefined) originalName = (await readPicking(odoo, group.pickingId))?.name ?? null;
     const picking = await readPicking(odoo, pid);
-    if (!picking || (picking.origin && picking.origin !== origin)) continue;
+    if (!picking || !adoptableOrigin(picking.origin, origin, originalName)) continue;
     await ensureOrigin(odoo, picking, origin);
     return picking;
   }
