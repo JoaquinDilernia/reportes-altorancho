@@ -59,3 +59,41 @@ export async function fetchOrdersSince(sinceISO) {
 export async function fetchAllProducts() {
   return fetchAllPages('products');
 }
+
+const ORDER_FIELDS = 'id,number,created_at,customer,contact_name,contact_phone,contact_email,contact_identification,shipping_address';
+
+function shippingAddressString(a) {
+  if (!a) return '';
+  const street = [a.address, a.number, a.floor].filter((p) => p !== undefined && p !== null && String(p).trim()).join(' ');
+  const parts = [street, a.locality, a.city, a.province].filter((p) => p && String(p).trim());
+  const zip = a.zipcode && String(a.zipcode).trim() ? ` (${String(a.zipcode).trim()})` : '';
+  return parts.join(', ') + zip;
+}
+
+// Busca un pedido por su número visible (el que ven clientes y equipo).
+export async function findOrderByNumber(number, req = request) {
+  const n = String(number ?? '').trim();
+  if (!/^\d+$/.test(n)) throw new Error('Número de pedido inválido');
+  let data;
+  try {
+    ({ data } = await req(`${BASE_URL}/${STORE_ID}/orders?q=${n}&per_page=50&fields=${ORDER_FIELDS}`));
+  } catch (e) {
+    if (/error 404/.test(e?.message ?? '')) return null; // "Last page is 0": no hay resultados
+    throw e;
+  }
+  const o = (Array.isArray(data) ? data : []).find((x) => String(x.number) === n);
+  if (!o) return null;
+  const c = o.customer ?? {};
+  return {
+    id: o.id,
+    number: String(o.number),
+    createdAt: o.created_at,
+    customer: {
+      name: o.contact_name || c.name || '',
+      email: o.contact_email || c.email || '',
+      phone: o.contact_phone || c.phone || '',
+      identification: o.contact_identification || c.identification || '',
+    },
+    shippingAddress: shippingAddressString(o.shipping_address),
+  };
+}
