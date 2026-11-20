@@ -30,21 +30,38 @@ function Section({ title, sub, children, note }) {
 }
 
 function Alerts({ alerts }) {
-  if (!alerts?.length) return null;
+  const list = (alerts || []).filter((a) => a.kind !== 'checkout');
+  if (!list.length) return null;
   return (
     <div className="nv-vz-alerts">
-      {alerts.map((a, i) => (
-        <div key={i} className={`nv-vz-alert ${a.level}`}>
-          {a.kind === 'checkout' ? (
-            <>
-              <b>{money(a.total)}</b> en un checkout abandonado {when(a.at)} · <ChannelChip channel={a.channel} /> · {a.products}
-              {a.email && <> · <a href={`mailto:${a.email}`}>{a.email}</a></>}
-              <span className="nv-mute"> — {a.text}</span>
-            </>
-          ) : a.text}
-        </div>
-      ))}
+      {list.map((a, i) => <div key={i} className={`nv-vz-alert ${a.level}`}>{a.text}</div>)}
     </div>
+  );
+}
+
+// Checkouts grandes de los últimos 2 días sin compra: para que alguien los contacte hoy.
+function ToCall({ alerts }) {
+  const list = (alerts || []).filter((a) => a.kind === 'checkout');
+  if (!list.length) return null;
+  return (
+    <Section title="Para contactar hoy" sub="checkouts de más de $500K de los últimos 2 días, todavía sin compra">
+      <div className="nv-tscroll">
+        <table className="nv-table nv-vz-call">
+          <thead><tr><th>Cuándo</th><th className="num">Monto</th><th>Vino de</th><th>Qué dejó</th><th>Contacto</th></tr></thead>
+          <tbody>
+            {list.map((a, i) => (
+              <tr key={i}>
+                <td>{when(a.at)}</td>
+                <td className="num"><b>{money(a.total)}</b></td>
+                <td><ChannelChip channel={a.channel} /></td>
+                <td className="nv-vz-items" title={a.products}>{a.products}</td>
+                <td>{a.email ? <a href={`mailto:${a.email}`}>{a.email}</a> : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
   );
 }
 
@@ -295,6 +312,7 @@ export default function Visitas({ state, onLogout }) {
           <Section title="Visitas por canal" sub={`${num(data.total.visits)} visitas · ${num(data.total.visitors)} personas`}>
             <ChannelsTable channels={data.channels} total={data.total} />
           </Section>
+          <ToCall alerts={data.alerts} />
           <Section title="Embudo" sub="de cada 100 que entran, cuántos llegan a cada paso"
             note="El checkout de Tienda Nube no corre nuestro script: lo que pasa ahí lo cuentan los checkouts abandonados, más abajo.">
             <Funnel funnel={i.funnel} channels={data.channels} />
