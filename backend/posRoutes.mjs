@@ -23,6 +23,8 @@ import * as cash from './posCash.mjs';
 import { computePosStats, monthsBetween } from './posStats.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { getDb } from './firestore.mjs';
+import { statusOf, handle, httpError, validId } from './posHttp.mjs';
+import { createWebReturnsRouter } from './posWebReturnsRoutes.mjs';
 
 const router = Router();
 const auth = [requirePosAuth];
@@ -30,27 +32,8 @@ const sellers = [requirePosAuth, requirePosRole('vendedor', 'caja', 'admin')];
 const cajas = [requirePosAuth, requirePosRole('caja', 'admin')];
 const admins = [requirePosAuth, requirePosRole('admin')];
 
-const httpError = (message, status) => Object.assign(new Error(message), { status });
-
-export function statusOf(err) {
-  if (err.status) return err.status;
-  if (err.stage === 'claim') return 409;
-  if (err.stage === 'odoo' || err.stage === 'post') return 502;
-  if (/ no encontrad[oa]$/.test(err.message ?? '')) return 404;
-  if (String(err.message ?? '').startsWith('Odoo RPC error')) return 502;
-  if (['TypeError', 'AbortError', 'TimeoutError'].includes(err.name)) return 502;
-  return 400;
-}
-
-const handle = (fn) => async (req, res) => {
-  try {
-    res.json(await fn(req, res));
-  } catch (err) {
-    const status = statusOf(err);
-    if (status >= 500) console.error('[pos]', req.method, req.path, err.message);
-    res.status(status).json({ error: err.message });
-  }
-};
+// statusOf/handle viven en posHttp (las comparte el router de cambios web).
+export { statusOf };
 
 // Límite de intentos fallidos de login por IP (en memoria).
 export function createLoginLimiter({ max = 10, windowMs = 10 * 60 * 1000, now = Date.now, sweepAt = 500 } = {}) {
@@ -373,10 +356,6 @@ router.get('/cash/sessions', ...cajas, handle((req) => cash.listCashSessions(sco
 // ---- Admin ----
 const LOCALE_ID = /^[A-Z]{2,4}$/;
 const CONFIG_ID = /^[A-Za-z0-9_-]{1,40}$/;
-const validId = (pattern, label) => (req, res, next) => {
-  if (!pattern.test(req.params.id)) return res.status(400).json({ error: `${label} inválido` });
-  return next();
-};
 
 router.get('/admin/credits', ...admins, handle((req) => listCreditsForAdmin({
   docNumber: req.query.doc ? String(req.query.doc).replace(/\D/g, '') : null, expiredOnly: req.query.expired === '1',
@@ -405,5 +384,8 @@ router.get('/admin/stats', ...admins, handle(async (req) => {
   const all = await orders.listOrdersByMonth(localIds, monthsBetween(from, to));
   return computePosStats(all, { from: from.getTime(), to: to.getTime() });
 }));
+
+// ---- Cambios y devoluciones web (panel y bot) ----
+router.use(createWebReturnsRouter({ admins }));
 
 export default router;

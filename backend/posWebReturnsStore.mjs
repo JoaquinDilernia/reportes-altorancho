@@ -144,3 +144,40 @@ export async function saveOdooSteps(id, steps, db = getDb()) {
     tx.update(ref, { odoo: { ...(cur.odoo || {}), steps }, updatedAt: new Date() });
   });
 }
+
+export const MAX_EVIDENCE = 20;
+
+// Suma un archivo de evidencia dentro de la transacción: dos subidas en
+// paralelo (el bot manda varias fotos seguidas) no se pisan.
+export async function appendEvidence(id, item, user, now = Date.now(), db = getDb()) {
+  const ref = db.collection(COL).doc(id);
+  return db.runTransaction(async (tx) => {
+    const cur = await readOrThrow(tx, ref);
+    if (!canEdit(cur)) throw new Error('Esta solicitud ya no se puede editar');
+    const extra = checkBusy(cur, user, now);
+    const evidence = [...(cur.evidence || [])];
+    if (evidence.length >= MAX_EVIDENCE) throw new Error(`Se pueden cargar hasta ${MAX_EVIDENCE} archivos`);
+    evidence.push(item);
+    const history = [...(cur.history || []), ...extra, historyEntry('evidence', user, { storagePath: item?.storagePath ?? null }, new Date(now))];
+    const upd = { evidence, history, updatedAt: new Date(now) };
+    if (extra.length) upd.busy = null;
+    tx.update(ref, upd);
+    return normalize({ ...cur, ...upd });
+  });
+}
+
+// Etiqueta de envío: solo con la solicitud aprobada (después del ok en Odoo).
+export async function setLabel(id, labelPath, user, now = Date.now(), db = getDb()) {
+  const ref = db.collection(COL).doc(id);
+  return db.runTransaction(async (tx) => {
+    const cur = await readOrThrow(tx, ref);
+    if (cur.status !== 'aprobada') throw new Error('La etiqueta se carga con la solicitud aprobada');
+    const extra = checkBusy(cur, user, now);
+    const logistics = { ...(cur.logistics || {}), labelPath };
+    const history = [...(cur.history || []), ...extra, historyEntry('label', user, { labelPath }, new Date(now))];
+    const upd = { logistics, history, updatedAt: new Date(now) };
+    if (extra.length) upd.busy = null;
+    tx.update(ref, upd);
+    return normalize({ ...cur, ...upd });
+  });
+}

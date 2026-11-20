@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createFakeFirestore } from './helpers/fakeFirestore.mjs';
 import {
   createWebReturn, getWebReturn, listWebReturns, countPending, updateDraft,
-  claimTransition, finishTransition, failTransition, saveOdooSteps, BUSY_STALE_MS,
+  claimTransition, finishTransition, failTransition, saveOdooSteps, BUSY_STALE_MS, appendEvidence, setLabel,
 } from '../posWebReturnsStore.mjs';
 
 const draft = (o = {}) => ({ kind: 'cambio', reason: 'falla', customer: { name: 'Ana Perez', phone: '11' }, purchase: { ref: 'S1' }, ...o });
@@ -151,4 +151,38 @@ test('busy no puede ser pisado por extra', async () => {
   const c = await claimTransition(r.id, 'approve', user, { action: 'hack', by: 'x' }, undefined, db);
   assert.equal(c.request.busy.action, 'approve');
   assert.deepEqual(c.request.busy.by, user);
+});
+
+test('appendEvidence: suma en paralelo sin pisar y solo mientras es editable', async () => {
+  const db = createFakeFirestore();
+  const r = await createWebReturn(draft(), user, new Date(), db);
+  await Promise.all([
+    appendEvidence(r.id, { storagePath: 'a', kind: 'image', mimetype: 'image/png' }, 'Juan', undefined, db),
+    appendEvidence(r.id, { storagePath: 'b', kind: 'pdf', mimetype: 'application/pdf' }, 'Juan', undefined, db),
+  ]);
+  const g = await getWebReturn(r.id, db);
+  assert.deepEqual(g.evidence.map((e) => e.storagePath).sort(), ['a', 'b']);
+  assert.equal(g.history.at(-1).action, 'evidence');
+  await claimTransition(r.id, 'reject', user, {}, undefined, db);
+  await finishTransition(r.id, { status: 'rechazada', patch: {}, user, action: 'reject' }, db);
+  await assert.rejects(appendEvidence(r.id, { storagePath: 'c' }, 'Juan', undefined, db), /no se puede editar/i);
+});
+
+test('appendEvidence: tope de archivos', async () => {
+  const db = createFakeFirestore();
+  const r = await createWebReturn(draft({ evidence: Array.from({ length: 20 }, (_, i) => ({ storagePath: `p${i}` })) }), user, new Date(), db);
+  await assert.rejects(appendEvidence(r.id, { storagePath: 'x' }, 'Juan', undefined, db), /hasta 20 archivos/);
+});
+
+test('setLabel: solo en aprobada, con historial label', async () => {
+  const db = createFakeFirestore();
+  const r = await createWebReturn(draft({ logistics: { mode: 'retiro_domicilio' } }), user, new Date(), db);
+  await assert.rejects(setLabel(r.id, 'pos-web-returns/x/l.pdf', 'Juan', undefined, db), /aprobada/);
+  await claimTransition(r.id, 'approve', user, {}, undefined, db);
+  await finishTransition(r.id, { status: 'aprobada', patch: {}, user, action: 'approve' }, db);
+  const s = await setLabel(r.id, 'pos-web-returns/x/l.pdf', 'Juan', undefined, db);
+  assert.equal(s.logistics.labelPath, 'pos-web-returns/x/l.pdf');
+  assert.equal(s.logistics.mode, 'retiro_domicilio');
+  assert.equal(s.history.at(-1).action, 'label');
+  assert.equal((await getWebReturn(r.id, db)).logistics.labelPath, 'pos-web-returns/x/l.pdf');
 });
