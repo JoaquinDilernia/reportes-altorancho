@@ -155,3 +155,56 @@ test('isInternalJournal: diarios de venta interna de los locales y el general', 
   assert.equal(isInternalJournal(32, DEFAULT_LOCALES, DEFAULT_SETTINGS), false);
   assert.equal(isInternalJournal(null, DEFAULT_LOCALES, DEFAULT_SETTINGS), false);
 });
+
+// ---- Cambios web ----
+import { webReturnDestinationsOf, withSettingsDefaults } from '../posConfig.mjs';
+
+test('webReturns: valores iniciales completos', () => {
+  const w = DEFAULT_SETTINGS.webReturns;
+  assert.equal(w.windowBusinessDays, 30);
+  assert.deepEqual(w.destinations.map((d) => d.id), ['fallas', 'ecommerce', 'belgrano', 'lomas', 'rolon']);
+  assert.deepEqual(w.defaultDestinationByReason, { falla: 'fallas', disconformidad: 'ecommerce' });
+  assert.equal(webReturnDestinationsOf(DEFAULT_SETTINGS).length, 5);
+});
+
+test('validateSettings: ajustes guardados sin webReturns siguen siendo válidos', () => {
+  const { webReturns: _omit, ...old } = DEFAULT_SETTINGS;
+  assert.deepEqual(validateSettings(old), []);
+  assert.deepEqual(validateSettings(DEFAULT_SETTINGS), []);
+});
+
+test('validateSettings: plazo de cambios web inválido', () => {
+  const bad = { ...DEFAULT_SETTINGS, webReturns: { ...DEFAULT_SETTINGS.webReturns, windowBusinessDays: 0 } };
+  assert.match(validateSettings(bad).join('|'), /plazo/);
+});
+
+test('validateSettings: feriado mal formado', () => {
+  const bad = { ...DEFAULT_SETTINGS, webReturns: { ...DEFAULT_SETTINGS.webReturns, holidays: ['2026-12-08', '8/12/2026'] } };
+  assert.match(validateSettings(bad).join('|'), /feriado/);
+  const ok = { ...DEFAULT_SETTINGS, webReturns: { ...DEFAULT_SETTINGS.webReturns, holidays: ['2026-12-08'] } };
+  assert.deepEqual(validateSettings(ok), []);
+});
+
+test('validateSettings: destino con ubicación inválida', () => {
+  const dests = [{ id: 'x', label: 'X', locationId: -3 }];
+  const bad = { ...DEFAULT_SETTINGS, webReturns: { ...DEFAULT_SETTINGS.webReturns, destinations: dests } };
+  assert.match(validateSettings(bad).join('|'), /destino/i);
+});
+
+test('webReturnDestinationsOf: filtra los destinos sin ubicación', () => {
+  const s = { webReturns: { destinations: [
+    { id: 'a', label: 'A', locationId: 5 }, { id: 'b', label: 'B', locationId: null },
+  ] } };
+  assert.deepEqual(webReturnDestinationsOf(s), [{ id: 'a', label: 'A', locationId: 5 }]);
+  assert.deepEqual(webReturnDestinationsOf({}), []);
+});
+
+test('withSettingsDefaults: webReturns parcial conserva los defaults; el resto sigue igual', () => {
+  const m = withSettingsDefaults({ returnWindowDays: 10, webReturns: { windowBusinessDays: 15 } });
+  assert.equal(m.returnWindowDays, 10);
+  assert.equal(m.fallasLocationId, 192);
+  assert.equal(m.webReturns.windowBusinessDays, 15);
+  assert.equal(m.webReturns.tagId, 18);
+  assert.equal(m.webReturns.destinations.length, 5);
+  assert.equal(withSettingsDefaults({}).webReturns.windowBusinessDays, 30);
+});

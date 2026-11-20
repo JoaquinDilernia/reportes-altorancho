@@ -50,7 +50,35 @@ export const DEFAULT_SETTINGS = {
   returnSearchDays: 365,
   returnWindowDays: 30, // pasado este plazo la devolución se hace igual pero queda "fuera de plazo"
   creditOdooPaymentName: null, // payment.method de Odoo si se paga todo con saldo
+  // Cambios y devoluciones de compras web (ids verificados en Odoo el 2026-11-20):
+  // tipo de operación 167, etiqueta 18, depósito EC 24, equipo 1, producto de
+  // envío [ENV002EX] = 30306, y ubicaciones Fall/Stock 192, EC/Stock 150,
+  // BL/Stock 372, LL/Stock 8, RL/Stock 174.
+  webReturns: {
+    warehouseId: 24, teamId: 1, tagId: 18,
+    returnPickingTypeId: 167,
+    shippingProductId: 30306,
+    windowBusinessDays: 30,
+    holidays: [], // ['2026-12-08', ...]
+    destinations: [
+      { id: 'fallas', label: 'Fallas', locationId: 192 },
+      { id: 'ecommerce', label: 'E Commerce', locationId: 150 },
+      { id: 'belgrano', label: 'Belgrano', locationId: 372 },
+      { id: 'lomas', label: 'Las Lomas', locationId: 8 },
+      { id: 'rolon', label: 'Rolón', locationId: 174 },
+    ],
+    defaultDestinationByReason: { falla: 'fallas', disconformidad: 'ecommerce' },
+  },
 };
+
+// Destinos de cambios web que tienen ubicación cargada.
+export const webReturnDestinationsOf = (settings) => (settings?.webReturns?.destinations ?? []).filter((d) => isId(d?.locationId));
+
+// Mezcla lo guardado con los valores iniciales; webReturns un nivel más adentro.
+export function withSettingsDefaults(stored) {
+  const saved = stored ?? {};
+  return { ...DEFAULT_SETTINGS, ...saved, webReturns: { ...DEFAULT_SETTINGS.webReturns, ...(saved.webReturns ?? {}) } };
+}
 
 const cuotas = (n, name) => ({ id: String(n), label: n === 1 ? '1 cuota' : `${n} cuotas`, odooName: name });
 
@@ -155,7 +183,34 @@ export function validateSettings(input) {
   if (search !== undefined && !(Number.isInteger(search) && search >= 1 && search <= 1095)) errors.push('Días de búsqueda de compras: entre 1 y 1095');
   const creditName = input.creditOdooPaymentName;
   if (creditName != null && !(typeof creditName === 'string' && creditName.trim())) errors.push('Medio de Odoo para saldo a favor inválido');
+  if (input.webReturns !== undefined) validateWebReturns(input.webReturns, errors);
   return errors;
+}
+
+function validateWebReturns(w, errors) {
+  if (!w || typeof w !== 'object' || Array.isArray(w)) { errors.push('Cambios web: configuración inválida'); return; }
+  for (const key of ['warehouseId', 'teamId', 'tagId', 'returnPickingTypeId', 'shippingProductId']) {
+    if (w[key] != null && !isId(w[key])) errors.push(`Cambios web: ${key} inválido`);
+  }
+  if (!(Number.isInteger(w.windowBusinessDays) && w.windowBusinessDays >= 1 && w.windowBusinessDays <= 365)) errors.push('Cambios web: el plazo debe ser de 1 a 365 días hábiles');
+  const holidays = w.holidays ?? [];
+  const validDate = (h) => typeof h === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(h) && new Date(`${h}T00:00:00Z`).toISOString().slice(0, 10) === h;
+  if (!Array.isArray(holidays) || holidays.some((h) => !validDate(h))) errors.push('Cambios web: cada feriado debe ser una fecha AAAA-MM-DD válida');
+  const dests = w.destinations ?? [];
+  if (!Array.isArray(dests)) errors.push('Cambios web: destinos inválidos');
+  else {
+    const ids = new Set();
+    for (const d of dests) {
+      if (!d || !String(d.id ?? '').trim() || !String(d.label ?? '').trim()) { errors.push('Cambios web: cada destino necesita código y nombre'); continue; }
+      if (ids.has(d.id)) errors.push(`Cambios web: destino repetido (${d.id})`);
+      ids.add(d.id);
+      if (d.locationId != null && !isId(d.locationId)) errors.push(`Cambios web: ubicación inválida en el destino ${d.id}`);
+    }
+  }
+  const byReason = w.defaultDestinationByReason;
+  if (byReason != null && (typeof byReason !== 'object' || Array.isArray(byReason) || Object.values(byReason).some((v) => typeof v !== 'string'))) {
+    errors.push('Cambios web: destino por motivo inválido');
+  }
 }
 
 // Nombre exacto del payment.method de Odoo ("Medio de pago" del pedido).
@@ -256,7 +311,7 @@ async function loadAll() {
     at: Date.now(),
     locales: locSnap.docs.map((d) => withLocaleDefaults({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name, 'es')),
     methods: methodSnap.docs.map((d) => withMethodDefaults({ id: d.id, ...d.data() })).sort((a, b) => (a.order ?? 99) - (b.order ?? 99)),
-    settings: { ...DEFAULT_SETTINGS, ...(settingsSnap.exists ? settingsSnap.data() : {}) },
+    settings: withSettingsDefaults(settingsSnap.exists ? settingsSnap.data() : {}),
   };
   return cache;
 }
