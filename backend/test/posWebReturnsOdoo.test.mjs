@@ -1,94 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planWebReturnPickings, runApprovalSteps, runReceiveSteps } from '../posWebReturnsOdoo.mjs';
-import { approve, receive, reject, derive, refundDone, close } from '../posWebReturnsService.mjs';
-import * as rOdoo from '../posReturnsOdoo.mjs';
-import * as store from '../posWebReturnsStore.mjs';
-import { DEFAULT_SETTINGS } from '../posConfig.mjs';
 import { buildOdooNoteLines } from '../posWebReturns.mjs';
 import { netOfIva, round2 } from '../posPricing.mjs';
-import { createFakeFirestore } from './helpers/fakeFirestore.mjs';
-
-const settings = DEFAULT_SETTINGS;
-const user = { uid: 'u1', name: 'Mili' };
-
-const rline = (o = {}) => ({
-  purchaseLineId: '501', productId: 70417, sku: 'BCC104TR', name: 'Taza', qty: 1, unitValue: 10000,
-  destinationId: 'fallas', moveIds: [612602], lots: [], ...o,
-});
-const request = (o = {}) => ({
-  id: 'r1', number: 'CW-000123', status: 'pendiente_aprobacion', kind: 'cambio', reason: 'falla', reasonLabel: 'ROTURA',
-  reasonNote: 'Llegó rota', productOrigin: 'importado',
-  customer: { name: 'Ana Perez', phone: '1155', address: 'Calle 1' },
-  purchase: { source: 'web', purchaseId: '9001', ref: '41234', tnOrderId: 1700000000, date: '2026-11-01T10:00:00.000Z' },
-  returnLines: [rline()],
-  newLines: [{ productId: 70417, sku: 'BCC104TR', name: 'Taza', qty: 1, price: 10000 }],
-  evidence: [{ storagePath: 'web_returns/r1/a.jpg', kind: 'photo', mimetype: 'image/jpeg' }],
-  logistics: { mode: 'retiro_domicilio', payer: 'altorancho', cost: 0, shippingCharge: 0 },
-  money: {}, odoo: { steps: {}, error: null },
-  ...o,
-});
-
-const move = (id, pickingId = 192311, qty = 1, productId = 70417) => ({
-  id, product_id: [productId, 'x'], quantity_done: qty, product_uom: [1, 'u'], picking_id: [pickingId, 'EC/OUT/1'],
-});
-
-// Odoo falso: registra [model, method, args, kwargs]; responde por "model.method".
-function fakeOdoo(over = {}) {
-  const calls = [];
-  let nextId = 1000;
-  const handlers = {
-    'sale.order.search_read': () => [],
-    'sale.order.read': ([ids], kw) => (kw.fields.includes('partner_id')
-      ? [{ id: ids[0], partner_id: [77, 'Ana'], partner_shipping_id: [78, 'Ana envío'] }]
-      : [{ id: ids[0], name: 'S12000', state: 'draft' }]),
-    'sale.order.create': () => nextId++,
-    'sale.order.action_confirm': () => true,
-    'sale.order.message_post': () => 55,
-    'ir.attachment.create': () => [nextId++],
-    'stock.move.read': ([ids]) => ids.map((i) => move(i)),
-    'stock.move.search_read': () => [],
-    'stock.picking.search_read': () => [],
-    'stock.return.picking.create': () => [nextId++],
-    'stock.return.picking.create_returns': () => ({ res_id: 4321 }),
-    'stock.picking.write': () => true,
-    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/00100', state: 'assigned' }],
-    ...over,
-  };
-  const run = async (model, method, args = [], kwargs = {}) => {
-    calls.push([model, method, structuredClone(args), structuredClone(kwargs)]);
-    const h = handlers[`${model}.${method}`];
-    if (!h) throw new Error(`sin handler: ${model}.${method}`);
-    return h(args, kwargs);
-  };
-  return { odoo: { read: run, write: run }, calls };
-}
-
-function depsFor(odoo, { db, saved = [], validate } = {}) {
-  return {
-    odoo,
-    readMoves: (ids) => rOdoo.readMoves(ids, odoo),
-    returnedQtyByMove: (ids) => rOdoo.returnedQtyByMove(ids, odoo),
-    findPickingByOrigin: (origin) => rOdoo.findPickingByOrigin(origin, odoo),
-    createReturnPicking: (args) => rOdoo.createReturnPicking(args, odoo),
-    validatePicking: validate ?? ((id, lots) => rOdoo.validatePicking(id, lots, odoo)),
-    saveOdooSteps: async (id, steps) => {
-      saved.push(structuredClone(steps));
-      if (db) await store.saveOdooSteps(id, steps, db);
-    },
-    readEvidence: async (path) => ({ base64: 'QUJD', mimetype: 'image/jpeg', name: path.split('/').pop() }),
-    getSettings: async () => settings,
-    store: db && {
-      getWebReturn: (id) => store.getWebReturn(id, db),
-      claimTransition: (id, action, u, extra) => store.claimTransition(id, action, u, extra, undefined, db),
-      finishTransition: (id, args) => store.finishTransition(id, args, db),
-      failTransition: (id, err) => store.failTransition(id, err, db),
-    },
-  };
-}
-
-const writes = (calls) => calls.filter(([, m]) => !['read', 'search_read', 'search'].includes(m)).map(([mo, me]) => `${mo}.${me}`);
-const callOf = (calls, key) => calls.find(([mo, me]) => `${mo}.${me}` === key);
+import {
+  settings, user, rline, request, move, fakeOdoo, depsFor, writes, callOf,
+} from './helpers/webReturnsFakes.mjs';
 
 // ---- planWebReturnPickings ----
 
@@ -153,7 +70,7 @@ test('aprobar un cambio: sale.order confirmado, evidencia y devolución sin vali
   assert.deepEqual(att, { name: 'a.jpg', datas: 'QUJD', mimetype: 'image/jpeg', res_model: 'sale.order', res_id: 1000 });
   const post = callOf(calls, 'sale.order.message_post');
   assert.deepEqual(post[2], [[1000]]);
-  assert.deepEqual(post[3], { body: 'Evidencia del cambio CW-000123', attachment_ids: [1001] });
+  assert.deepEqual(post[3], { body: 'Evidencia del cambio CW-000123', attachment_ids: [1001], subtype_xmlid: 'mail.mt_note' });
   // Devolución sobre el EC/OUT original con origin.
   const [, , [[wizard]]] = callOf(calls, 'stock.return.picking.create');
   assert.equal(wizard.picking_id, 192311);
@@ -187,7 +104,7 @@ test('reintento después de que falle create_returns: no recrea el sale.order ni
   calls.length = 0;
   const steps = await runApprovalSteps(request({ odoo: { steps: last, error: null } }), settings, deps);
   assert.deepEqual(writes(calls), ['stock.return.picking.create', 'stock.return.picking.create_returns', 'stock.picking.write']);
-  assert.ok(!calls.some(([mo, me]) => mo === 'stock.move'), 'reusa el plan guardado');
+  assert.ok(!calls.some(([mo, me]) => mo === 'stock.move' && me === 'read'), 'reusa el plan guardado');
   assert.equal(steps.pickings['pick:192311:fallas'].id, 4321);
 });
 
@@ -284,6 +201,109 @@ test('dry: id negativo del sale.order no se lee; nombre = número de la solicitu
   assert.deepEqual(steps.saleOrder, { id: -3, name: 'CW-000123', confirmed: true });
 });
 
+const withDry = async (fn) => {
+  const prev = process.env.ODOO_WRITES;
+  process.env.ODOO_WRITES = 'dry';
+  try { return await fn(); } finally {
+    if (prev === undefined) delete process.env.ODOO_WRITES; else process.env.ODOO_WRITES = prev;
+  }
+};
+const isOpenSearch = ([mo, me, [d]]) => mo === 'stock.move' && me === 'search_read' && d?.[1]?.[1] === 'not in';
+const openReturn = (pickingId, qty = 1) => ({
+  'stock.move.search_read': ([domain]) => (domain[1]?.[1] === 'not in'
+    ? [{ picking_id: [pickingId, 'EC/RET/7'], product_id: [70417, 'x'], product_uom_qty: qty }] : []),
+});
+
+test('reintento con una devolución abierta sin origin: la adopta, le escribe el origin y no crea otra', async () => {
+  const { odoo, calls } = fakeOdoo({
+    ...openReturn(4500),
+    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: false }],
+  });
+  const steps = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
+  assert.deepEqual(calls.find(isOpenSearch)[2][0], [['origin_returned_move_id', 'in', [612602]], ['state', 'not in', ['done', 'cancel']]]);
+  assert.ok(!writes(calls).some((w) => w.startsWith('stock.return.picking')));
+  assert.deepEqual(callOf(calls, 'stock.picking.write')[2], [[4500], { origin: 'CW-000123 · pick:192311:fallas' }]);
+  assert.deepEqual(steps.pickings['pick:192311:fallas'], { id: 4500, name: 'EC/RET/7', state: 'assigned', lots: {} });
+});
+
+test('devolución abierta con nuestro origin exacto: se adopta sin reescribirlo', async () => {
+  const { odoo, calls } = fakeOdoo({
+    ...openReturn(4500),
+    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: 'CW-000123 · pick:192311:fallas' }],
+  });
+  const steps = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
+  assert.ok(!writes(calls).some((w) => w.startsWith('stock.return.picking') || w === 'stock.picking.write'));
+  assert.equal(steps.pickings['pick:192311:fallas'].id, 4500);
+});
+
+test('devolución abierta con otro origin o que no cubre la cantidad: no se adopta', async () => {
+  const other = fakeOdoo({ ...openReturn(4500), 'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: 'Lorena' }] });
+  await runApprovalSteps(request({ evidence: [] }), settings, depsFor(other.odoo));
+  assert.ok(writes(other.calls).includes('stock.return.picking.create_returns'), 'otro origin');
+  assert.ok(!other.calls.some(([mo, me, args]) => mo === 'stock.picking' && me === 'write' && args[0][0] === 4500));
+
+  const short = fakeOdoo({ ...openReturn(4500, 1), 'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/7', state: 'assigned', origin: false }] });
+  const deps = depsFor(short.odoo);
+  deps.readMoves = async (ids) => ids.map((i) => move(i, 192311, 2));
+  await runApprovalSteps(request({ evidence: [], returnLines: [rline({ qty: 2 })] }), settings, deps);
+  assert.ok(writes(short.calls).includes('stock.return.picking.create_returns'), 'menos cantidad');
+});
+
+test('createReturnPicking tira "Se creó la devolución 77": guarda el id; el reintento la lee, le marca el origin y no la recrea', async () => {
+  const { odoo, calls } = fakeOdoo({
+    'stock.picking.read': ([ids]) => [{ id: ids[0], name: 'EC/RET/77', state: 'assigned', origin: false }],
+  });
+  const saved = [];
+  const deps = depsFor(odoo, { saved });
+  deps.createReturnPicking = async () => { throw new Error('Se creó la devolución 77 en Odoo pero no se pudo marcar: timeout'); };
+  await assert.rejects(runApprovalSteps(request({ evidence: [] }), settings, deps), /Se creó la devolución 77/);
+  assert.deepEqual(saved.at(-1).pickings['pick:192311:fallas'], { id: 77, name: null, state: null, lots: {} });
+  calls.length = 0;
+  deps.createReturnPicking = async () => assert.fail('no la recrea');
+  const steps = await runApprovalSteps(request({ evidence: [], odoo: { steps: saved.at(-1) } }), settings, deps);
+  assert.deepEqual(callOf(calls, 'stock.picking.write')[2], [[77], { origin: 'CW-000123 · pick:192311:fallas' }]);
+  assert.deepEqual(steps.pickings['pick:192311:fallas'], { id: 77, name: 'EC/RET/77', state: 'assigned', lots: {} });
+});
+
+test('dry: no adopta nada de producción (ni sale.order por ref, ni devolución por origin o abierta)', async () => {
+  await withDry(async () => {
+    const { odoo, calls } = fakeOdoo({
+      'sale.order.search_read': () => [{ id: 3000, name: 'S12001', state: 'sale' }],
+      'stock.picking.search_read': () => [{ id: 4400, name: 'EC/RET/00099', state: 'assigned' }],
+      ...openReturn(4500),
+      'sale.order.create': () => -1,
+      'stock.return.picking.create_returns': () => ({ res_id: -2 }),
+    });
+    const steps = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(odoo));
+    assert.ok(!calls.some(([mo, me]) => mo === 'sale.order' && me === 'search_read'));
+    assert.ok(!calls.some(([mo, me]) => mo === 'stock.picking' && me === 'search_read'));
+    assert.ok(!calls.some(isOpenSearch));
+    assert.equal(steps.saleOrder.id, -1);
+    assert.deepEqual(steps.pickings['pick:192311:fallas'], { id: -2, name: null, state: 'draft', lots: {} });
+  });
+});
+
+test('net > 0 sin producto nuevo con cantidad: tira, no pierde la diferencia', async () => {
+  const { odoo, calls } = fakeOdoo();
+  const req = request({ evidence: [], newLines: [{ productId: 90000, sku: 'X', name: 'X', qty: 0, price: 0 }] });
+  await assert.rejects(runApprovalSteps({ ...req, money: { net: 3000 } }, settings, depsFor(odoo)), /No hay producto nuevo para cargar la diferencia/);
+  assert.ok(!writes(calls).includes('sale.order.create'));
+});
+
+test('net > 0: si la primera línea nueva no tiene cantidad, la diferencia va en la siguiente', async () => {
+  const { odoo, calls } = fakeOdoo();
+  const req = request({ evidence: [], newLines: [{ productId: 1, qty: 0, price: 0 }, { productId: 2, qty: 1, price: 0 }] });
+  await runApprovalSteps({ ...req, money: { net: 3000 } }, settings, depsFor(odoo));
+  const lines = callOf(calls, 'sale.order.create')[2][0].order_line.map((c) => c[2]);
+  assert.deepEqual(lines.slice(0, 2).map((l) => l.price_unit), [0, round2(netOfIva(3000))]);
+});
+
+test('adjunto sin id válido: tira con el nombre del archivo', async () => {
+  const { odoo, calls } = fakeOdoo({ 'ir.attachment.create': () => [] });
+  await assert.rejects(runApprovalSteps(request(), settings, depsFor(odoo)), /Odoo no creó el adjunto de a\.jpg/);
+  assert.ok(!writes(calls).includes('sale.order.message_post'));
+});
+
 // ---- runReceiveSteps ----
 
 const approvedSteps = (state = 'assigned', id = 4321) => ({
@@ -333,121 +353,12 @@ test('runReceiveSteps: falta la devolución de un grupo del plan → tira', asyn
 });
 
 test('runReceiveSteps con ODOO_WRITES=dry e id negativo: no toca Odoo y la marca done', async () => {
-  const prev = process.env.ODOO_WRITES;
-  process.env.ODOO_WRITES = 'dry';
-  try {
+  await withDry(async () => {
     const { odoo, calls } = fakeOdoo();
     let called = false;
     const steps = await runReceiveSteps(request({ odoo: { steps: approvedSteps('assigned', -7) } }), depsFor(odoo, { validate: async () => { called = true; } }));
     assert.deepEqual(calls, []);
     assert.equal(called, false);
     assert.equal(steps.pickings['pick:192311:fallas'].state, 'done');
-  } finally {
-    if (prev === undefined) delete process.env.ODOO_WRITES; else process.env.ODOO_WRITES = prev;
-  }
-});
-
-// ---- Servicio ----
-
-async function seed(db, over = {}) {
-  const { id, number, status, odoo, money, ...draft } = request(over);
-  const created = await store.createWebReturn(draft, user, new Date(), db);
-  return created;
-}
-
-test('approve: recalcula money, corre los pasos y queda aprobada con los pasos guardados', async () => {
-  const db = createFakeFirestore();
-  const r = await seed(db, { newLines: [{ productId: 90000, sku: 'CARO', name: 'Caro', qty: 1, price: 15000 }], evidence: [] });
-  const { odoo, calls } = fakeOdoo();
-  const out = await approve(r.id, user, depsFor(odoo, { db }));
-  assert.equal(out.status, 'aprobada');
-  assert.equal(out.busy, null);
-  assert.equal(out.money.net, 5000);
-  assert.equal(out.money.differenceToCollect, 5000);
-  assert.equal(out.odoo.error, null);
-  assert.equal(out.odoo.steps.saleOrder.id, 1000);
-  assert.equal(out.odoo.steps.pickings['pick:192311:fallas'].id, 4321);
-  const line = callOf(calls, 'sale.order.create')[2][0].order_line[0][2];
-  assert.equal(line.price_unit, round2(netOfIva(5000)));
-  assert.equal((await store.getWebReturn(r.id, db)).status, 'aprobada');
-});
-
-test('approve cuando runApprovalSteps tira: sigue pendiente, sin busy y con odoo.error', async () => {
-  const db = createFakeFirestore();
-  const r = await seed(db);
-  const { odoo } = fakeOdoo({ 'stock.return.picking.create_returns': () => { throw new Error('Odoo caído'); } });
-  await assert.rejects(approve(r.id, user, depsFor(odoo, { db })), /Odoo caído/);
-  const cur = await store.getWebReturn(r.id, db);
-  assert.equal(cur.status, 'pendiente_aprobacion');
-  assert.equal(cur.busy, null);
-  assert.match(cur.odoo.error.message, /Odoo caído/);
-  assert.equal(cur.odoo.steps.saleOrder.id, 1000, 'los pasos hechos quedan guardados');
-  // El reintento sigue desde ahí y limpia el error.
-  const { odoo: odoo2, calls: calls2 } = fakeOdoo();
-  const out = await approve(r.id, user, depsFor(odoo2, { db }));
-  assert.equal(out.status, 'aprobada');
-  assert.equal(out.odoo.error, null);
-  assert.ok(!writes(calls2).includes('sale.order.create'));
-});
-
-test('receive: valida y pasa a recibida (o reintegro_pendiente en devolución)', async () => {
-  for (const [kind, expected] of [['cambio', 'recibida'], ['devolucion', 'reintegro_pendiente']]) {
-    const db = createFakeFirestore();
-    const r = await seed(db, { kind, newLines: kind === 'cambio' ? request().newLines : [], evidence: [] });
-    const { odoo } = fakeOdoo();
-    await approve(r.id, user, depsFor(odoo, { db }));
-    const { odoo: o2 } = fakeOdoo({ 'stock.picking.read': () => [{ id: 4321, name: 'EC/RET/1', state: 'assigned' }] });
-    const validate = async (id) => ({ id, name: 'EC/RET/1', state: 'done' });
-    const out = await receive(r.id, user, depsFor(o2, { db, validate }));
-    assert.equal(out.status, expected);
-    assert.equal(out.odoo.steps.pickings['pick:192311:fallas'].state, 'done');
-    assert.ok(out.odoo.steps.saleOrder || kind === 'devolucion');
-  }
-});
-
-test('receive con devolución cancelada: sigue aprobada con el error guardado', async () => {
-  const db = createFakeFirestore();
-  const r = await seed(db, { evidence: [] });
-  await approve(r.id, user, depsFor(fakeOdoo().odoo, { db }));
-  const { odoo } = fakeOdoo({ 'stock.picking.read': () => [{ id: 4321, name: 'EC/RET/1', state: 'cancel' }] });
-  await assert.rejects(receive(r.id, user, depsFor(odoo, { db })), /cancelada en Odoo/);
-  const cur = await store.getWebReturn(r.id, db);
-  assert.equal(cur.status, 'aprobada');
-  assert.match(cur.odoo.error.message, /cancelada/);
-});
-
-test('reject / derive: piden motivo / local y solo cambian el estado', async () => {
-  const db = createFakeFirestore();
-  const deps = depsFor(fakeOdoo().odoo, { db });
-  const r = await seed(db);
-  await assert.rejects(reject(r.id, user, '   ', deps), /Escribí el motivo del rechazo/);
-  const out = await reject(r.id, user, '  fuera de política ', deps);
-  assert.equal(out.status, 'rechazada');
-  assert.equal(out.rejectReason, 'fuera de política');
-  const r2 = await seed(db);
-  await assert.rejects(derive(r2.id, user, '', deps), /Elegí el local/);
-  const d = await derive(r2.id, user, 'BL', deps);
-  assert.equal(d.status, 'derivada_local');
-  assert.equal(d.logistics.mode, 'derivado_local');
-  assert.equal(d.logistics.derivedLocalId, 'BL');
-  assert.equal(d.logistics.payer, 'altorancho');
-  await assert.rejects(derive(r.id, user, 'BL', deps), /No se puede derivar/);
-});
-
-test('refundDone y close', async () => {
-  const db = createFakeFirestore();
-  const r = await seed(db, { kind: 'devolucion', newLines: [], evidence: [] });
-  await approve(r.id, user, depsFor(fakeOdoo().odoo, { db }));
-  const { odoo } = fakeOdoo({ 'stock.picking.read': () => [{ id: 4321, name: 'EC/RET/1', state: 'done' }] });
-  await receive(r.id, user, depsFor(odoo, { db }));
-  const deps = depsFor(fakeOdoo().odoo, { db });
-  const done = await refundDone(r.id, user, undefined, deps);
-  assert.equal(done.status, 'reintegrada');
-  assert.equal(done.money.refundPending, 10000);
-  assert.equal(done.money.refundNote, null);
-  assert.deepEqual(done.money.refundDoneBy, user);
-  assert.ok(Date.parse(done.money.refundDoneAt));
-  const closed = await close(r.id, user, deps);
-  assert.equal(closed.status, 'cerrada');
-  assert.equal(closed.history.at(-1).action, 'close');
+  });
 });

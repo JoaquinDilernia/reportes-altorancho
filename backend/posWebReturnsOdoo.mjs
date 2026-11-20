@@ -24,6 +24,9 @@ export function defaultWebReturnDeps() {
 
 const firstId = (res) => (Array.isArray(res) ? res[0] : res);
 const isDryId = (id) => Number(id) < 0;
+// En dry no se adopta nada de Odoo: lo de producción no es de esta prueba.
+const isDry = () => process.env.ODOO_WRITES === 'dry';
+const validId = (id) => Number.isInteger(id) && id !== 0;
 
 // Lotes de las líneas que vuelven, por producto (se suman por lote).
 function lotsByProduct(lines) {
@@ -65,9 +68,13 @@ const noteLine = (name) => ({ display_type: 'line_note', name, product_id: false
 // diferencia si el cambio es a algo más caro), envío y notas.
 export function buildExchangeLines(request, settings) {
   const net = Number(request.money?.net) || 0;
-  const lines = (request.newLines ?? []).map((l, i) => ({
+  const newLines = request.newLines ?? [];
+  // Lleva la diferencia la primera línea nueva con cantidad; nunca se pierde.
+  const carrier = net > 0 ? newLines.findIndex((l) => Number(l.qty) >= 1) : -1;
+  if (net > 0 && carrier < 0) throw new Error('No hay producto nuevo para cargar la diferencia');
+  const lines = newLines.map((l, i) => ({
     product_id: l.productId, product_uom_qty: l.qty,
-    price_unit: i === 0 && net > 0 && l.qty > 0 ? round2(netOfIva(net) / l.qty) : 0,
+    price_unit: i === carrier ? round2(netOfIva(net) / l.qty) : 0,
   }));
   const ship = Number(request.logistics?.shippingCharge) || 0;
   if (ship > 0) lines.push({ product_id: settings.webReturns.shippingProductId, product_uom_qty: 1, price_unit: round2(netOfIva(ship)) });
@@ -85,7 +92,7 @@ async function saleOrderStep(request, settings, steps, deps, save) {
   const w = settings.webReturns;
   let state = null;
   if (!steps.saleOrder) {
-    const [found] = await odoo.read('sale.order', 'search_read', [[['client_order_ref', '=', request.number]]], { fields: ['id', 'name', 'state'], limit: 1 });
+    const [found] = isDry() ? [] : await odoo.read('sale.order', 'search_read', [[['client_order_ref', '=', request.number]]], { fields: ['id', 'name', 'state'], limit: 1 });
     if (found) {
       steps.saleOrder = { id: found.id, name: found.name ?? null, confirmed: false };
       state = found.state;
@@ -132,35 +139,108 @@ async function evidenceStep(request, steps, deps, save) {
     const id = firstId(await deps.odoo.write('ir.attachment', 'create', [{
       name: file.name, datas: file.base64, mimetype: file.mimetype ?? evidence[i].mimetype, res_model: 'sale.order', res_id: resId,
     }]));
+    if (!validId(id)) throw new Error(`Odoo no creó el adjunto de ${file.name}`);
     ev.attachmentIds.push(id);
     await save();
   }
-  await deps.odoo.write('sale.order', 'message_post', [[resId]], { body: `Evidencia del cambio ${request.number}`, attachment_ids: ev.attachmentIds });
+  await deps.odoo.write('sale.order', 'message_post', [[resId]], {
+    body: `Evidencia del cambio ${request.number}`, attachment_ids: ev.attachmentIds,
+    subtype_xmlid: 'mail.mt_note', // nota interna: nunca un mail al cliente
+  });
   ev.posted = true;
   await save();
 }
 
+const sumQty = (rows, qtyOf) => {
+  const m = new Map();
+  for (const r of rows) m.set(r.productId, (m.get(r.productId) ?? 0) + qtyOf(r));
+  return m;
+};
+
+async function readPicking(odoo, id) {
+  const [p] = await odoo.read('stock.picking', 'read', [[id]], { fields: ['id', 'name', 'state', 'origin'] });
+  return p ?? null;
+}
+
+// Marca nuestro origin en una devolución que quedó sin él.
+async function ensureOrigin(odoo, picking, origin) {
+  if (!picking.origin) await odoo.write('stock.picking', 'write', [[picking.id], { origin }]);
+}
+
+// Una devolución abierta de los moves del grupo que quedó sin origin (se
+// perdió la respuesta o falló el write del origin): se adopta si cubre los
+// mismos productos con al menos la misma cantidad.
+async function findOpenReturn(group, origin, odoo) {
+  const moveIds = group.items.map((i) => i.moveId);
+  const moves = await odoo.read('stock.move', 'search_read', [[
+    ['origin_returned_move_id', 'in', moveIds], ['state', 'not in', ['done', 'cancel']],
+  ]], { fields: ['picking_id', 'product_id', 'product_uom_qty'] });
+  const need = sumQty(group.items, (i) => i.qty);
+  const byPicking = new Map();
+  for (const m of moves) {
+    const pid = m.picking_id?.[0];
+    if (!pid) continue;
+    if (!byPicking.has(pid)) byPicking.set(pid, []);
+    byPicking.get(pid).push({ productId: m.product_id?.[0], qty: Number(m.product_uom_qty) || 0 });
+  }
+  for (const [pid, rows] of byPicking) {
+    const have = sumQty(rows, (r) => r.qty);
+    if (![...need].every(([prod, q]) => (have.get(prod) ?? 0) >= q)) continue;
+    const picking = await readPicking(odoo, pid);
+    if (!picking || (picking.origin && picking.origin !== origin)) continue;
+    await ensureOrigin(odoo, picking, origin);
+    return picking;
+  }
+  return null;
+}
+
+const CREATED_RE = /Se creó la devolución (-?\d+)/;
+
 async function pickingsStep(request, steps, deps, save) {
+  const { odoo } = deps;
   const origin = (key) => `${request.number} · ${key}`;
   for (const group of steps.plan) {
-    if (steps.pickings[group.key]) continue;
     const moveIds = new Set(group.items.map((i) => i.moveId));
     const lines = (request.returnLines ?? []).filter((l) => group.key.endsWith(`:${l.destinationId}`) && (l.moveIds ?? []).some((mid) => moveIds.has(mid)));
-    const found = await deps.findPickingByOrigin(origin(group.key));
+    const lots = lotsByProduct(lines);
+    const saved = steps.pickings[group.key];
+    if (saved) {
+      // Creada sin saber su estado (falló el origin): se lee y se marca.
+      if (saved.state == null && !isDryId(saved.id)) {
+        const p = await readPicking(odoo, saved.id);
+        if (!p) throw new Error(`No se encontró la devolución ${saved.id} en Odoo`);
+        await ensureOrigin(odoo, p, origin(group.key));
+        steps.pickings[group.key] = { ...saved, name: p.name ?? null, state: p.state ?? null };
+        await save();
+      }
+      continue;
+    }
+    const found = isDry() ? null
+      : (await deps.findPickingByOrigin(origin(group.key))) ?? (await findOpenReturn(group, origin(group.key), odoo));
     let step;
     if (found) step = { id: found.id, name: found.name ?? null, state: found.state ?? null };
     else {
-      const id = await deps.createReturnPicking({ pickingId: group.pickingId, items: group.items, locationId: group.locationId, origin: origin(group.key) });
+      let id;
+      try {
+        id = await deps.createReturnPicking({ pickingId: group.pickingId, items: group.items, locationId: group.locationId, origin: origin(group.key) });
+      } catch (err) {
+        const created = CREATED_RE.exec(err?.message ?? '');
+        if (created) {
+          steps.pickings[group.key] = { id: Number(created[1]), name: null, state: null, lots };
+          await save();
+        }
+        throw err;
+      }
       step = { id, name: null, state: 'draft' };
       // Guardado ya: si la lectura falla, el reintento no la recrea.
-      steps.pickings[group.key] = { ...step, lots: lotsByProduct(lines) };
+      steps.pickings[group.key] = { ...step, lots };
       await save();
       if (!isDryId(id)) {
-        const [p] = await deps.odoo.read('stock.picking', 'read', [[id]], { fields: ['name', 'state'] });
+        const p = await readPicking(odoo, id);
         if (p) step = { id, name: p.name ?? null, state: p.state ?? 'draft' };
       }
     }
-    steps.pickings[group.key] = { ...step, lots: lotsByProduct(lines) };
+    steps.pickings[group.key] = { ...step, lots };
     await save();
   }
 }
