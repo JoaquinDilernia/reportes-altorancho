@@ -1,6 +1,19 @@
 // Firestore en memoria para tests. Las transacciones se serializan.
-const clone = (v) => structuredClone(v);
-const val = (x) => (x instanceof Date ? x.getTime() : x);
+class FakeTimestamp {
+  constructor(ms) { this.ms = ms; }
+  toDate() { return new Date(this.ms); }
+  toMillis() { return this.ms; }
+}
+// Copia profunda: Date -> Timestamp-like (como Firestore); rechaza undefined.
+function clone(v, path = '') {
+  if (v === undefined) throw new Error(`Firestore: undefined en ${path || 'raiz'}`);
+  if (v instanceof Date) return new FakeTimestamp(v.getTime());
+  if (v instanceof FakeTimestamp) return v;
+  if (Array.isArray(v)) return v.map((x, i) => clone(x, `${path}[${i}]`));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clone(x, `${path}.${k}`)]));
+  return v;
+}
+const val = (x) => (x instanceof FakeTimestamp ? x.toMillis() : x instanceof Date ? x.getTime() : x);
 
 function getPath(obj, path) {
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -35,6 +48,7 @@ export function createFakeFirestore() {
     const run = async () => {
       let rows = [...colMap(name).entries()].map(([id, d]) => ({ id, d }));
       for (const { f, op, v } of filters) {
+        if (op === 'in' && !v.length) throw new Error('Firestore: in vacio');
         rows = rows.filter(({ d }) => {
           const x = val(getPath(d, f));
           if (op === '==') return x === val(v);
@@ -61,7 +75,6 @@ export function createFakeFirestore() {
         const docs = rows.map(({ id, d }) => ({ exists: true, id, data: () => clone(d) }));
         return { docs, size: docs.length, empty: !docs.length };
       },
-      count: () => ({ get: async () => ({ data: () => ({ count: 0 }) }) }),
     };
   }
 
