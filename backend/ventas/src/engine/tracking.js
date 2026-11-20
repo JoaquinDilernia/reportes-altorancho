@@ -44,8 +44,9 @@ export function classifySession({ url, referrer, ownHost = 'altorancho.com' }) {
   const refHost = ref && !ref.endsWith(ownHost) && !ref.includes('mitiendanube') ? ref : null;
   // Links que mandan los vendedores (WhatsApp, etc.): utm_source=vendedor&utm_campaign=<nombre>
   if (/^(vendedor|vendedores|ventas)$/i.test(base.source || '')) return { channel: 'vendedor', ...base, referrer_host: refHost };
-  if (['meta', 'google', 'pinterest', 'email', 'other'].includes(a.channel)) return { channel: a.channel, ...base, referrer_host: refHost };
+  if (['meta', 'google', 'pinterest', 'email', 'whatsapp', 'vendedor', 'other'].includes(a.channel)) return { channel: a.channel, ...base, referrer_host: refHost };
   if (a.channel === 'social_organic') return { channel: 'social_organic', ...base, source: base.source || refHost, referrer_host: refHost };
+  if (refHost && /(^|.)(whatsapp.com|wa.me)$/.test(refHost)) return { channel: 'whatsapp', ...base, source: refHost, referrer_host: refHost };
   if (refHost && SEARCH.test(refHost)) return { channel: 'search', ...base, source: refHost, referrer_host: refHost };
   if (refHost && SOCIAL.test(refHost)) return { channel: 'social_organic', ...base, source: refHost, referrer_host: refHost };
   if (refHost && MAIL.test(refHost)) return { channel: 'email', ...base, source: refHost, referrer_host: refHost };

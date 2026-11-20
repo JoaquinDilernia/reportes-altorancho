@@ -7,7 +7,7 @@ import VentaDetail from './VentaDetail.jsx';
 import { chShort, chColor, when, CUSTOMER } from './vFormat.js';
 
 const TITLE = { week: 'Ventas web de la semana', month: 'Ventas web del mes', custom: 'Ventas web del rango' };
-const CHANNEL_ORDER = ['meta', 'google', 'pinterest', 'organic', 'social_organic', 'email', 'other', 'unknown'];
+const CHANNEL_ORDER = ['meta', 'google', 'pinterest', 'organic', 'social_organic', 'email', 'whatsapp', 'vendedor', 'other', 'unknown'];
 
 function ChannelFilter({ summary, channel, onChange }) {
   if (!summary) return null;

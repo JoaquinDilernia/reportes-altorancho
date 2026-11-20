@@ -161,3 +161,10 @@ describe('recorrido de un pedido', () => {
     expect(rows[0].channel).toBe('direct');
   });
 });
+
+describe('visitas desde WhatsApp', () => {
+  it('UTMs del bot o referrer de WhatsApp', () => {
+    expect(classifySession({ url: 'https://altorancho.com/productos/x/?utm_source=whatsapp&utm_medium=bot&utm_campaign=producto_bot' })).toMatchObject({ channel: 'whatsapp', campaign: 'producto_bot' });
+    expect(classifySession({ url: 'https://altorancho.com/', referrer: 'https://web.whatsapp.com/' }).channel).toBe('whatsapp');
+  });
+});

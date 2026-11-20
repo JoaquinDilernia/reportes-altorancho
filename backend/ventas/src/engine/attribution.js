@@ -1,6 +1,6 @@
 // Reglas de atribución de una orden de Tienda Nube a partir de su customer_visit.
 // Puro: no toca la DB. Los IDs faltantes se completan después con ordersRepo.resolveMetaIds().
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 
 const META_SOURCES = new Set(['meta', 'facebook', 'fb', 'instagram', 'ig']);
 const PAID_MEDIUMS = new Set(['cpc', 'paid', 'paid_social', 'paidsocial', 'ads']);
@@ -67,6 +67,10 @@ export function attribute(visit) {
     const campaign_name = p.utm_campaign && !numericId(p.utm_campaign) ? p.utm_campaign.trim() : null;
     return result('pinterest', ad_id ? 'ad' : (campaign_id || campaign_name) ? 'campaign' : 'none', { ad_id, campaign_id, campaign_name });
   }
+  // WhatsApp: el bot (links de productos y carritos: medium bot) y las difusiones (medium difusion)
+  if (src === 'whatsapp' || src === 'wa') return result('whatsapp', 'none', { campaign_name: p.utm_campaign || med || null });
+  // Links que mandan los vendedores: utm_source=vendedor&utm_campaign=<nombre>
+  if (src === 'vendedor' || src === 'vendedores') return result('vendedor', 'none', { campaign_name: p.utm_campaign || null });
   if (med === 'email') return result('email', 'none', { campaign_name: p.utm_campaign || null });
   // fbclid sin UTMs: FB/IG lo agregan a cualquier link (bio, posteos, historias), no prueba un anuncio
   if (SOCIAL_MEDIUMS.has(med) || META_SOURCES.has(src) || src === 'pinterest' || (p.fbclid && !src && !med)) return result('social_organic');

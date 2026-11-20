@@ -102,3 +102,14 @@ describe('extractParams', () => {
     expect(p).toMatchObject({ utm_source: 'meta', utm_medium: 'cpc', utm_campaign: 'camp' });
   });
 });
+
+describe('WhatsApp y vendedores', () => {
+  it('bot (productos y carritos) y difusiones van a whatsapp, con la campaña', () => {
+    expect(attribute({ landingUrl: 'https://altorancho.com/cart-link/1-2?utm_source=whatsapp&utm_medium=bot&utm_campaign=carrito_bot' })).toMatchObject({ channel: 'whatsapp', campaign_name: 'carrito_bot' });
+    expect(attribute({ landingUrl: 'https://altorancho.com/productos/x/?utm_source=whatsapp&utm_medium=bot&utm_campaign=producto_bot' })).toMatchObject({ channel: 'whatsapp', campaign_name: 'producto_bot' });
+    expect(attribute({ landingUrl: 'https://altorancho.com/?utm_source=whatsapp&utm_medium=difusion&utm_campaign=cyber' })).toMatchObject({ channel: 'whatsapp', campaign_name: 'cyber' });
+  });
+  it('links de vendedores', () => {
+    expect(attribute({ landingUrl: 'https://altorancho.com/?utm_source=vendedor&utm_medium=whatsapp&utm_campaign=lucia' })).toMatchObject({ channel: 'vendedor', campaign_name: 'lucia' });
+  });
+});
