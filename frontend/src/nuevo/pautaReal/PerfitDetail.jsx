@@ -47,7 +47,7 @@ export default function PerfitDetail({ state, onLogout }) {
       <p className="nv-note">
         Perfit cuenta como suya cualquier compra de alguien que <b>abrió</b> un mail en los días anteriores, aunque haya entrado por Google o por un anuncio.
         Por eso suele dar mucho más que "lo que llegó a la tienda" con un clic de mail.
-        Las campañas llegan con UTMs (se ven en Email con el nombre de la campaña); las automatizaciones no: hay que agregarles utm_source=perfit&amp;utm_medium=email&amp;utm_campaign=&lt;nombre&gt; a los links para poder medirlas.
+        Campañas y automatizaciones salen etiquetadas para Google Analytics (las automatizaciones desde el 19/11), así que las visitas que llegan por un mail se ven en Email con su nombre.
       </p>
       {open && (
         <>
