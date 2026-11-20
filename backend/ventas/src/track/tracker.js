@@ -32,6 +32,8 @@
 
     var params = {};
     try { new URL(location.href).searchParams.forEach(function (v, k) { params[k.toLowerCase()] = v; }); } catch (e) {}
+    // Links internos de apps (Revie: estrellas de reseñas) traen UTMs pero no son una visita nueva
+    if (/^revie$/i.test(params.utm_source || '')) ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_id'].forEach(function (k) { delete params[k]; });
     var hasCampaign = CAMPAIGN_KEYS.some(function (k) { return params[k]; });
     // Firma de la campaña: fuente/medio/campaña y qué click id trajo (no su valor ni el
     // anuncio puntual): tocar varios productos del mismo carrusel sigue siendo una visita.

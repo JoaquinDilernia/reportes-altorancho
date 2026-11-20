@@ -1,6 +1,18 @@
 // Reglas de atribución de una orden de Tienda Nube a partir de su customer_visit.
 // Puro: no toca la DB. Los IDs faltantes se completan después con ordersRepo.resolveMetaIds().
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
+
+// Apps de la tienda que le ponen UTMs a links internos (Revie: las estrellas de reseñas
+// llevan utm_source=revie). No son un origen: si se toman, pisan el canal real.
+export const INTERNAL_SOURCES = new Set(['revie']);
+const isInternal = (p) => INTERNAL_SOURCES.has(String(p.utm_source || '').toLowerCase());
+const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_id'];
+function dropInternal(p) {
+  if (!isInternal(p)) return p;
+  const out = { ...p };
+  for (const k of UTM_KEYS) delete out[k];
+  return out;
+}
 
 const META_SOURCES = new Set(['meta', 'facebook', 'fb', 'instagram', 'ig']);
 const PAID_MEDIUMS = new Set(['cpc', 'paid', 'paid_social', 'paidsocial', 'ads']);
@@ -23,8 +35,9 @@ function paramsFromUrl(u) {
 }
 
 export function extractParams({ landingUrl, visitLandingPage, visitUtm }) {
-  const p = { ...paramsFromUrl(landingUrl), ...paramsFromUrl(visitLandingPage) };
-  for (const [k, val] of Object.entries(visitUtm || {})) {
+  const p = { ...dropInternal(paramsFromUrl(landingUrl)), ...dropInternal(paramsFromUrl(visitLandingPage)) };
+  const vu = visitUtm && isInternal(visitUtm) ? {} : visitUtm || {};
+  for (const [k, val] of Object.entries(vu)) {
     if (val && !p[k]) p[k] = String(val);
   }
   // Quirk de TN: a veces guarda "gclid:XXXX" dentro de utm_campaign
