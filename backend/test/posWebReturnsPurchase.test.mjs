@@ -10,6 +10,8 @@ const mkDeps = (over = {}) => ({
   findOrderByNumber: async () => tnOrder,
   findSaleOrder: async () => ({ id: 77, name: 'TN1234567890', warehouse_id: [24, 'EC'] }),
   getPurchase: async () => ({ source: 'web', purchaseId: 77, date: '2026-11-20 13:07:30', lines: [line()] }),
+  readReturnMoves: async () => [],
+  activeRequests: async () => [],
   settings,
   ...over,
 });
@@ -83,4 +85,59 @@ test('findOrderByNumber: match exacto, mapeo y 404 como null', async () => {
   assert.equal(await findOrderByNumber('55555', async () => { throw new Error('Tiendanube API error 404: Last page is 0'); }), null);
   await assert.rejects(findOrderByNumber('55555', async () => { throw new Error('Tiendanube API error 500: x'); }), /500/);
   await assert.rejects(findOrderByNumber('12a', req), /Número de pedido inválido/);
+});
+
+// ---- Lo que ya está tomado por otras devoluciones (no devolver dos veces la misma unidad) ----
+const retMove = (o = {}) => ({ origMoveId: 7, pickingId: 900, origin: 'Devolución POS-000045', done: false, qty: 1, qtyDone: 0, ...o });
+const active = (o = {}) => ({
+  id: 'otra', number: 'CW-000050', status: 'pendiente_aprobacion', purchase: { purchaseId: '77' },
+  returnLines: [{ purchaseLineId: '10', qty: 1 }], odoo: { steps: {} }, ...o,
+});
+
+test('devolución abierta del local sobre la línea: ya ocupa la unidad', async () => {
+  let asked;
+  const r = await resolveWebPurchase('123456', mkDeps({ readReturnMoves: async (ids) => { asked = ids; return [retMove()]; } }));
+  assert.deepEqual(asked, [7]);
+  assert.equal(r.returnable[0].available, 1);
+  assert.throws(() => resolveReturnLine(r.purchase, { purchaseLineId: 10, qty: 2 }), /Solo se puede devolver 1/);
+  assert.equal(resolveReturnLine(r.purchase, { purchaseLineId: 10, qty: 1 }).qty, 1);
+  await assert.rejects(resolveWebPurchase('123456', mkDeps({ readReturnMoves: async () => [retMove({ qty: 2 })] })), /ya no tiene productos para devolver/);
+});
+
+test('otra solicitud web pendiente o aprobada sobre la línea: ya ocupa la unidad; otro pedido u otra línea no', async () => {
+  const r = await resolveWebPurchase('123456', mkDeps({ activeRequests: async () => [
+    active(),
+    active({ id: 'x2', purchase: { purchaseId: '78' }, returnLines: [{ purchaseLineId: '10', qty: 1 }] }),
+    active({ id: 'x3', returnLines: [{ purchaseLineId: '11', qty: 1 }] }),
+  ] }));
+  assert.equal(r.returnable[0].available, 1);
+  assert.throws(() => resolveReturnLine(r.purchase, { purchaseLineId: 10, qty: 2 }), /Solo se puede devolver 1/);
+  await assert.rejects(resolveWebPurchase('123456', mkDeps({ activeRequests: async () => [active({ status: 'aprobada', returnLines: [{ purchaseLineId: 10, qty: 2 }] })] })), /ya no tiene productos para devolver/);
+});
+
+test('editando una solicitud: no cuenta contra sí misma (ni sus líneas ni sus devoluciones)', async () => {
+  const self = active({ id: 'yo', number: 'CW-000060', returnLines: [{ purchaseLineId: '10', qty: 2 }], odoo: { steps: { pickings: { 'pick:1:fallas': { id: 901 } } } } });
+  const deps = mkDeps({
+    activeRequests: async () => [self],
+    readReturnMoves: async () => [retMove({ pickingId: 901, origin: 'Retorno de EC/OUT/1' }), retMove({ pickingId: 902, origin: 'CW-000060 · pick:1:fallas' })],
+  });
+  const r = await resolveWebPurchase('123456', deps, { excludeRequestId: 'yo' });
+  assert.equal(r.returnable[0].available, 2);
+  await assert.rejects(resolveWebPurchase('123456', deps), /ya no tiene productos para devolver/, 'sin excluirla sí cuenta');
+});
+
+test('la devolución de otra solicitud activa no se cuenta dos veces (abierta ni validada)', async () => {
+  const r = await resolveWebPurchase('123456', mkDeps({
+    getPurchase: async () => ({ date: 'x', lines: [line({ qtyBought: 3, qtyReturnedBefore: 1 })] }),
+    activeRequests: async () => [
+      active({ status: 'aprobada', number: 'CW-000050' }),
+      active({ id: 'o2', status: 'aprobada', number: 'CW-000051', odoo: { steps: { pickings: { k: { id: 950 } } } } }),
+    ],
+    readReturnMoves: async () => [
+      retMove({ pickingId: 940, origin: 'CW-000050 · pick:1:fallas' }),
+      retMove({ pickingId: 950, origin: 'Retorno de EC/OUT/1', done: true, qtyDone: 1 }),
+    ],
+  }));
+  // 3 compradas − 1 validada (es de CW-000051, se descuenta) − 1 (CW-000050) − 1 (CW-000051) = 1
+  assert.equal(r.returnable[0].available, 1);
 });

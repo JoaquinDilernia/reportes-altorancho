@@ -7,15 +7,22 @@ import { resolveWebPurchase, resolveReturnLine } from './posWebReturnsPurchase.m
 const CUSTOMER_FIELDS = ['name', 'phone', 'email', 'doc', 'address', 'zone'];
 const nonEmpty = (v) => typeof v === 'string' && v.trim() !== '';
 
-export async function buildDraftFromInput(input, { channel, settings, now = new Date(), resolve = resolveWebPurchase, evidence = [], logisticsExtra = {} } = {}) {
+const defaultResolve = (n, opts) => resolveWebPurchase(n, undefined, opts);
+
+// excludeRequestId: al editar, la propia solicitud no cuenta contra sí misma.
+export async function buildDraftFromInput(input, { channel, settings, now = new Date(), resolve = defaultResolve, evidence = [], logisticsExtra = {}, excludeRequestId = null } = {}) {
   const i = input || {};
   const tnNumber = String(i.tnNumber ?? '').trim();
   if (!tnNumber) throw new Error('Falta el número de pedido');
-  const { tn, purchase } = await resolve(tnNumber);
-  const returnLines = (Array.isArray(i.returnLines) ? i.returnLines : []).map((l) => ({
-    ...resolveReturnLine(purchase, { purchaseLineId: l?.purchaseLineId, qty: l?.qty }),
-    destinationId: l?.destinationId ?? null,
-  }));
+  const { tn, purchase } = await resolve(tnNumber, { excludeRequestId });
+  // La misma línea en dos filas (dos destinos) suma contra lo disponible.
+  const taken = new Map();
+  const returnLines = (Array.isArray(i.returnLines) ? i.returnLines : []).map((l) => {
+    const key = String(l?.purchaseLineId);
+    const resolved = resolveReturnLine(purchase, { purchaseLineId: l?.purchaseLineId, qty: l?.qty }, taken.get(key) ?? 0);
+    taken.set(key, (taken.get(key) ?? 0) + resolved.qty);
+    return { ...resolved, destinationId: l?.destinationId ?? null };
+  });
   const nowISO = (now instanceof Date ? now : new Date(now)).toISOString();
   const customer = {
     name: tn?.customer?.name ?? '', phone: tn?.customer?.phone ?? '', email: tn?.customer?.email ?? '',

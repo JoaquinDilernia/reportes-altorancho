@@ -9,6 +9,7 @@ import { netOfIva, round2 } from './posPricing.mjs';
 import { defaultOdoo } from './posOdoo.mjs';
 import * as rOdoo from './posReturnsOdoo.mjs';
 import * as store from './posWebReturnsStore.mjs';
+import { readReturnMoves, ownsReturn } from './posWebReturnsPurchase.mjs';
 
 export function defaultWebReturnDeps() {
   return {
@@ -270,7 +271,14 @@ export async function runApprovalSteps(request, settings, deps = defaultWebRetur
   if (!steps.plan) {
     const moveIds = [...new Set((request.returnLines ?? []).flatMap((l) => l.moveIds ?? []))];
     const moves = moveIds.length ? await deps.readMoves(moveIds) : [];
-    const returned = moveIds.length ? await deps.returnedQtyByMove(moveIds) : new Map();
+    const returned = new Map(moveIds.length ? await deps.returnedQtyByMove(moveIds) : []);
+    // Las devoluciones abiertas (del local, de otra solicitud o de Odoo) ya
+    // usan esas unidades; las propias (nuestro origin o id guardado) no.
+    const self = { number: request.number, odoo: { steps } };
+    for (const r of moveIds.length ? await readReturnMoves(moveIds, deps.odoo) : []) {
+      if (r.done || r.origMoveId == null || ownsReturn(self, r)) continue;
+      returned.set(r.origMoveId, (returned.get(r.origMoveId) ?? 0) + r.qty);
+    }
     steps.plan = structuredClone(planWebReturnPickings(request, new Map(moves.map((m) => [m.id, m])), returned, settings));
     await save();
   }

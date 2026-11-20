@@ -74,7 +74,7 @@ const requireTn = (v) => {
 export function defaultDeps() {
   return {
     store, service, evidence: { saveEvidence, evidenceUrl },
-    getSettings, getLocales, resolve: resolveWebPurchase, now: () => new Date(),
+    getSettings, getLocales, resolve: (n, opts) => resolveWebPurchase(n, undefined, opts), now: () => new Date(),
   };
 }
 
@@ -137,7 +137,7 @@ export function webReturnActions(deps = defaultDeps()) {
         const customer = sameOrder ? { ...(cur.customer ?? {}), ...(b.customer ?? {}) } : (b.customer ?? {});
         draft = await buildDraftFromInput(
           { ...cur, tnNumber: cur.purchase?.ref, ...b, customer, logistics },
-          { channel: cur.channel, settings, now: cur.createdAt ?? deps.now(), resolve: deps.resolve, evidence: cur.evidence ?? [], logisticsExtra: keep },
+          { channel: cur.channel, settings, now: cur.createdAt ?? deps.now(), resolve: deps.resolve, evidence: cur.evidence ?? [], logisticsExtra: keep, excludeRequestId: id },
         );
       } else {
         draft = validateDraft({

@@ -84,6 +84,14 @@ export async function countPending(db = getDb()) {
   return snap.size;
 }
 
+// Solicitudes que todavía ocupan unidades de una compra (para no devolver dos
+// veces lo mismo). Un solo where: no necesita índice compuesto.
+export const ACTIVE_STATUSES = ['pendiente_aprobacion', 'aprobada'];
+export async function listActiveWebReturns(db = getDb()) {
+  const snap = await db.collection(COL).where('status', 'in', ACTIVE_STATUSES).get();
+  return snap.docs.map(withId);
+}
+
 export async function updateDraft(id, patch, user, now = Date.now(), db = getDb()) {
   const ref = db.collection(COL).doc(id);
   return db.runTransaction(async (tx) => {

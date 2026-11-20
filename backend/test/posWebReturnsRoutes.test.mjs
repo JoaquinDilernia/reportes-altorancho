@@ -166,9 +166,20 @@ test('buildDraftFromInput: sin número de pedido', async () => {
   await assert.rejects(buildDraftFromInput(input({ tnNumber: '' }), { channel: 'manual', settings, now: new Date(), resolve: async () => resolved }), /número de pedido/);
 });
 
+test('buildDraftFromInput: la misma línea en dos filas suma contra lo disponible', async () => {
+  const two = [{ purchaseLineId: 10, qty: 1, destinationId: 'stock' }, { purchaseLineId: '10', qty: 1, destinationId: 'falla' }];
+  const d = await buildDraftFromInput(input({ returnLines: two }), { channel: 'manual', settings, now: new Date(), resolve: async () => resolved });
+  assert.equal(d.returnLines.length, 2);
+  await assert.rejects(
+    buildDraftFromInput(input({ returnLines: [...two, { purchaseLineId: 10, qty: 1, destinationId: 'stock' }] }), { channel: 'manual', settings, now: new Date(), resolve: async () => resolved }),
+    /Solo se puede devolver 0/,
+  );
+});
+
 // ---- Acciones (deps falsas) ----
 function mkDeps(over = {}) {
   const calls = [];
+  const resolveCalls = [];
   let current = {
     id: 'r1', number: 'CW-000001', status: 'pendiente_aprobacion', kind: 'devolucion', reason: 'falla', channel: 'manual',
     customer: { name: 'Ana Perez', phone: '11', email: '', doc: '', address: '', zone: 'amba' },
@@ -197,7 +208,8 @@ function mkDeps(over = {}) {
     },
     getSettings: async () => settings,
     getLocales: async () => [{ id: 'LL', name: 'Local L', secret: 'x' }],
-    resolve: async () => resolved,
+    resolveCalls,
+    resolve: async (...args) => { resolveCalls.push(args); return resolved; },
     now: () => new Date('2026-11-20T12:00:00Z'),
     ...over,
   };
@@ -280,6 +292,8 @@ test('PATCH: con returnLines reconstruye desde el pedido; sin ellas valida y mez
   assert.equal(patch.channel, 'manual');
   assert.deepEqual(patch.evidence.map((e) => e.storagePath), ['p'], 'conserva la evidencia');
   assert.equal(patch.purchase.late, false, 'el plazo se mide a la fecha de alta');
+
+  assert.deepEqual(deps.resolveCalls.at(-1), ['123', { excludeRequestId: 'r1' }], 'la solicitud editada no cuenta contra sí misma');
 
   await a.patch('r1', { reasonNote: 'roto', customer: { phone: '22' }, evidence: [], purchase: { ref: 'x' } }, 'Juan');
   [, id, patch] = deps.calls.at(-1);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakeFirestore } from './helpers/fakeFirestore.mjs';
 import {
-  createWebReturn, getWebReturn, listWebReturns, countPending, updateDraft,
+  createWebReturn, getWebReturn, listWebReturns, countPending, updateDraft, listActiveWebReturns,
   claimTransition, finishTransition, failTransition, saveOdooSteps, BUSY_STALE_MS, appendEvidence, setLabel,
 } from '../posWebReturnsStore.mjs';
 
@@ -83,6 +83,19 @@ test('countPending y listWebReturns', async () => {
 });
 
 const ISO = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;
+
+test('listActiveWebReturns: solo pendientes y aprobadas, sin límite', async () => {
+  const db = createFakeFirestore();
+  const a = await createWebReturn(draft(), user, new Date(1000), db);
+  const b = await createWebReturn(draft(), user, new Date(2000), db);
+  const c = await createWebReturn(draft(), user, new Date(3000), db);
+  await claimTransition(a.id, 'reject', user, {}, undefined, db);
+  await finishTransition(a.id, { status: 'rechazada', patch: {}, user, action: 'reject' }, db);
+  await claimTransition(b.id, 'approve', user, {}, undefined, db);
+  await finishTransition(b.id, { status: 'aprobada', patch: {}, user, action: 'approve' }, db);
+  const rows = await listActiveWebReturns(db);
+  assert.deepEqual(rows.map((r) => r.id).sort(), [b.id, c.id].sort());
+});
 
 test('las fechas salen como ISO string (create y get)', async () => {
   const db = createFakeFirestore();

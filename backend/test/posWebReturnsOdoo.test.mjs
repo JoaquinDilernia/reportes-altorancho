@@ -394,3 +394,80 @@ test('runReceiveSteps con ODOO_WRITES=dry e id negativo: no toca Odoo y la marca
     assert.equal(steps.pickings['pick:192311:fallas'].state, 'done');
   });
 });
+
+// ---- No devolver dos veces la misma unidad entre solicitudes o flujos ----
+// stock.move.search_read: las devoluciones (no canceladas) del move, con su remito.
+const returnMovesOf = (rows) => ({
+  'stock.move.search_read': ([domain]) => (domain[1]?.[1] === '!=' ? rows : []),
+});
+const retRow = (pickingId, qty = 1, state = 'assigned') => ({
+  id: 8000 + pickingId, origin_returned_move_id: [612602, 'x'], product_uom_qty: qty, quantity_done: state === 'done' ? qty : 0, state, picking_id: [pickingId, 'EC/RET/9'],
+});
+const originsById = (byId) => ({
+  'stock.picking.read': ([ids], kw) => ids.map((id) => ({ id, name: `EC/RET/${id}`, state: 'assigned', origin: byId[id] ?? false })),
+});
+
+test('aprobar con una devolución abierta del local sobre la unidad: Faltan 1 unidades, sin escribir nada', async () => {
+  const { odoo, calls } = fakeOdoo({ ...returnMovesOf([retRow(4600)]), ...originsById({ 4600: 'Devolución POS-000045' }) });
+  const saved = [];
+  await assert.rejects(runApprovalSteps(request(), settings, depsFor(odoo, { saved })), /Faltan 1 unidades/);
+  assert.deepEqual(writes(calls), []);
+  assert.deepEqual(saved, []);
+});
+
+test('aprobar con la devolución abierta de otra solicitud (CW-000999): no crea una segunda', async () => {
+  const { odoo, calls } = fakeOdoo({ ...returnMovesOf([retRow(4601)]), ...originsById({ 4601: 'CW-000999 · pick:192311:fallas' }) });
+  await assert.rejects(runApprovalSteps(request({ kind: 'devolucion', evidence: [] }), settings, depsFor(odoo)), /Faltan 1 unidades/);
+  assert.ok(!writes(calls).some((w) => w.startsWith('stock.return.picking')));
+});
+
+test('la devolución abierta cuenta como usada: con 2 entregadas y 1 abierta se reparte la otra', async () => {
+  const { odoo } = fakeOdoo({ ...returnMovesOf([retRow(4602)]), ...originsById({ 4602: 'Devolución POS-000046' }) });
+  const deps = depsFor(odoo);
+  deps.readMoves = async (ids) => ids.map((i) => move(i, 192311, 2));
+  const steps = await runApprovalSteps(request({ evidence: [] }), settings, deps);
+  assert.deepEqual(steps.plan[0].items, [{ moveId: 612602, productId: 70417, uomId: 1, qty: 1 }]);
+  await assert.rejects(runApprovalSteps(request({ evidence: [], returnLines: [rline({ qty: 2 })] }), settings, deps), /Faltan 1 unidades/);
+});
+
+test('las devoluciones propias (nuestro origin o id guardado) no cuentan contra la solicitud al planear', async () => {
+  const { odoo } = fakeOdoo({
+    ...returnMovesOf([retRow(4603), retRow(4604)]),
+    ...originsById({ 4603: 'CW-000123 · pick:192311:fallas', 4604: 'Retorno de EC/OUT/47954' }),
+  });
+  const deps = depsFor(odoo);
+  deps.readMoves = async (ids) => ids.map((i) => move(i, 192311, 2));
+  const req = request({ evidence: [], returnLines: [rline({ qty: 2 })], odoo: { steps: { pickings: {} } } });
+  // 4604 sin dueño conocido: ocupa una unidad.
+  await assert.rejects(runApprovalSteps(req, settings, deps), /Faltan 1 unidades/);
+  const own = request({ evidence: [], returnLines: [rline({ qty: 2 })], odoo: { steps: { pickings: { 'pick:192311:ecommerce': { id: 4604 } } } } });
+  const steps = await runApprovalSteps(own, settings, deps);
+  assert.deepEqual(steps.plan[0].items.map((i) => i.qty), [2]);
+});
+
+test('reintento después de crear la propia devolución: reusa el plan, no tira Faltan ni la recrea', async () => {
+  // Primera vuelta: crea la devolución y falla al leerla (queda guardada sin estado).
+  let readFails = true;
+  const { odoo, calls } = fakeOdoo({
+    'stock.picking.read': ([ids]) => {
+      if (readFails) throw new Error('timeout');
+      return ids.map((id) => ({ id, name: 'EC/RET/00100', state: 'assigned', origin: OURS }));
+    },
+  });
+  const saved = [];
+  const deps = depsFor(odoo, { saved });
+  await assert.rejects(runApprovalSteps(request({ evidence: [] }), settings, deps), /timeout/);
+  const last = saved.at(-1);
+  assert.equal(last.pickings['pick:192311:fallas'].id, 4321);
+  // Ahora Odoo muestra esa devolución abierta sobre la unidad.
+  readFails = false;
+  calls.length = 0;
+  Object.assign(deps, depsFor(fakeOdoo({ ...returnMovesOf([retRow(4321)]), ...originsById({ 4321: OURS }) }).odoo, { saved }));
+  deps.createReturnPicking = async () => assert.fail('no la recrea');
+  const steps = await runApprovalSteps(request({ evidence: [], odoo: { steps: last } }), settings, deps);
+  assert.equal(steps.pickings['pick:192311:fallas'].id, 4321);
+  // Y aunque se perdiera el plan, la propia devolución (nuestro origin) no cuenta en contra.
+  const { odoo: o2 } = fakeOdoo({ ...returnMovesOf([retRow(4321)]), ...originsById({ 4321: OURS }), 'stock.picking.search_read': () => [{ id: 4321, name: 'EC/RET/00100', state: 'assigned' }] });
+  const again = await runApprovalSteps(request({ evidence: [] }), settings, depsFor(o2));
+  assert.equal(again.pickings['pick:192311:fallas'].id, 4321);
+});
