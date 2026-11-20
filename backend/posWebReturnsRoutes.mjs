@@ -17,6 +17,16 @@ const BOT_USER = 'bot';
 const BOT_CHANNELS = ['whatsapp', 'instagram'];
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
+// ---- Cuerpos grandes ----
+// Evidencia y etiquetas llegan en base64 (hasta 15 MB de archivo). El parser
+// global de la app se las saltea y las parsea este router con 25 MB, recién
+// después del guard: sin auth no se lee el cuerpo.
+export const BIG_BODY_PATH = /^\/api\/pos\/(admin|bot)\/web-returns\/[^/]+\/(evidence|label)$/;
+
+export function jsonExceptBigBodies(parser = express.json()) {
+  return (req, res, next) => (BIG_BODY_PATH.test(req.path) ? next() : parser(req, res, next));
+}
+
 // ---- Bot: clave compartida ----
 const digest = (s) => createHash('sha256').update(String(s)).digest();
 
@@ -222,8 +232,7 @@ export function createWebReturnsRouter({ admins, deps } = {}) {
   const router = Router();
   const a = webReturnActions(deps ?? defaultDeps());
   const id = validId(REQUEST_ID, 'Id de solicitud');
-  // index.mjs ya parsea estas rutas con 25 MB antes del parser global; esto
-  // cubre el router montado en otra app (si el cuerpo ya vino parseado, no hace nada).
+  // Solo en evidencia y etiqueta, siempre después del guard (ver jsonExceptBigBodies).
   const bigJson = express.json({ limit: '25mb' });
   const user = (req) => req.posUser.name;
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 
 process.env.POS_AUTH_SECRET = 'test-secret-pos';
-const { requireBotKey, phoneMatches, identityMatches, webReturnActions, createWebReturnsRouter } = await import('../posWebReturnsRoutes.mjs');
+const { requireBotKey, phoneMatches, identityMatches, webReturnActions, createWebReturnsRouter, jsonExceptBigBodies } = await import('../posWebReturnsRoutes.mjs');
 const { saveEvidence, evidenceUrl, readEvidenceFile } = await import('../posWebReturnsEvidence.mjs');
 const { buildDraftFromInput } = await import('../posWebReturnsDraft.mjs');
 const { generateToken, requirePosAuth, requirePosRole } = await import('../posAuth.mjs');
@@ -393,18 +393,47 @@ test('router: guards de admin y de bot, rutas fijas antes que :id', async () => 
   });
 });
 
-test('index: evidencia y etiqueta aceptan cuerpos grandes; el resto sigue en el límite global', async () => {
+test('index: evidencia y etiqueta sin auth → 401 sin parsear el cuerpo; el resto sigue en el límite global', async () => {
   const { app } = await import('../index.mjs');
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}/api/pos`;
   try {
     const big = JSON.stringify({ base64: 'A'.repeat(2 * 1024 * 1024), mimetype: 'image/png' });
+    // JSON roto y grande: si alguien lo parseara antes del guard saldría 400 o 413.
+    const broken = `{"base64":"${'A'.repeat(2 * 1024 * 1024)}`;
     const headers = { 'Content-Type': 'application/json' };
-    for (const path of ['/admin/web-returns/abc/evidence', '/admin/web-returns/abc/label', '/bot/web-returns/abc/evidence']) {
-      const res = await fetch(`${base}${path}`, { method: 'POST', headers, body: big });
-      assert.notEqual(res.status, 413, path);
-      assert.ok([401, 503].includes(res.status), `${path}: ${res.status}`);
+    for (const path of ['/admin/web-returns/abc/evidence', '/admin/web-returns/abc/label', '/bot/web-returns/abc/evidence', '/bot/web-returns/abc/label']) {
+      for (const body of [big, broken]) {
+        const res = await fetch(`${base}${path}`, { method: 'POST', headers, body });
+        if (path.startsWith('/admin')) assert.equal(res.status, 401, path);
+        else assert.ok([401, 404, 503].includes(res.status), `${path}: ${res.status}`);
+      }
     }
     assert.equal((await fetch(`${base}/admin/web-returns/abc/approve`, { method: 'POST', headers, body: big })).status, 413);
+    // El parser global sigue andando en el resto de las rutas.
+    const parsed = await fetch(`${base}/admin/web-returns/abc/approve`, { method: 'POST', headers, body: '{"a":' });
+    assert.equal(parsed.status, 400);
+  } finally { server.close(); }
+});
+
+test('router: con auth, evidencia y etiqueta aceptan cuerpos grandes (parser de 25 MB después del guard)', async () => {
+  process.env.POS_BOT_SECRET = 'secreto-bot';
+  const deps = mkDeps();
+  deps.current = { ...deps.current, status: 'pendiente_aprobacion' };
+  const app = express();
+  app.use(jsonExceptBigBodies());
+  app.use('/api/pos', createWebReturnsRouter({ admins: [requirePosAuth, requirePosRole('admin')], deps }));
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${server.address().port}/api/pos`;
+  try {
+    const big = JSON.stringify({ base64: 'A'.repeat(2 * 1024 * 1024), mimetype: 'image/png' });
+    const token = generateToken({ id: 'a1', role: 'admin', name: 'Admin' });
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const res = await fetch(`${base}/admin/web-returns/r1/evidence`, { method: 'POST', headers, body: big });
+    assert.equal(res.status, 200);
+    assert.equal(deps.calls.find((c) => c[0] === 'save')[1].base64.length, 2 * 1024 * 1024);
+    const bot = await fetch(`${base}/bot/web-returns/r1/evidence`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-pos-bot-key': 'secreto-bot' }, body: big });
+    assert.equal(bot.status, 200);
+    assert.equal((await fetch(`${base}/admin/web-returns/r1/evidence`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: big })).status, 401);
   } finally { server.close(); }
 });

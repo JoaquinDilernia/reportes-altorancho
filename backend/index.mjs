@@ -24,6 +24,7 @@ import { EVENTS, liveSyncEvent, argDay } from './events.mjs';
 import { fetchProductImage } from './odoo.mjs';
 import { fetchAdThumbnail } from './meta.mjs';
 import posRoutes from './posRoutes.mjs';
+import { jsonExceptBigBodies } from './posWebReturnsRoutes.mjs';
 import { seedSuperadminIfNeeded } from './posAuth.mjs';
 import { seedPosConfigIfNeeded } from './posConfig.mjs';
 import { startPosAutoRetry } from './posConfirm.mjs';
@@ -44,10 +45,9 @@ export const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }));
-// Evidencia y etiquetas de cambios web llegan en base64 (hasta 15 MB de archivo):
-// solo esas rutas aceptan cuerpos grandes; el resto sigue con el límite por defecto.
-app.use(/^\/api\/pos\/(admin|bot)\/web-returns\/[^/]+\/(evidence|label)$/, express.json({ limit: '25mb' }));
-app.use(express.json());
+// Evidencia y etiquetas de cambios web (cuerpos grandes) no pasan por el parser
+// global: las parsea su router con 25 MB después del guard. El resto, igual que siempre.
+app.use(jsonExceptBigBodies(express.json()));
 // La app de la feria (/api/feria) está apagada: el código sigue en feria*.mjs para la próxima feria.
 app.use('/api/pos', posRoutes);
 
