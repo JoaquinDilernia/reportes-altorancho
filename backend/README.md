@@ -64,3 +64,18 @@ deploy de Railway):
     npm install
     npm run dev
     npm test
+
+
+### Desarrollo local seguro
+
+Para probar sin tocar producción: copiar `.env.development.example` a
+`.env.development` (gitignored) y completarlo con un proyecto Firebase de
+pruebas, `POS_AUTH_SECRET` distinto del de producción y credenciales de
+Odoo/Tienda Nube solo de lectura. Luego:
+
+    npm run dev:safe
+
+Requiere Node >= 20.6. Deja los crons apagados (`DISABLE_CRONS=true`), exige
+`ODOO_WRITES=dry` (escrituras Odoo simuladas) y `DOTENV_CONFIG_PATH=.env.development`
+para que nunca se lea el `.env` de producción; si falta alguno, el servidor
+no arranca.

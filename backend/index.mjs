@@ -27,6 +27,7 @@ import posRoutes from './posRoutes.mjs';
 import { seedSuperadminIfNeeded } from './posAuth.mjs';
 import { seedPosConfigIfNeeded } from './posConfig.mjs';
 import { startPosAutoRetry } from './posConfirm.mjs';
+import { backgroundJobsEnabled, assertSafeDevEnv } from './runtimeFlags.mjs';
 import { syncProducts } from './sync/products.mjs';
 import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
@@ -387,16 +388,21 @@ async function runLiveSalesSync() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Crons only when run as the server: importing { app } from a script must never sync.
-  cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
-  console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
-  // Offset to minute 2 so it never fires in the same second as the `0 */N` full sync.
-  cron.schedule(`2-59/${LIVE_SYNC_MINUTES} * * * *`, runLiveSalesSync);
-  // Daily snapshots (Clarity, web stock): 00:05 ART, retried at 06:00 and
-  // 12:00 only if the day is still missing (each run checks first).
-  for (const expr of ['5 0 * * *', '0 6 * * *', '0 12 * * *']) {
-    cron.schedule(expr, () => takeDailySnapshots(), { timezone: 'America/Argentina/Buenos_Aires' });
+  assertSafeDevEnv();
+  if (backgroundJobsEnabled()) {
+    cron.schedule(`0 */${SYNC_HOURS} * * *`, runFullSync);
+    console.log(`[server] cron scheduled every ${SYNC_HOURS}h`);
+    // Offset to minute 2 so it never fires in the same second as the `0 */N` full sync.
+    cron.schedule(`2-59/${LIVE_SYNC_MINUTES} * * * *`, runLiveSalesSync);
+    // Daily snapshots (Clarity, web stock): 00:05 ART, retried at 06:00 and
+    // 12:00 only if the day is still missing (each run checks first).
+    for (const expr of ['5 0 * * *', '0 6 * * *', '0 12 * * *']) {
+      cron.schedule(expr, () => takeDailySnapshots(), { timezone: 'America/Argentina/Buenos_Aires' });
+    }
+    startPosAutoRetry();
+  } else {
+    console.log('[server] modo dev: crons apagados, escrituras Odoo simuladas');
   }
-  startPosAutoRetry();
   seedPosConfigIfNeeded().catch(err => console.error('[pos] Error cargando configuración inicial:', err.message));
   seedSuperadminIfNeeded().catch(err => console.error('[pos] Error creando superadmin:', err.message));
   app.listen(PORT, () => console.log(`[server] listening on :${PORT} (clarity=${isClarityConfigured() ? "si" : "no"}, ga4=${isGa4Configured() ? "si" : "no"})`));

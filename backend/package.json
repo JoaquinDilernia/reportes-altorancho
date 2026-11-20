@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node index.mjs",
     "dev": "node --watch index.mjs",
+    "dev:safe": "node --env-file=.env.development --watch index.mjs",
     "test": "node --test test/**/*.test.mjs",
     "backfill": "node backfill.mjs",
     "import:feria-prices": "node scripts/importFeriaPrices.mjs"
