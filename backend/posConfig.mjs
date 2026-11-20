@@ -348,10 +348,30 @@ export async function saveLocale(id, input) {
   clearConfigCache();
 }
 
-export async function saveSettings(input) {
-  const errors = validateSettings(input);
-  if (errors.length) throw new Error(errors.join('; '));
-  await SETTINGS_REF(getDb()).set({ ...input, updatedAt: new Date() });
+const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+// El documento se reemplaza entero, pero webReturns nunca se pierde: si no
+// viene se conserva lo guardado; si viene parcial se mezcla un nivel sobre lo
+// guardado y, en lo que falte, sobre los valores iniciales.
+export async function saveSettings(input, db) {
+  const partial = input.webReturns;
+  const merging = isPlainObject(partial);
+  if (!merging) {
+    const errors = validateSettings(input);
+    if (errors.length) throw new Error(errors.join('; '));
+  }
+  const ref = SETTINGS_REF(db ?? getDb());
+  const snap = await ref.get();
+  const stored = snap.exists ? snap.data() ?? {} : {};
+  let data = { ...input };
+  if (merging) {
+    data = { ...input, webReturns: { ...DEFAULT_SETTINGS.webReturns, ...(isPlainObject(stored.webReturns) ? stored.webReturns : {}), ...partial } };
+    const errors = validateSettings(data);
+    if (errors.length) throw new Error(errors.join('; '));
+  } else if (partial === undefined && stored.webReturns !== undefined) {
+    data.webReturns = stored.webReturns;
+  }
+  await ref.set({ ...data, updatedAt: new Date() });
   clearConfigCache();
 }
 

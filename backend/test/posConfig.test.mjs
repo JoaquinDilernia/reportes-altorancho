@@ -208,3 +208,40 @@ test('withSettingsDefaults: webReturns parcial conserva los defaults; el resto s
   assert.equal(m.webReturns.destinations.length, 5);
   assert.equal(withSettingsDefaults({}).webReturns.windowBusinessDays, 30);
 });
+
+// ---- saveSettings: nunca borra webReturns ----
+import { saveSettings } from '../posConfig.mjs';
+import { createFakeFirestore } from './helpers/fakeFirestore.mjs';
+
+const { webReturns: _sinWeb, ...panelSettings } = DEFAULT_SETTINGS;
+const storedOf = async (db) => (await db.collection('pos_settings').doc('general').get()).data();
+const storedWeb = { ...DEFAULT_SETTINGS.webReturns, holidays: ['2026-12-08'], windowBusinessDays: 20, destinations: [{ id: 'fallas', label: 'Fallas', locationId: 192 }] };
+
+test('saveSettings sin webReturns: conserva el guardado; sin guardado, igual que antes', async () => {
+  const db = createFakeFirestore();
+  await saveSettings({ ...panelSettings, returnWindowDays: 15 }, db);
+  const first = await storedOf(db);
+  assert.equal(first.returnWindowDays, 15);
+  assert.equal('webReturns' in first, false, 'no inventa webReturns');
+  await db.collection('pos_settings').doc('general').set({ ...first, webReturns: storedWeb });
+  await saveSettings({ ...panelSettings, returnWindowDays: 20 }, db);
+  const after = await storedOf(db);
+  assert.equal(after.returnWindowDays, 20);
+  assert.deepEqual(after.webReturns, storedWeb);
+  await assert.rejects(saveSettings({ ...panelSettings, web: {} }, db), /Web: ubicación obligatoria/);
+});
+
+test('saveSettings con webReturns parcial: mezcla un nivel sobre lo guardado y los defaults', async () => {
+  const db = createFakeFirestore();
+  await db.collection('pos_settings').doc('general').set({ ...panelSettings, webReturns: { holidays: ['2026-12-08'], tagId: 99 } });
+  await saveSettings({ ...panelSettings, webReturns: { windowBusinessDays: 25, holidays: ['2026-12-25'] } }, db);
+  const w = (await storedOf(db)).webReturns;
+  assert.equal(w.windowBusinessDays, 25);
+  assert.deepEqual(w.holidays, ['2026-12-25']);
+  assert.equal(w.tagId, 99, 'lo guardado que no vino se conserva');
+  assert.deepEqual(w.destinations, DEFAULT_SETTINGS.webReturns.destinations, 'lo que falta sale de los defaults');
+  assert.deepEqual(w.defaultDestinationByReason, DEFAULT_SETTINGS.webReturns.defaultDestinationByReason);
+  await assert.rejects(saveSettings({ ...panelSettings, webReturns: { holidays: ['8/12'] } }, db), /feriado/);
+  await assert.rejects(saveSettings({ ...panelSettings, webReturns: null }, db), /Cambios web: configuración inválida/);
+  assert.deepEqual((await storedOf(db)).webReturns.holidays, ['2026-12-25'], 'si no valida no se guarda');
+});
