@@ -39,7 +39,41 @@ export async function authenticate() {
   console.log(`[odoo] authenticated uid=${result.uid}`);
 }
 
+const READ_METHODS = new Set([
+  'search_read', 'read', 'search', 'search_count', 'read_group', 'fields_get',
+  'name_search', 'name_get', 'default_get', 'check_access_rights', 'onchange',
+]);
+
+export function isReadMethod(method) {
+  return READ_METHODS.has(method);
+}
+
+let fakeIdSeq = 0;
+const nextFakeId = () => -(++fakeIdSeq);
+
+const DRY_LOG_MAX = 500;
+const dryLog = [];
+
+export function dryWriteLog() {
+  return dryLog;
+}
+
+export function dryWriteResult(model, method, args = []) {
+  if (method === 'create') {
+    const first = args[0];
+    if (Array.isArray(first)) return first.map(() => nextFakeId());
+    return nextFakeId();
+  }
+  return { res_id: nextFakeId(), dryRun: true };
+}
+
 export async function callKw(model, method, args = [], kwargs = {}) {
+  if (process.env.ODOO_WRITES === 'dry' && !isReadMethod(method)) {
+    console.log(`[odoo:dry] ${model}.${method}`);
+    dryLog.push({ model, method, args, at: new Date().toISOString() });
+    if (dryLog.length > DRY_LOG_MAX) dryLog.splice(0, dryLog.length - DRY_LOG_MAX);
+    return dryWriteResult(model, method, args);
+  }
   return rpc('/web/dataset/call_kw', {
     model, method, args,
     kwargs: { context: { lang: 'es_AR' }, ...kwargs },
