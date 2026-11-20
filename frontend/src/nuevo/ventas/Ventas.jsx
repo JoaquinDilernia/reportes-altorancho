@@ -4,7 +4,6 @@ import { periodParams } from '../urlState.js';
 import { money } from '../format.js';
 import ChannelChip from './ChannelChip.jsx';
 import VentaDetail from './VentaDetail.jsx';
-import VisitasCanal from './VisitasCanal.jsx';
 import { chShort, chColor, when, CUSTOMER } from './vFormat.js';
 
 const TITLE = { week: 'Ventas web de la semana', month: 'Ventas web del mes', custom: 'Ventas web del rango' };
@@ -83,8 +82,6 @@ export default function Ventas({ state, onLogout }) {
       <div className="nv-sub">Cada pedido de la tienda online: de dónde vino, por dónde pasó antes y cuánto dejó. Tocá una venta para ver su recorrido.</div>
 
       <ChannelFilter summary={list.summary} channel={channel} onChange={setChannel} />
-
-      <VisitasCanal period={period} date={date} start={start} end={end} onLogout={onLogout} />
 
       <section className="nv-card nv-sec">
         <div className="nv-titlebar">

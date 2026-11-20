@@ -115,6 +115,35 @@ describe('recorrido de un pedido', () => {
     expect(r.total).toMatchObject({ visits: 3, orders: 1, revenue: 100, adds: 1 });
   });
 
+  it('insights: embudo, productos, búsquedas, recorridos y checkouts abandonados', async () => {
+    await db.query(`INSERT INTO order_items (order_id, product_id, sku, name, quantity, price) VALUES (2100000900, 77, 'S1', 'Silla', 2, 50)`);
+    await db.query(`INSERT INTO tn_checkouts (id, created_at, contact_email, total, items, products, channel)
+      VALUES (1, '2026-11-14T11:00:00Z', 'ana@x.com', 100, 2, '[{"product_id":77,"name":"Silla","quantity":2,"price":50}]', 'google'),
+             (2, '2026-11-14T12:00:00Z', 'otro@x.com', 900000, 1, '[{"product_id":5,"name":"Mesa","quantity":1,"price":900000}]', 'meta')`);
+    await repo.record(parseBatch({ v: V, s: sid(1), e: [{ t: 'session', url: 'https://altorancho.com/productos/silla/?utm_source=google&utm_medium=cpc', dev: 'mobile' }, { t: 'page', product: true }, { t: 'product', pid: '77', name: 'Silla' }, { t: 'search', q: 'Mesa Roble' }, { t: 'add_to_cart', pid: 77, name: 'Silla' }] }), at('2026-11-14T10:00:00Z'));
+    await repo.record(parseBatch({ v: V, s: sid(2), e: [{ t: 'session', url: 'https://altorancho.com/?utm_source=perfit&utm_medium=email', dev: 'mobile' }, { t: 'page' }, { t: 'product', pid: 77, name: 'Silla' }, { t: 'purchase', order: '2100000900' }] }), at('2026-11-15T15:01:00Z'));
+    const r = await repo.insights(new Date('2026-11-01T00:00:00Z'), new Date('2026-12-01T00:00:00Z'));
+    expect(r.funnel.find((f) => f.channel === 'google')).toMatchObject({ visits: 1, with_product: 1 });
+    expect(r.landings.find((l) => l.path === '/productos/silla')).toMatchObject({ visits: 1, withCart: 1 });
+    expect(r.devices[0]).toMatchObject({ device: 'mobile', visits: 2, orders: 1 });
+    expect(r.products[0]).toMatchObject({ productId: 77, views: 2, people: 1, adds: 1, orders: 1, units: 2 });
+    expect(r.searches[0]).toMatchObject({ q: 'mesa roble', searches: 1, withCart: 1 });
+    expect(r.journeys.orders).toBe(1);
+    expect(r.journeys.paths[0]).toMatchObject({ first: 'google', last: 'email', orders: 1 });
+    expect(r.journeys.visits['2 a 3 visitas']).toBe(1);
+    expect(r.checkouts).toMatchObject({ abandoned: 2, recovered: 1 });
+    const j = await repo.journeyForOrder('2100000900');
+    expect(j.abandonedCheckouts).toHaveLength(1);
+    expect(j.timeline[0].products).toEqual(['Silla']);
+    expect(j.timeline[0].searches).toEqual(['mesa roble']);
+    const al = await repo.alerts(new Date('2026-11-15T13:00:00Z'));
+    expect(al.alerts.find((a) => a.kind === 'checkout')).toMatchObject({ total: 900000 });
+  });
+
+  it('links de vendedores son su propio canal', () => {
+    expect(classifySession({ url: 'https://altorancho.com/productos/x/?utm_source=vendedor&utm_medium=whatsapp&utm_campaign=lucia' })).toMatchObject({ channel: 'vendedor', campaign: 'lucia' });
+  });
+
   it('sin visitas registradas lo dice', async () => {
     expect((await repo.journeyForOrder('2100000900')).tracked).toBe(false);
   });

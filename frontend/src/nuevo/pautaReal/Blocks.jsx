@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { money, pct, toneOf } from '../format.js';
+import { money, pct, toneOf, num } from '../format.js';
 import { times, perPeso, VERDICT, SOURCE_LABEL, SOURCE_COLOR } from './prFormat.js';
 
 const PREV = { week: 'sem. ant.', month: 'mes ant.', custom: 'per. ant.' };
@@ -59,8 +59,20 @@ function Kpi({ label, value, note, delta, strong }) {
 
 const PLATFORM = { meta: { label: 'Meta', color: '#1877F2' }, google: { label: 'Google', color: '#EA4335' } };
 
+// Lo que ve nuestro propio seguimiento de visitas (script en la tienda)
+export function TrackLine({ t, since }) {
+  if (!t) return null;
+  const d = since ? new Date(since).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : null;
+  return (
+    <p className="nv-note nv-pr-track">
+      <b>Nuestro seguimiento</b>{d && ` (desde el ${d})`}: {num(t.visits)} visitas · <b>{t.orders}</b> compras entrando por acá ({money(t.revenue)})
+      {t.assistedOrders > t.orders && <> · participó en <b>{t.assistedOrders}</b> ({money(t.assistedRevenue)}) contando visitas anteriores</>}
+    </p>
+  );
+}
+
 // Lo que dice la plataforma vs. lo que llegó a la tienda vs. lo que dejó.
-export function TruthCard({ id, p, reported }) {
+export function TruthCard({ id, p, reported, track, trackSince }) {
   const { label, color } = PLATFORM[id];
   if (!p) {
     return (
@@ -89,6 +101,7 @@ export function TruthCard({ id, p, reported }) {
       {p.overReportPct != null && p.overReportPct > 5 && (
         <p className="nv-note">{label} se adjudica un <b>{pct(p.overReportPct)}</b> más de ventas que las que entraron a la tienda con su clic (cuenta vistas, otros dispositivos y ventas que también reclama otra plataforma).</p>
       )}
+      <TrackLine t={track} since={trackSince} />
     </div>
   );
 }
@@ -217,7 +230,7 @@ function CostEditor({ cost, label, onSave }) {
   );
 }
 
-export function OtherCard({ id, p, onSaveCost }) {
+export function OtherCard({ id, p, onSaveCost, track, trackSince, perfit }) {
   const { label, color, costLabel, hint } = OTHER[id];
   const [editing, setEditing] = useState(false);
   const noCost = p.spend == null;
@@ -236,6 +249,7 @@ export function OtherCard({ id, p, onSaveCost }) {
       </div>
       {!fromApi && (editing || noCost) && <CostEditor cost={p.cost} label={costLabel} onSave={save} />}
       <div className="nv-pr-steps">
+        {perfit && <Step label="Lo que dice Perfit (campañas)" value={money(perfit.campaignTotals.conversionsAmount)} sub={`${perfit.campaignTotals.conversions} ventas · ${perfit.campaignTotals.count} campañas`} bar={perfit.campaignTotals.conversionsAmount / Math.max(max, perfit.campaignTotals.conversionsAmount)} color="var(--nv-ink3)" />}
         {fromApi && p.reported && <Step label={`Lo que dice ${label}`} value={times(p.reported.roas)} sub={`${money(p.reported.revenue)} en ventas`} bar={p.reported.revenue / max} color="var(--nv-ink3)" />}
         <Step label="Lo que llegó a la tienda" value={noCost ? '—' : times(p.real.roas)} sub={`${money(p.real.revenue)} · ${p.real.orders} pedidos`} bar={p.real.revenue / max} color={color} />
         <Step label="Lo que dejó (POAS)" value={noCost ? '—' : times(p.poas)} sub={noCost ? `ganancia ${money(p.grossProfit)}` : `ganancia ${money(p.grossProfit)} · neto ${money(p.profitAfterAds)}`} bar={Math.max(0, p.grossProfit) / max} color="var(--nv-pr-profit)" />
@@ -249,6 +263,10 @@ export function OtherCard({ id, p, onSaveCost }) {
           : `${costLabel} ${hint}, repartido por día del período. `}
         Cuenta solo las compras de quien entró con un clic de {id === 'email' ? 'un mail' : 'un anuncio'} en esa visita.
       </p>
+      {perfit?.campaignTotals.withoutUtms > 0 && (
+        <p className="nv-note nv-pr-warnline">{perfit.campaignTotals.withoutUtms} de {perfit.campaignTotals.count} campañas salieron <b>sin UTMs</b> (opción "Google Analytics" apagada en Perfit): sus clics no se pueden verificar.</p>
+      )}
+      <TrackLine t={track} since={trackSince} />
     </div>
   );
 }

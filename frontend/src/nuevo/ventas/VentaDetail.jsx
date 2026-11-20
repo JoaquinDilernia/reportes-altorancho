@@ -122,6 +122,8 @@ function FullJourney({ t }) {
               <ChannelChip channel={s.channel} />
               {(s.campaign || s.source) && <span className="nv-mute"> · {s.campaign || s.source}</span>}
               <span className="nv-mute"> · {plural(s.pageviews || 0, 'página', 'páginas')}{s.productViews ? `, ${plural(s.productViews, 'producto', 'productos')}` : ''}{s.device ? ` · ${DEVICE[s.device] || s.device}` : ''}</span>
+              {s.searches?.length > 0 && <span className="nv-v-seen">🔎 buscó {s.searches.map((q) => `"${q}"`).join(', ')}</span>}
+              {s.products?.length > 0 && <span className="nv-v-seen">👀 {s.products.slice(0, 6).join(' · ')}{s.products.length > 6 ? ` y ${s.products.length - 6} más` : ''}</span>}
               {s.carts.map((c, j) => (
                 <span key={j} className="nv-v-cart">🛒 {c.name || c.sku || 'producto'}{c.qty > 1 ? ` ×${c.qty}` : ''}</span>
               ))}
@@ -131,6 +133,14 @@ function FullJourney({ t }) {
           </li>
         ))}
       </ol>
+      {t.abandonedCheckouts?.length > 0 && (
+        <div className="nv-v-abandoned">
+          <b>Antes había abandonado {plural(t.abandonedCheckouts.length, 'checkout', 'checkouts')}:</b>
+          {t.abandonedCheckouts.map((c, i) => (
+            <span key={i} className="nv-mute">{when(c.at)} · {money(c.total)} · {c.products.join(', ')}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

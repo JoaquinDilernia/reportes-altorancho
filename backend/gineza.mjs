@@ -102,6 +102,16 @@ export async function fetchTrackingChannels(start, end) {
   return get(`/tracking/channels?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`);
 }
 
+export async function fetchTrackingInsights(start, end) {
+  const from = new Date(`${start}T00:00:00-03:00`);
+  const to = new Date(new Date(`${end}T00:00:00-03:00`).getTime() + 864e5);
+  return get(`/tracking/insights?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`);
+}
+
+export async function fetchTrackingAlerts() {
+  return get('/tracking/alerts');
+}
+
 export async function fetchTrackingStats(hours = 24) {
   return get(`/tracking/stats?hours=${Number(hours) || 24}`);
 }

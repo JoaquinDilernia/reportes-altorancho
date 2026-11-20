@@ -5,6 +5,7 @@ import { periodParams } from '../urlState.js';
 import Pauta from '../pauta/Pauta.jsx';
 import { Headline, TruthCard, OtherCard, Sources, ProfitDaily, Glossary } from './Blocks.jsx';
 import Campaigns from './Campaigns.jsx';
+import PerfitDetail from './PerfitDetail.jsx';
 
 const TITLE = { week: '¿Cuánto deja la pauta esta semana?', month: '¿Cuánto deja la pauta este mes?', custom: '¿Cuánto dejó la pauta en el rango?' };
 
@@ -88,15 +89,16 @@ export default function PautaReal({ state, onLogout }) {
 
       <h2 className="nv-section">Lo que dicen las plataformas vs. lo que pasó</h2>
       <div className="nv-pr-truths">
-        <TruthCard id="meta" p={platforms?.meta} reported={platformSpend.meta} />
-        <TruthCard id="google" p={platforms?.google} reported={platformSpend.google} />
+        <TruthCard id="meta" p={platforms?.meta} reported={platformSpend.meta} track={data.tracking?.byChannel.meta} trackSince={data.tracking?.since} />
+        <TruthCard id="google" p={platforms?.google} reported={platformSpend.google} track={data.tracking?.byChannel.google} trackSince={data.tracking?.since} />
       </div>
       {data.others && (
         <div className="nv-pr-truths">
-          <OtherCard id="pinterest" p={data.others.pinterest} onSaveCost={saveCost} />
-          <OtherCard id="email" p={data.others.email} onSaveCost={saveCost} />
+          <OtherCard id="pinterest" p={data.others.pinterest} onSaveCost={saveCost} track={data.tracking?.byChannel.pinterest} trackSince={data.tracking?.since} />
+          <OtherCard id="email" p={data.others.email} onSaveCost={saveCost} track={data.tracking?.byChannel.email} trackSince={data.tracking?.since} perfit={data.perfit} />
         </div>
       )}
+      {data.perfit && <PerfitDetail state={state} onLogout={onLogout} />}
 
       <ProfitDaily rows={data.daily} />
       {platforms ? (

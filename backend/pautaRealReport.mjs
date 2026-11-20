@@ -10,7 +10,8 @@ import { getCostBySku } from './odooCosts.mjs';
 import { getCustomerTypes } from './customerType.mjs';
 import { getMarketingCosts, costForRange, monthlyCost } from './marketingCosts.mjs';
 import { getPinterestStatus, queryPinterestDaily } from './pinterestAds.mjs';
-import { isGinezaConfigured, fetchPaidAttribution, fetchSummary, fetchCampaigns } from './gineza.mjs';
+import { isGinezaConfigured, fetchPaidAttribution, fetchSummary, fetchCampaigns, fetchTrackingChannels } from './gineza.mjs';
+import { getPerfitSummary } from './perfit.mjs';
 import {
   LOCAL_CHANNELS, headline, withDeltas, platformSpend, attributedOrders, platforms, webSources, campaigns, daily, customerMix, paidBlock,
 } from './pautaRealTab.mjs';
@@ -49,7 +50,7 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
   const today = argDay(now.toISOString());
   const { prevPeriodRange } = webPlan(ranges, today);
 
-  const [webCur, locCur, webPrev, locPrev, metaCur, gCur, metaPrev, gPrev, costs, gz, mkt, pinApi] = await Promise.all([
+  const [webCur, locCur, webPrev, locPrev, metaCur, gCur, metaPrev, gPrev, costs, gz, mkt, pinApi, track, perfitApi] = await Promise.all([
     querySalesByRange(['ecommerce'], current.start, current.end),
     querySalesByRange(LOCAL_CHANNELS, current.start, current.end),
     querySalesByRange(['ecommerce'], prevPeriodRange.start, prevPeriodRange.end),
@@ -65,6 +66,9 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
     ginezaFor(current),
     getMarketingCosts().catch((err) => { console.error('[pauta-real] costos de marketing:', err.message); return null; }),
     pinterestApiFor(current, prevPeriodRange),
+    // Nuestro seguimiento: compras por canal (último canal y "participó")
+    isGinezaConfigured() ? fetchTrackingChannels(current.start, current.end).catch((err) => { console.error('[pauta-real] seguimiento:', err.message); return null; }) : null,
+    getPerfitSummary(current, today).catch((err) => { console.error('[pauta-real] perfit:', err.message); return null; }),
   ]);
 
   const costBySku = costs.map;
@@ -106,6 +110,11 @@ export async function buildPautaReal({ period = 'week', date, start, end }, { no
     coverage: gz.summary ? { meta: gz.summary.coverage, google: gz.summary.google?.coverage } : null,
     // un período en curso se dibuja hasta hoy, sin días vacíos a la derecha
     daily: daily({ range: { start: current.start, end: current.end < today ? current.end : today }, webDocs: webCur, localDocs: locCur, metaDaily: metaCur, googleDaily: gCur, costBySku, fallback }),
+    tracking: track ? {
+      since: track.trackingSince,
+      byChannel: Object.fromEntries(track.channels.map((c) => [c.channel, { visits: c.visits, orders: c.orders, revenue: c.revenue, assistedOrders: c.assistedOrders, assistedRevenue: c.assistedRevenue }])),
+    } : null,
+    perfit: perfitApi ? { campaignTotals: perfitApi.campaignTotals, automationTotals: perfitApi.automationTotals, automationsSince: perfitApi.automationsSince } : null,
     errors: { attribution: gz.error, costs: costs.error },
     generatedAt: now.toISOString(),
   };

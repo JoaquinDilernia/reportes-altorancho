@@ -3,7 +3,8 @@
 import { attribute } from './attribution.js';
 
 const ID = /^[a-z0-9-]{8,40}$/;
-const EVENT_TYPES = new Set(['session', 'page', 'add_to_cart', 'checkout', 'purchase']);
+const EVENT_TYPES = new Set(['session', 'page', 'product', 'search', 'add_to_cart', 'checkout', 'purchase']);
+const PID = (v) => (/^\d{1,15}$/.test(String(v ?? '')) ? Number(v) : null);
 const CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'epik', 'ttclid'];
 const SEARCH = /(^|\.)(google|bing|yahoo|duckduckgo|ecosia)\./;
 const SOCIAL = /(^|\.)(instagram|facebook|fb|pinterest|pin|tiktok|youtube|linkedin|twitter|x|t)\.(com|it|me|co)$|lnk\.bio|linktr\.ee/;
@@ -41,6 +42,8 @@ export function classifySession({ url, referrer, ownHost = 'altorancho.com' }) {
   };
   const ref = hostOf(referrer);
   const refHost = ref && !ref.endsWith(ownHost) && !ref.includes('mitiendanube') ? ref : null;
+  // Links que mandan los vendedores (WhatsApp, etc.): utm_source=vendedor&utm_campaign=<nombre>
+  if (/^(vendedor|vendedores|ventas)$/i.test(base.source || '')) return { channel: 'vendedor', ...base, referrer_host: refHost };
   if (['meta', 'google', 'pinterest', 'email', 'other'].includes(a.channel)) return { channel: a.channel, ...base, referrer_host: refHost };
   if (a.channel === 'social_organic') return { channel: 'social_organic', ...base, source: base.source || refHost, referrer_host: refHost };
   if (refHost && SEARCH.test(refHost)) return { channel: 'search', ...base, source: refHost, referrer_host: refHost };
@@ -68,8 +71,13 @@ export function parseBatch(body) {
       events.push({ type: 'session', url: str(ev.url, 1000), referrer: str(ev.ref, 500), device: ['mobile', 'desktop', 'tablet'].includes(ev.dev) ? ev.dev : null, customerId: str(String(ev.cid ?? ''), 30) });
     } else if (ev.t === 'page') {
       events.push({ type: 'page', product: Boolean(ev.product), path: str(ev.path, 200), customerId: str(String(ev.cid ?? ''), 30) });
+    } else if (ev.t === 'product') {
+      events.push({ type: 'product', data: { productId: PID(ev.pid), name: str(ev.name, 120), sku: str(ev.sku, 60), price: num(ev.price) } });
+    } else if (ev.t === 'search') {
+      const q = str(ev.q, 80);
+      if (q) events.push({ type: 'search', data: { q: q.toLowerCase() } });
     } else if (ev.t === 'add_to_cart') {
-      events.push({ type: 'add_to_cart', data: { sku: str(ev.sku, 60), name: str(ev.name, 120), qty: num(ev.qty), price: num(ev.price), cartItems: num(ev.items), cartTotal: num(ev.total) } });
+      events.push({ type: 'add_to_cart', data: { productId: PID(ev.pid), sku: str(ev.sku, 60), name: str(ev.name, 120), qty: num(ev.qty), price: num(ev.price), cartItems: num(ev.items), cartTotal: num(ev.total) } });
     } else if (ev.t === 'checkout') {
       events.push({ type: 'checkout', data: { step: str(ev.step, 40), cartItems: num(ev.items), cartTotal: num(ev.total) } });
     } else if (ev.t === 'purchase') {
@@ -113,6 +121,8 @@ export function summarizeJourney({ sessions, events, orderAt, visitors }) {
         at: s.started_at, channel: s.channel, source: s.source, medium: s.medium, campaign: s.campaign,
         clickId: s.click_id, referrer: s.referrer_host, landing: s.landing_path, device: s.device,
         pageviews: s.pageviews, productViews: s.product_views,
+        products: [...new Set(ev.filter((e) => e.type === 'product').map((e) => e.data?.name).filter(Boolean))],
+        searches: [...new Set(ev.filter((e) => e.type === 'search').map((e) => e.data?.q).filter(Boolean))],
         carts: ev.filter((e) => e.type === 'add_to_cart').map((e) => ({ at: e.at, ...(e.data || {}) })),
         checkout: ev.some((e) => e.type === 'checkout'),
         purchase: ev.some((e) => e.type === 'purchase'),

@@ -43,6 +43,17 @@ export function createTiendanubeClient({ storeId, token, fetchFn = fetch, sleep 
         throw err;
       }
     },
+    // Checkouts abandonados (los que no terminaron en pedido)
+    async listCheckouts({ page = 1, createdMin } = {}) {
+      const params = new URLSearchParams({ per_page: '200', page: String(page) });
+      if (createdMin) params.set('created_at_min', createdMin);
+      try {
+        return await req(`/checkouts?${params.toString()}`);
+      } catch (err) {
+        if (err.status === 404) return [];
+        throw err;
+      }
+    },
     listWebhooks: () => req('/webhooks'),
     createWebhook: (event, url) => req('/webhooks', { method: 'POST', body: JSON.stringify({ event, url }) }),
   };

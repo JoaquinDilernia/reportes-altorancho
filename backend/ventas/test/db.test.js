@@ -11,7 +11,7 @@ describe('migraciones', () => {
     expect(rows.map((r) => r.t)).toEqual([
       'ad_baselines', 'ad_creative_media', 'ad_creative_requests', 'ad_creatives', 'ad_decisions', 'ad_ig_promotions', 'ad_learnings', 'ad_questions', 'ad_runs', 'ad_settings', 'ad_settings_log',
       'agent_config', 'agent_runs', 'ga4_transactions', 'google_campaigns', 'google_entities', 'google_spend_daily', 'learnings', 'meta_ads', 'meta_spend_daily',
-      'order_attribution', 'order_items', 'orders', 'recommendations', 'schema_migrations', 'sync_runs',
+      'order_attribution', 'order_items', 'orders', 'recommendations', 'schema_migrations', 'sync_runs', 'tn_checkouts',
       'track_events', 'track_order_links', 'track_sessions',
     ]);
     await db.close();

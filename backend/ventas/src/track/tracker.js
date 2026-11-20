@@ -108,6 +108,17 @@
 
     var isProduct = /^\/productos\/[^/]+\/?$/.test(path) && path !== '/productos/';
     send({ t: 'page', product: isProduct, path: location.pathname, cid: cid });
+    // Qué producto vio (para comparar vistos / agregados / comprados)
+    if (isProduct) {
+      var P = (window.LS && LS.product) || {};
+      var V0 = (window.LS && LS.variants && LS.variants[0]) || {};
+      send({ t: 'product', pid: P.id || null, name: P.name || document.title, sku: V0.sku || null, price: V0.price_number != null ? Number(V0.price_number) : null });
+    }
+    // Qué buscó en el buscador de la tienda
+    if (/^\/search\/?$/.test(path)) {
+      var q = params.q || params.search;
+      if (q) send({ t: 'search', q: String(q).slice(0, 80) });
+    }
 
     // Agregado al carrito: evento propio de Tienda Nube
     var before = {};
@@ -126,7 +137,7 @@
         var n = 0;
         (cart.items || []).forEach(function (it) { n += Number(it.quantity) || 0; before[it.id] = Number(it.quantity) || 0; });
         send({
-          t: 'add_to_cart', sku: ci.sku || null, name: ci.name || null,
+          t: 'add_to_cart', sku: ci.sku || null, name: ci.name || null, pid: ci.product_id || null,
           qty: Number(d.quantity_added) || 1,
           price: ci.unit_price != null ? Number(ci.unit_price) / 100 : null,
           items: n || null, total: cart.subtotal != null ? Number(cart.subtotal) / 100 : null,
@@ -146,6 +157,7 @@
         send({
           t: 'add_to_cart',
           sku: pick(src, ['sku', 'variant_sku']) || pick(item, ['sku']),
+          pid: pick(src, ['product_id']) || pick(item, ['product_id']),
           name: pick(src, ['name', 'analytics_name']) || pick(item, ['name']),
           qty: added ? added.qty : Number(pick(item, ['quantity', 'qty'])) || 1,
           price: pick(src, ['unit_price', 'price']) != null ? Number(pick(src, ['unit_price', 'price'])) / 100 : null,

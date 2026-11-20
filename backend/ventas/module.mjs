@@ -21,6 +21,7 @@ import { createReportsRepo } from './src/repo/reports.js';
 import { createTiendanubeClient } from './src/services/tiendanube.js';
 import { createMetaClient } from './src/services/meta.js';
 import { createOrderSync } from './src/sync/orders.js';
+import { createCheckoutSync } from './src/sync/checkouts.js';
 import { createMetaSync } from './src/sync/meta.js';
 import { createUrlTagger } from './src/sync/urlTagger.js';
 import { createJobRunner } from './src/sync/jobs.js';
@@ -93,7 +94,8 @@ export async function startVentas(source = process.env, { log = console, db: inj
   const ga4Sync = e.ga4ServiceAccount && e.ga4PropertyId
     ? createGa4Sync({ ga4: createGa4Client({ serviceAccountJson: e.ga4ServiceAccount, propertyId: e.ga4PropertyId }), ga4Repo: createGa4Repo(db) })
     : null;
-  const jobCatalog = createJobCatalog({ orderSync, metaSync, ga4Sync, ordersRepo, syncRuns });
+  const checkoutSync = createCheckoutSync({ tn, db });
+  const jobCatalog = createJobCatalog({ orderSync, metaSync, ga4Sync, checkoutSync, ordersRepo, syncRuns });
   const runJob = (name) => jobs.run(jobCatalog[name].source, jobCatalog[name].fn);
 
   const adsRepo = createAdsRepo(db);
@@ -136,6 +138,9 @@ export async function startVentas(source = process.env, { log = console, db: inj
 
   async function ownStartup() {
     await syncRuns.markStaleRunning();
+    // Primera vez: traer 90 días de checkouts abandonados
+    const { rows: [ck] } = await db.query('SELECT count(*)::int AS n FROM tn_checkouts');
+    if (!ck.n) runJob('tn-checkouts-backfill').catch((err) => log.error('[ventas] checkouts:', err.message));
     await adsRepo.markStaleRuns();
     await gadsRepo.markStaleRuns();
     for (const [repo, take, label] of [[adsRepo, takeMetaBaseline, 'ads'], [gadsRepo, takeGoogleBaseline, 'gads']]) {
@@ -183,6 +188,7 @@ export async function startVentas(source = process.env, { log = console, db: inj
       }, TZ);
     }
     if (ga4Sync) cron.schedule('40 * * * *', () => runJob('ga4'), TZ);
+    cron.schedule('25 * * * *', () => runJob('tn-checkouts'), TZ);
     // Recorridos: se guardan ~13 meses
     cron.schedule('20 4 * * *', () => trackingRepo.purge().catch((err) => log.error('[track] purga:', err.message)), TZ);
   }

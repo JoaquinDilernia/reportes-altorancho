@@ -16,7 +16,8 @@ import { getPautaReal, getPautaClientes, clearPautaRealCache } from './pautaReal
 import { getMarketingCosts, setMarketingCost } from './marketingCosts.mjs';
 import { syncPinterestAds, getPinterestStatus, isPinterestConfigured } from './pinterestAds.mjs';
 import ginezaProxy from './ginezaProxy.mjs';
-import { useLocalGineza, fetchTrackingChannels } from './gineza.mjs';
+import { useLocalGineza, fetchTrackingChannels, fetchTrackingInsights, fetchTrackingAlerts } from './gineza.mjs';
+import { isPerfitConfigured, getPerfitSummary, snapshotAutomations } from './perfit.mjs';
 import { isVentasConfigured, startVentas } from './ventas/module.mjs';
 import { listVentas, getVenta, ventasRange } from './ventasReport.mjs';
 import { getMayorista } from './mayoristaReport.mjs';
@@ -221,6 +222,19 @@ app.post('/api/v3/pinterest/sync', requireAuth, async (req, res) => {
   res.status(r.ok ? 200 : 502).json(r);
 });
 
+// Perfit: campañas del período y automatizaciones
+app.get('/api/v3/perfit', requireAuth, async (req, res) => {
+  try {
+    if (!isPerfitConfigured()) return res.json({ ok: true, configured: false });
+    const { params, error } = parseReportParams(req.query);
+    if (error) return res.status(400).json({ ok: false, error });
+    res.json({ ok: true, configured: true, ...(await getPerfitSummary(ventasRange(params), argDay(new Date().toISOString()))) });
+  } catch (err) {
+    console.error('[server] perfit error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Costos de canales sin API de gasto (Pinterest a mano, abono de Perfit), por mes
 app.get('/api/v3/marketing-costs', requireAuth, async (req, res) => {
   try {
@@ -285,7 +299,12 @@ app.get('/api/v3/visitas', requireAuth, async (req, res) => {
     const { params, error } = parseReportParams(req.query);
     if (error) return res.status(400).json({ ok: false, error });
     const range = ventasRange(params);
-    res.json({ ok: true, range, ...(await fetchTrackingChannels(range.start, range.end)) });
+    const [channels, insights, alerts] = await Promise.all([
+      fetchTrackingChannels(range.start, range.end),
+      fetchTrackingInsights(range.start, range.end),
+      fetchTrackingAlerts().catch((err) => ({ alerts: [], error: err.message })),
+    ]);
+    res.json({ ok: true, range, ...channels, insights, alerts: alerts.alerts });
   } catch (err) {
     console.error('[server] v3 visitas error:', err);
     res.status(500).json({ ok: false, error: err.message });
@@ -570,6 +589,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url) && reportesJobs) {
   // Pinterest Ads: cada 6 h a los :45
   if (isPinterestConfigured()) {
     cron.schedule('45 */6 * * *', () => syncPinterestAds().then((r) => { if (r.ok) clearPautaRealCache(); else console.error('[pinterest] sync:', r.error); }));
+  }
+  // Perfit: foto diaria de las automatizaciones (sus totales son históricos; el período sale de restar fotos)
+  if (isPerfitConfigured()) {
+    const snap = () => snapshotAutomations(argDay(new Date().toISOString())).catch((err) => console.error('[perfit] foto:', err.message));
+    cron.schedule('55 23 * * *', snap, { timezone: 'America/Argentina/Buenos_Aires' });
+    snap();
   }
   cron.schedule('30 */6 * * *', () => runPickSync().catch((err) => console.error('[pick] sync programado falló:', err.message)));
   startPosAutoRetry();

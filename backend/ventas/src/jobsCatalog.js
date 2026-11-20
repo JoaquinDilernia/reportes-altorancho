@@ -2,7 +2,7 @@ import { attribute } from './engine/attribution.js';
 import { artDate, addDays } from './engine/dates.js';
 
 // Jobs disparables por cron o por POST /api/sync/:job. Cada fn(ctx) devuelve la cantidad de filas.
-export function createJobCatalog({ orderSync, metaSync, ga4Sync, ordersRepo, syncRuns, now = () => new Date() }) {
+export function createJobCatalog({ orderSync, metaSync, ga4Sync, checkoutSync, ordersRepo, syncRuns, now = () => new Date() }) {
   const ga4Jobs = ga4Sync ? {
     'ga4': {
       source: 'ga4',
@@ -36,6 +36,11 @@ export function createJobCatalog({ orderSync, metaSync, ga4Sync, ordersRepo, syn
       source: 'tn_incremental',
       fn: () => orderSync.syncUpdatedSince(new Date(now().getTime() - 2 * 3600 * 1000).toISOString()),
     },
+    // Checkouts abandonados: los últimos 3 días cada hora; el backfill trae 90
+    ...(checkoutSync ? {
+      'tn-checkouts': { source: 'tn_checkouts', fn: () => checkoutSync.syncSince(new Date(now().getTime() - 3 * 864e5).toISOString()) },
+      'tn-checkouts-backfill': { source: 'tn_checkouts', fn: () => checkoutSync.syncSince(new Date(now().getTime() - 90 * 864e5).toISOString()) },
+    } : {}),
     'meta-catalog': { source: 'meta_catalog', fn: () => metaSync.syncCatalog() },
     // Cada hora: solo lo cambiado (3 h de margen por si una corrida falla); la pasada completa queda para la noche
     'meta-catalog-recent': { source: 'meta_catalog', fn: () => metaSync.syncCatalog({ updatedSince: new Date(now().getTime() - 3 * 3600 * 1000) }) },

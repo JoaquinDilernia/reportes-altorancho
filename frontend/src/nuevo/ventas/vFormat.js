@@ -1,9 +1,9 @@
 import { SOURCE_LABEL, SOURCE_COLOR } from '../pautaReal/prFormat.js';
 
-const SHORT = { meta: 'Meta', google: 'Google', pinterest: 'Pinterest', organic: 'Orgánico', social_organic: 'Redes', social: 'Redes', email: 'Email', other: 'Otro link', unknown: 'Sin dato', search: 'Buscador', direct: 'Directo', referral: 'Otro sitio' };
-const EXTRA_COLOR = { search: '#1BAF7A', direct: '#6b6a69', referral: '#9a9897' };
+const SHORT = { meta: 'Meta', google: 'Google', pinterest: 'Pinterest', organic: 'Orgánico', social_organic: 'Redes', social: 'Redes', email: 'Email', other: 'Otro link', unknown: 'Sin dato', search: 'Buscador', direct: 'Directo', referral: 'Otro sitio', vendedor: 'Vendedor' };
+const EXTRA_COLOR = { search: '#1BAF7A', direct: '#6b6a69', referral: '#9a9897', vendedor: '#a86f00' };
 export const chShort = (c) => SHORT[c] || c || '—';
-const EXTRA_LONG = { search: 'Buscador (sin pauta)', direct: 'Directo (escribió la dirección o volvió)', referral: 'Link de otro sitio' };
+const EXTRA_LONG = { search: 'Buscador (sin pauta)', direct: 'Directo (escribió la dirección o volvió)', referral: 'Link de otro sitio', vendedor: 'Link de un vendedor' };
 export const chLong = (c) => SOURCE_LABEL[c] || EXTRA_LONG[c] || (c === 'social' ? SOURCE_LABEL.social_organic : chShort(c));
 export const chColor = (c) => SOURCE_COLOR[c] || EXTRA_COLOR[c] || (c === 'social' ? SOURCE_COLOR.social_organic : '#9a9897');
 

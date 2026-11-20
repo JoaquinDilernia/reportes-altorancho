@@ -4,6 +4,8 @@ import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { buildFullReport, ALL_CHANNELS } from './report.mjs';
 import { authenticate, callKw } from './odoo.mjs';
+import { getPeriodRanges } from './periods.mjs';
+import { isGinezaConfigured, fetchTrackingChannels, fetchTrackingInsights, fetchTracking, fetchOrders } from './gineza.mjs';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-opus-5';
@@ -16,6 +18,7 @@ Reglas:
 - Los montos están en pesos argentinos (ARS).
 - Basate en números concretos del período actual, que ya tenés como contexto abajo. Si hace falta comparar con otro período/canal que no tenés, usá la herramienta get_report_data.
 - Si preguntan algo puntual que no está en el reporte (stock de un producto específico, datos de un cliente, una orden particular, etc.), usá la herramienta search_odoo para ir a buscarlo directo al ERP en vez de decir que no lo tenés.
+- Para preguntas sobre cómo navega y compra la gente en la tienda online (de dónde vienen, qué miran, qué buscan, qué abandonan, el recorrido de un pedido), usá get_store_behavior o get_order_journey.
 - Priorizá lo accionable: qué está funcionando, qué no, y una sugerencia concreta cuando aplique.
 - Texto plano, sin markdown: nada de "#" para títulos, nada de "**" para negrita, nada de tablas. Usá guiones ("- ") para listas y saltos de línea para separar ideas — el frontend no renderiza markdown, solo texto con saltos de línea.`;
 
@@ -58,6 +61,38 @@ const searchOdooTool = betaZodTool({
   },
 });
 
+// Comportamiento en la tienda (script propio): visitas, embudo, productos, búsquedas,
+// recorridos y checkouts abandonados, y el recorrido completo de un pedido.
+const behaviorTool = betaZodTool({
+  name: 'get_store_behavior',
+  description: 'Visitas a la tienda online por canal (visitas, rebote, carritos, compras, participación), embudo, páginas de entrada, dispositivos, productos vistos vs agregados vs comprados, búsquedas internas, recorridos de compra (visitas y días hasta comprar, primer y último canal) y checkouts abandonados, para un período. Hay datos desde el 19/11/2026.',
+  inputSchema: z.object({
+    period: z.enum(['week', 'month', 'custom']),
+    date: z.string().optional().describe('YYYY-MM-DD si period es week o month'),
+    start: z.string().optional(),
+    end: z.string().optional(),
+  }),
+  run: async ({ period, date, start, end }) => {
+    if (!isGinezaConfigured()) return 'El seguimiento de visitas no está conectado.';
+    const r = (period === 'custom' ? getPeriodRanges(start, period, end) : getPeriodRanges(date, period)).current;
+    const [channels, insights] = await Promise.all([fetchTrackingChannels(r.start, r.end), fetchTrackingInsights(r.start, r.end)]);
+    return JSON.stringify({ range: r, ...channels, insights });
+  },
+});
+
+const journeyTool = betaZodTool({
+  name: 'get_order_journey',
+  description: 'Recorrido completo de un pedido de la tienda online: todas las visitas antes de comprar (canal, campaña, páginas, productos vistos, búsquedas, carritos) y checkouts abandonados previos. Recibe el número de pedido (ej. 63694).',
+  inputSchema: z.object({ number: z.number().int().describe('Número de pedido de Tienda Nube') }),
+  run: async ({ number }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const page = await fetchOrders({ from: '2023-01-01', to: today, q: String(number) });
+    const o = (page.items || []).find((x) => Number(x.number) === number);
+    if (!o) return 'No encontré ese pedido.';
+    return JSON.stringify({ order: o, journey: await fetchTracking(o.id) });
+  },
+});
+
 function systemPromptWithContext(report) {
   return `${SYSTEM_PROMPT}\n\nDatos del período que el usuario está mirando ahora mismo en el dashboard:\n\n${JSON.stringify(report)}`;
 }
@@ -72,7 +107,7 @@ export async function analyzeReport(params) {
     model: MODEL,
     max_tokens: MAX_TOKENS,
     system: systemPromptWithContext(report),
-    tools: [getReportDataTool, searchOdooTool],
+    tools: [getReportDataTool, searchOdooTool, behaviorTool, journeyTool],
     messages: [{
       role: 'user',
       content: 'Analizá el período actual y dame 3 a 5 insights accionables en bullets cortos, con números concretos.',
@@ -86,7 +121,7 @@ export async function chatAboutReport({ report, messages }) {
     model: MODEL,
     max_tokens: MAX_TOKENS,
     system: systemPromptWithContext(report),
-    tools: [getReportDataTool, searchOdooTool],
+    tools: [getReportDataTool, searchOdooTool, behaviorTool, journeyTool],
     messages,
   });
   return textFrom(message);
