@@ -24,7 +24,7 @@ import { getMayorista } from './mayoristaReport.mjs';
 import { searchProducts, productSheet } from './productLookup.mjs';
 import { getOriginBySku } from './productOrigin.mjs';
 import { getPeriodRanges } from './periods.mjs';
-import { getEventReport } from './eventReport.mjs';
+import { getEventReport, getEventPulse } from './eventReport.mjs';
 import { getBehaviorReport } from './eventBehavior.mjs';
 import { getClarityReport, isClarityConfigured } from './clarity.mjs';
 import { isGa4Configured } from './ga4.mjs';
@@ -151,6 +151,18 @@ app.get('/api/event', requireAuth, async (req, res) => {
     res.json({ ok: true, ...report });
   } catch (err) {
     console.error('[server] event report error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Light poll for the TV screen: today's sales and the latest orders only.
+app.get('/api/event/pulse', requireAuth, async (req, res) => {
+  try {
+    const eventId = req.query.event || 'cyber';
+    if (!EVENTS[eventId]) return res.status(400).json({ ok: false, error: `Unknown event: ${eventId}` });
+    res.json({ ok: true, ...(await getEventPulse(eventId)) });
+  } catch (err) {
+    console.error('[server] event pulse error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -535,8 +547,9 @@ async function runFullSync() {
 }
 
 // While an event is running, sales and ads refresh far more often than the
-// 4-hourly full sync so the live tab is current.
-const LIVE_SYNC_MINUTES = parseInt(process.env.LIVE_SYNC_MINUTES || '5', 10);
+// 4-hourly full sync so the live tab is current. Every 2 min: the TV screen
+// celebrates each sale as it lands, so it should land soon after it happens.
+const LIVE_SYNC_MINUTES = parseInt(process.env.LIVE_SYNC_MINUTES || '2', 10);
 const eventIsActive = () => !!liveSyncEvent(argDay(new Date().toISOString()));
 const LIVE_ADS_EVERY_MS = 30 * 60 * 1000;
 let lastLiveAdsSyncAt = 0;

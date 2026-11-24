@@ -231,3 +231,19 @@ export function getPerfit(params) {
 export function getVenta(id) {
   return getAuthed(`/api/v3/ventas/${encodeURIComponent(id)}`, 'Venta fetch failed');
 }
+
+// TV screen ("modo tele"): today's sales and the latest orders, polled often.
+export async function getEventPulse(event) {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+  const res = await fetch(`${API_URL}/api/event/pulse?event=${encodeURIComponent(event)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Unauthorized');
+  }
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Event pulse fetch failed');
+  return data;
+}

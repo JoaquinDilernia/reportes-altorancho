@@ -21,6 +21,8 @@ import EventDetails from './EventDetails.jsx';
 import WebBehavior from './WebBehavior.jsx';
 import OriginsTable from './OriginsTable.jsx';
 import GoalCelebration from './GoalCelebration.jsx';
+import TvShow from './TvShow.jsx';
+import { unlockSounds } from '../../lib/saleSounds.js';
 import { goalStatus, wasCelebrated, markCelebrated, forcedByUrl } from '../../lib/goalCelebration.js';
 import '../../styles/event.css';
 
@@ -63,7 +65,7 @@ function Segmented({ options, value, onChange, label }) {
   );
 }
 
-function Topbar({ data, eventId, onEvent, view, onView, now, stale, onFestejo }) {
+function Topbar({ data, eventId, onEvent, view, onView, now, stale, onFestejo, onTv }) {
   const label = data?.label ?? EVENTS.find(e => e.id === eventId).label;
   const year = data ? String(data.current.year).slice(2) : '26';
   let line = null;
@@ -87,6 +89,7 @@ function Topbar({ data, eventId, onEvent, view, onView, now, stale, onFestejo })
       {line}
       {stale && <span className="ev-stale">no se pudo actualizar, reintento en 2 min</span>}
       {onFestejo && <button type="button" className="ev-trophy-btn" onClick={onFestejo}>🏆 ¡Objetivo cumplido! Festejar de nuevo</button>}
+      {onTv && <button type="button" className="ev-trophy-btn ev-tv-btn" onClick={onTv}>📺 Modo tele</button>}
       <div className="ev-segs">
         <Segmented options={EVENTS} value={eventId} onChange={onEvent} label="Evento" />
         <Segmented options={VIEWS} value={view} onChange={onView} label="Vista" />
@@ -299,6 +302,7 @@ export default function EventLive({ onLogout, initialEvent = 'cyber' }) {
   const [now, setNow] = useState(() => Date.now());
   const [toasts, setToasts] = useState([]);
   const [festejo, setFestejo] = useState(false);
+  const [tv, setTv] = useState(false);
   const forcedShown = useRef(false);
   const prevViews = useRef(new Map());
   const toastSeq = useRef(0);
@@ -376,6 +380,17 @@ export default function EventLive({ onLogout, initialEvent = 'cyber' }) {
   const nextToast = useCallback(() => setToasts(q => q.slice(1)), []);
 
   const changeEvent = (id) => { if (id !== eventId) { setToasts([]); setFestejo(false); setEventId(id); } };
+  // The click that opens it also unlocks sound and asks for full screen.
+  const openTv = () => {
+    unlockSounds();
+    document.documentElement.requestFullscreen?.().catch(() => {});
+    setTv(true);
+  };
+  const closeTv = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    setTv(false);
+  }, []);
+  const tvView = useMemo(() => (data && data.event === eventId ? groupView(data, 'total') : null), [data, eventId]);
 
   return (
     <div className="event-live">
@@ -385,9 +400,17 @@ export default function EventLive({ onLogout, initialEvent = 'cyber' }) {
           overPct={goal.overPct} test={!goal.passed} onClose={closeFestejo}
         />
       )}
-      {toasts[0] && <CelebrationToast key={toasts[0].id} message={toasts[0].text} onDone={nextToast} />}
+      {tv && data && tvView && (
+        <TvShow
+          data={data} v={tvView} eventId={eventId} isLive={phase === 'live'} onExit={closeTv} onLogout={onLogout}
+          statusText={phase === 'live'
+            ? ['en vivo', dayPhaseLabel(data)].filter(Boolean).join(' · ')
+            : phase === 'pre' ? `arranca el ${weekday(data.current.start).toLowerCase()} ${shortDate(data.current.start)}` : 'terminó'}
+        />
+      )}
+      {!tv && toasts[0] && <CelebrationToast key={toasts[0].id} message={toasts[0].text} onDone={nextToast} />}
       <div className="ev-wrap">
-        <Topbar data={data} eventId={eventId} onEvent={changeEvent} view={view} onView={setView} now={now} stale={stale} onFestejo={goal?.passed ? () => setFestejo(true) : null} />
+        <Topbar data={data} eventId={eventId} onEvent={changeEvent} view={view} onView={setView} now={now} stale={stale} onFestejo={goal?.passed ? () => setFestejo(true) : null} onTv={data ? openTv : null} />
 
         {error && <p className="ev-status err">Error: {error}</p>}
         {!data && !error && <p className="ev-status">Cargando…</p>}

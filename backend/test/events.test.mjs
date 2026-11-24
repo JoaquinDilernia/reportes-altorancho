@@ -350,7 +350,10 @@ test('recentSales: completed only, newest first, discount lines ignored, no cust
   assert.equal(out[0].province, null);
   assert.equal(out[1].label, 'Silla');
   assert.equal(out[1].itemCount, 2);
-  assert.deepEqual(Object.keys(out[0]).sort(), ['channel', 'date', 'itemCount', 'label', 'province', 'total']);
+  assert.deepEqual(Object.keys(out[0]).sort(), ['channel', 'date', 'id', 'itemCount', 'label', 'province', 'total']);
+  assert.equal(out[0].id, 'c');
+  // Credit notes subtract revenue but are never "a new sale" on the feed.
+  assert.equal(recentSales([mk('r', '2026-11-02T13:00:00Z', 'completed', [], { kind: 'refund', total: -50 })], 12).length, 0);
   assert.equal(recentSales([mk('a', '2026-11-02T10:00:00Z', 'completed', []), mk('c', '2026-11-02T11:00:00Z', 'completed', [])], 1).length, 1);
 });
 
@@ -366,4 +369,20 @@ test('liveSyncEvent: active through the day after the window closes', () => {
   assert.equal(liveSyncEvent('2026-11-15'), 'cyber');
   assert.equal(liveSyncEvent('2026-11-16'), 'cyber');
   assert.equal(liveSyncEvent('2026-11-17'), null);
+});
+
+test('eventPulse: today by group with the same daily sum as the report, feed of real sales', async () => {
+  const { eventPulse } = await import('../eventReport.mjs');
+  const mk = (id, channel, iso, total, extra = {}) => ({ id, channel, date: iso, status: 'completed', total, items: [], ...extra });
+  const docs = [
+    mk('w1', 'ecommerce', '2026-11-26T15:00:00Z', 1000),
+    mk('w0', 'ecommerce', '2026-11-25T15:00:00Z', 999), // yesterday: feed yes, today no
+    mk('l1', 'local_lomas', '2026-11-26T16:00:00Z', 500),
+    mk('r1', 'ecommerce', '2026-11-26T17:00:00Z', -200, { kind: 'refund' }),
+  ];
+  const p = eventPulse({ docs, today: '2026-11-26', start: '2026-11-25', end: '2026-12-15' });
+  assert.equal(p.live, true);
+  assert.deepEqual(p.todayByGroup, { web: { revenue: 800, orders: 1 }, locales: { revenue: 500, orders: 1 } });
+  assert.deepEqual(p.feed.map(f => f.id), ['l1', 'w1', 'w0']);
+  assert.equal(eventPulse({ docs: [], today: '2026-11-20', start: '2026-11-25', end: '2026-12-15' }).live, false);
 });

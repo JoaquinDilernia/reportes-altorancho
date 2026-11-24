@@ -7,7 +7,7 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // Confetti cannons, confetti rain and fireworks on one canvas.
-function useFireworks(canvasRef, reduced) {
+export function useFireworks(canvasRef, reduced) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;

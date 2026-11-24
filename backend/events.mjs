@@ -609,6 +609,9 @@ export function recentSales(salesDocs, limit = 12) {
       const items = (s.items || []).filter(i => i.unitPrice >= 0);
       const top = items.reduce((best, i) => (!best || i.qty * i.unitPrice > best.qty * best.unitPrice ? i : best), null);
       return {
+        // Doc id (channel + order number): lets the TV screen tell a new sale
+        // from one it already celebrated. Nothing about the customer.
+        id: s.id,
         date: s.date,
         channel: s.channel,
         province: s.shippingProvince ?? null,

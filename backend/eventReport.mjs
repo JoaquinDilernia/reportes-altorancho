@@ -370,6 +370,50 @@ export async function buildEventReport(eventId) {
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const cache = new Map();
 
+// Light, frequent read for the TV screen: only yesterday + today of the event
+// (a few hundred docs, not the whole period), so it can be polled every ~20 s.
+// todayByGroup uses the same daily sum as the report's days, so the screen can
+// swap today's figure into the report's total without the two disagreeing.
+export function eventPulse({ docs, today, start, end }) {
+  const inWindow = today >= start && today <= end;
+  const daily = dailyByChannel(docs);
+  const todayByGroup = Object.fromEntries(Object.entries(EVENT_GROUPS).map(([g, channels]) => {
+    const cells = channels.map(ch => daily[ch]?.get(today)).filter(Boolean);
+    return [g, { revenue: cells.reduce((s, c) => s + c.revenue, 0), orders: cells.reduce((s, c) => s + c.orders, 0) }];
+  }));
+  return { today, live: inWindow, todayByGroup, feed: recentSales(docs, 20) };
+}
+
+async function buildEventPulse(eventId) {
+  const { current } = EVENTS[eventId];
+  const today = todayART();
+  const from = addDays(today, -1) < current.start ? current.start : addDays(today, -1);
+  const to = today > current.end ? current.end : today;
+  const [docs, ecommerceMeta] = await Promise.all([
+    from <= to ? querySalesByRange(ALL_EVENT_CHANNELS, from, to, { fresh: true }) : [],
+    getSyncMetadata('ecommerce'),
+  ]);
+  return {
+    event: eventId,
+    now: new Date().toISOString(),
+    updatedAt: ecommerceMeta?.lastSyncedAt ?? null,
+    ...eventPulse({ docs, today, start: current.start, end: current.end }),
+  };
+}
+
+const PULSE_TTL_MS = 15 * 1000;
+const pulseCache = new Map();
+
+export function getEventPulse(eventId) {
+  if (!EVENTS[eventId]) throw new Error(`Unknown event: ${eventId}`);
+  const hit = pulseCache.get(eventId);
+  if (hit && Date.now() - hit.at < PULSE_TTL_MS) return hit.promise;
+  const promise = buildEventPulse(eventId);
+  pulseCache.set(eventId, { at: Date.now(), promise });
+  promise.catch(() => pulseCache.delete(eventId));
+  return promise;
+}
+
 export async function getEventReport(eventId) {
   const hit = cache.get(eventId);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.promise;

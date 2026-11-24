@@ -1,0 +1,14 @@
+Sonidos del "Modo tele" (Cyber / Black)
+
+Por defecto cada venta suena con un sonido retro 8-bit generado por código.
+Para reemplazar uno por un archivo propio, poné acá un mp3 con este nombre
+(y volvé a subir el build):
+
+  venta-0.mp3   ventas de menos de $500.000 (bip corto)
+  venta-1.mp3   $500.000 a $1.000.000
+  venta-2.mp3   $1.000.000 a $1.500.000
+  venta-3.mp3   $1.500.000 a $2.000.000
+  venta-4.mp3   más de $2.000.000 (el grande)
+
+Los que no estén siguen sonando con el retro. Probalos con los botones
+"Probar" abajo a la derecha de la pantalla (mové el mouse para verlos).
