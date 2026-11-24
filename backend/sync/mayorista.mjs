@@ -2,7 +2,7 @@ import { authenticate, callKw, fetchAll, chunk } from '../odoo.mjs';
 import { normalizeOdooSaleOrder } from '../normalize.mjs';
 import { saveSalesDocs, getSyncMetadata, setSyncMetadata } from '../firestore.mjs';
 
-const MAYORISTA_TEAM_ID = 8;
+export const MAYORISTA_TEAM_ID = 8;
 
 // Odoo RPC has a ~30s timeout and practical request-size limits, so id-list
 // calls covering the full 14-month backfill (hundreds of thousands of ids)

@@ -1,7 +1,7 @@
 // Mayorista tab (new report): mayorista + ferias. Pure — the IO lives in
 // mayoristaReport.mjs. Ferias count inside Mayorista and the total; only
 // mayorista orders carry what was actually collected (amountCollected).
-import { computeTotals, computeDelta, computeInflationAdjustedDelta } from './aggregate.mjs';
+import { computeTotals, computeDelta, computeInflationAdjustedDelta, isRefund } from './aggregate.mjs';
 
 export const SOURCES = [
   { id: 'mayorista', label: 'Mayorista' },
@@ -53,7 +53,7 @@ export function feriaTeams(curDocs) {
     const team = d.team || 'Sin equipo';
     const t = by.get(team) ?? { team, revenue: 0, orders: 0 };
     t.revenue += d.total;
-    t.orders += 1;
+    if (!isRefund(d)) t.orders += 1;
     total += d.total;
     by.set(team, t);
   }

@@ -2,7 +2,7 @@ import {
   querySalesByRange, getProductsBySku, getInflationIndexByMonth, queryMetaAdsDailyByRange, queryGoogleAdsDailyByRange,
   getSyncMetadata,
 } from './firestore.mjs';
-import { computeTopProducts } from './aggregate.mjs';
+import { computeTopProducts, isRefund } from './aggregate.mjs';
 import {
   EVENTS, EVENT_GROUPS, TARGET_REAL_GROWTH, addDays, argDay, dailyByChannel, buildEventDays,
   summarizePastEvent, baselineRange, projectInflationIndex, inflationFactor, channelsWithoutHistory,
@@ -333,7 +333,7 @@ export async function buildEventReport(eventId) {
       ...summarizePastEvent(docs, baseDocs, previous),
       byChannel: channels.map((channel) => {
         const own = docs.filter(s => s.channel === channel && s.status === 'completed');
-        return { channel, revenue: own.reduce((sum, s) => sum + s.total, 0), orders: own.length };
+        return { channel, revenue: own.reduce((sum, s) => sum + s.total, 0), orders: own.filter(s => !isRefund(s)).length };
       }),
       topProductsByRevenue: computeTopProducts(withoutDiscountLines(docs), productsBySku, { by: 'revenue', limit: 10 }),
       topProductsByUnits: computeTopProducts(withoutDiscountLines(docs), productsBySku, { by: 'units', limit: 10 }),

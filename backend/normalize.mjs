@@ -155,3 +155,56 @@ export function parseSourceDate(value) {
   }
   return new Date(value);
 }
+
+// Nota de crédito (account.move out_refund) como "venta negativa" del canal de
+// su pedido original: resta facturación y unidades, pero no es un pedido
+// (kind 'refund'; los conteos de pedidos/tickets la saltean). Misma base que
+// el canal: ecommerce sin IVA y sin envío, el resto con IVA (amount_total).
+// Una NC anulada o vuelta a borrador queda 'void' y no suma en ningún lado.
+export function normalizeOdooCreditNote(move, lines, channel, categoryBySku, { team = null } = {}) {
+  const productLines = lines.filter(l => l.display_type === 'product' && l.product_id);
+  const isEcommerce = channel === 'ecommerce';
+  let shipping = 0;
+  const items = [];
+  for (const l of productLines) {
+    const sku = extractSkuFromDisplayName(l.product_id[1]);
+    if (isEcommerce && sku === SHIPPING_SKU) { shipping += l.price_subtotal; continue; }
+    items.push({
+      sku,
+      name: stripSkuFromDisplayName(l.product_id[1]),
+      category: categoryBySku.get(sku) || null,
+      qty: -l.quantity,
+      unitPrice: isEcommerce ? (l.quantity ? l.price_subtotal / l.quantity : 0) : l.price_unit,
+    });
+  }
+
+  const doc = {
+    id: `refund_${move.id}`,
+    channel,
+    kind: 'refund',
+    sourceId: move.name,
+    date: creditNoteDate(move),
+    status: move.state === 'posted' ? 'completed' : 'void',
+    total: isEcommerce ? -(move.amount_untaxed - shipping) : -move.amount_total,
+    paymentMethod: null,
+    shippingProvince: null,
+    items,
+  };
+  if (isEcommerce) doc.shippingRevenue = -shipping;
+  // Una NC conciliada contra la factura la deja "pagada" sin que entre plata:
+  // su parte conciliada se descuenta de lo cobrado.
+  if (channel === 'mayorista') doc.amountCollected = -(move.amount_total - move.amount_residual);
+  if (team) Object.assign(doc, { teamId: team[0], team: team[1] });
+  return doc;
+}
+
+// La NC cuenta el día de su fecha contable (invoice_date). Si se creó ese mismo
+// día (hora argentina) usa la hora real; si no, el mediodía de ese día.
+function creditNoteDate(move) {
+  const day = move.invoice_date || move.date;
+  const created = move.create_date ? parseSourceDate(move.create_date) : null;
+  if (created && (!day || new Date(created.getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10) === day)) {
+    return move.create_date;
+  }
+  return `${day} 15:00:00`;
+}

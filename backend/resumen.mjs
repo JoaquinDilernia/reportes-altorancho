@@ -1,6 +1,6 @@
 // Resumen tab of the new report: KPIs with sparklines, sales by channel and
 // the stacked daily chart. Pure functions — the IO lives in resumenReport.mjs.
-import { computeDelta, computeInflationAdjustedDelta } from './aggregate.mjs';
+import { computeDelta, computeInflationAdjustedDelta, isRefund } from './aggregate.mjs';
 import { addDays, argDay, weekdayOf } from './events.mjs';
 
 // Feria is folded into mayorista: it no longer has a tab of its own.
@@ -46,7 +46,7 @@ function sumByGroup(docs) {
     const g = GROUP_OF.get(d.channel);
     if (!g) continue;
     out[g].revenue += d.total;
-    out[g].orders += 1;
+    if (!isRefund(d)) out[g].orders += 1;
   }
   return out;
 }

@@ -4,6 +4,7 @@ import { syncEcommerce } from './sync/ecommerce.mjs';
 import { syncLocales } from './sync/locales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 import { syncFeria } from './sync/feria.mjs';
+import { syncCreditNotes } from './sync/creditNotes.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
 import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
@@ -34,6 +35,9 @@ async function backfill() {
 
   const feriaResult = await syncFeria(categoryBySku, monthsAgoOdoo(months));
   console.log('[backfill] feria:', feriaResult);
+
+  const creditNotesResult = await syncCreditNotes(categoryBySku, monthsAgoOdoo(months));
+  console.log('[backfill] creditNotes:', creditNotesResult);
 
   const metaAdsResult = await syncMetaAds({ daysBack: months * 31, includeAdLevel: false });
   console.log('[backfill] metaAds:', metaAdsResult);

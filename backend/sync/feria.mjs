@@ -8,7 +8,7 @@ import { saveSalesDocs, getSyncMetadata, setSyncMetadata } from '../firestore.mj
 // Showroom"/"Feria noviembre"/"Expo Construir"/"Hotelga" are past or
 // dormant events) — so they're all grouped under one "feria" reporting
 // channel rather than needing a new dashboard channel per event.
-const FERIA_TEAM_IDS = [10, 20, 21, 22, 23, 24];
+export const FERIA_TEAM_IDS = [10, 20, 21, 22, 23, 24];
 
 const CHUNK_SIZE = 2000;
 

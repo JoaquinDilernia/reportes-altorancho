@@ -2,7 +2,7 @@ import { authenticate, callKw, fetchAll, chunk } from '../odoo.mjs';
 import { normalizeOdooEcommerceOrder } from '../normalize.mjs';
 import { saveSalesDocs, getSyncMetadata, setSyncMetadata } from '../firestore.mjs';
 
-const TIENDANUBE_TEAM_ID = 1;
+export const TIENDANUBE_TEAM_ID = 1;
 
 // Odoo RPC has a ~30s timeout and practical request-size limits, so id-list
 // calls covering the full 14-month backfill (hundreds of thousands of ids)

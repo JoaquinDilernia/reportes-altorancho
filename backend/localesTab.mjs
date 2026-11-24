@@ -1,6 +1,6 @@
 // Locales tab (new report): the three stores side by side, sales per hour and
 // each store's detail. Pure — the IO lives in localesReport.mjs.
-import { computeTotals, computeDelta, computeInflationAdjustedDelta } from './aggregate.mjs';
+import { computeTotals, computeDelta, computeInflationAdjustedDelta, isRefund } from './aggregate.mjs';
 import { argHour } from './events.mjs';
 import { summarizeCategories, compareTopProducts } from './eventCategories.mjs';
 import { summarizeOrigins } from './eventOrigins.mjs';
@@ -67,7 +67,7 @@ export function localesByHour(curDocs) {
     const h = argHour(d.date);
     const acc = byHour.get(h) ?? {};
     const c = acc[l.id] ?? { orders: 0, revenue: 0 };
-    c.orders += 1;
+    if (!isRefund(d)) c.orders += 1;
     c.revenue += d.total;
     acc[l.id] = c;
     byHour.set(h, acc);
@@ -90,7 +90,7 @@ function payments(docs) {
     if (d.status !== 'completed') continue;
     const method = d.paymentMethod || 'Sin dato';
     const p = by.get(method) ?? { method, orders: 0, revenue: 0 };
-    p.orders += 1;
+    if (!isRefund(d)) p.orders += 1;
     p.revenue += d.total;
     total += d.total;
     by.set(method, p);

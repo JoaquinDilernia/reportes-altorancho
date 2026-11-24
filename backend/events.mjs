@@ -2,6 +2,7 @@
 // against last year's, day by day, and turns last year's sales into a target
 // (last year × inflation × real growth). Pure logic only; the Firestore side
 // lives in eventReport.mjs.
+import { isRefund } from './aggregate.mjs';
 
 // `start`/`end` are the dates WE ran the promo (we start before and finish
 // after the official CACE dates); `officialStart`/`officialEnd` are the
@@ -162,7 +163,7 @@ export function dailyByChannel(salesDocs) {
     if (!map.has(day)) map.set(day, { revenue: 0, orders: 0 });
     const entry = map.get(day);
     entry.revenue += s.total;
-    entry.orders += 1;
+    if (!isRefund(s)) entry.orders += 1;
   }
   return out;
 }
@@ -298,7 +299,7 @@ export function buildEventDays({
 export function summarizePastEvent(salesDocs, baselineDocs, window) {
   const completed = salesDocs.filter(s => s.status === 'completed');
   const revenue = completed.reduce((sum, s) => sum + s.total, 0);
-  const orders = completed.length;
+  const orders = completed.filter(s => !isRefund(s)).length;
   const days = daysBetween(window.start, window.end) + 1;
 
   const byDay = new Map();
@@ -308,19 +309,19 @@ export function summarizePastEvent(salesDocs, baselineDocs, window) {
   for (const s of completed) {
     const day = argDay(s.date);
     const entry = byDay.get(day);
-    if (entry) { entry.revenue += s.total; entry.orders += 1; }
+    if (entry) { entry.revenue += s.total; if (!isRefund(s)) entry.orders += 1; }
     if (day >= window.officialStart && day <= window.officialEnd) {
       officialRevenue += s.total;
       const h = hourly[argHour(s.date)];
       h.revenue += s.total;
-      h.orders += 1;
+      if (!isRefund(s)) h.orders += 1;
     }
   }
   const daily = [...byDay.values()];
   const peakDay = daily.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
 
   const baselineCompleted = baselineDocs.filter(s => s.status === 'completed');
-  const baselineDays = new Set(baselineCompleted.map(s => argDay(s.date))).size || 1;
+  const baselineDays = new Set(baselineCompleted.filter(s => !isRefund(s)).map(s => argDay(s.date))).size || 1;
   const baselineDailyRevenue = baselineCompleted.reduce((sum, s) => sum + s.total, 0) / baselineDays;
   const avgDailyRevenue = days ? revenue / days : 0;
 
@@ -600,7 +601,7 @@ export function projectClose(days, group, todayShare) {
 // never anything about the customer.
 export function recentSales(salesDocs, limit = 12) {
   return salesDocs
-    .filter(s => s.status === 'completed')
+    .filter(s => s.status === 'completed' && !isRefund(s))
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, limit)
     .map((s) => {

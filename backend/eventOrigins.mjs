@@ -2,6 +2,7 @@
 // this year vs last year up to the same point, 2025 in today's pesos.
 // Pure logic; origins come from productOrigin.mjs.
 import { argDay } from './events.mjs';
+import { isRefund } from './aggregate.mjs';
 
 export const ORIGINS = [
   { id: 'fabrica', label: 'Fábrica' },
@@ -36,7 +37,7 @@ export function summarizeOrigins({ prevToDateDocs, currentDocs, originBySku, fac
         const rev = item.qty * item.unitPrice * f;
         a.revenue += rev;
         a.units += item.qty;
-        a.orders.add(doc.id);
+        if (!isRefund(doc)) a.orders.add(doc.id);
         if (id === 'importado') {
           const country = o?.pais || 'Sin país';
           a.countries.set(country, (a.countries.get(country) || 0) + rev);

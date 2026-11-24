@@ -7,6 +7,7 @@
 // - Atribución por pedido (qué campaña lo trajo): gineza. Opcional.
 // - Inversión y lo que "dice" cada plataforma: docs diarios de Meta y Google.
 import { argDay } from './events.mjs';
+import { isRefund } from './aggregate.mjs';
 
 export const LOCAL_CHANNELS = ['local_lomas', 'local_belgrano', 'local_alcorta'];
 const PAID_CHANNELS = ['meta', 'google'];
@@ -53,7 +54,7 @@ export function orderGrossProfit(doc, costBySku, fallbackCostRatio) {
 function block(docs, costBySku, fallback) {
   const revenue = sum(docs, (d) => d.total);
   const gross = sum(docs, (d) => orderGrossProfit(d, costBySku, fallback));
-  return { revenue, orders: docs.length, grossProfit: gross, marginPct: revenue ? round((gross / revenue) * 100, 1) : null };
+  return { revenue, orders: docs.filter((d) => !isRefund(d)).length, grossProfit: gross, marginPct: revenue ? round((gross / revenue) * 100, 1) : null };
 }
 
 const completed = (docs) => docs.filter((d) => d.status === 'completed');

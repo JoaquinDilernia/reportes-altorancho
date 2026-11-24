@@ -8,6 +8,7 @@ import { argDay, argHour } from './events.mjs';
 import { webPlan } from './webReport.mjs';
 import { skuModel } from './eventCategories.mjs';
 import { LOCALES } from './localesTab.mjs';
+import { isRefund } from './aggregate.mjs';
 
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 const pctDelta = (cur, prev) => (prev > 0 ? round(((cur / prev) - 1) * 100, 1) : null);
@@ -20,6 +21,7 @@ export function buildLectores({ curSearches, prevSearches, curSales, productsByS
     const prevCount = prevSearches.filter((s) => s.local === l.id).length;
     const sales = curSales.filter((d) => d.channel === l.channel && d.status === 'completed');
     const unitsBySku = new Map();
+    const tickets = sales.filter((d) => !isRefund(d));
     for (const d of sales) for (const it of d.items || []) unitsBySku.set(it.sku, (unitsBySku.get(it.sku) || 0) + (it.qty || 0));
 
     const bySku = new Map();
@@ -45,8 +47,8 @@ export function buildLectores({ curSearches, prevSearches, curSales, productsByS
       searches: cur.length,
       prevSearches: prevCount,
       vsPrev: pctDelta(cur.length, prevCount),
-      tickets: sales.length,
-      searchesPerTicket: sales.length ? round(cur.length / sales.length) : null,
+      tickets: tickets.length,
+      searchesPerTicket: tickets.length ? round(cur.length / tickets.length) : null,
       consultedSkus,
       soldOfConsultedPct: consultedSkus ? round((soldOfConsulted / consultedSkus) * 100, 1) : null,
       hours: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, n]) => ({ hour, searches: n })),

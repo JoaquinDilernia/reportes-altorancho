@@ -44,6 +44,7 @@ import { syncLocales } from './sync/locales.mjs';
 import { syncPosLocales } from './sync/posLocales.mjs';
 import { syncMayorista } from './sync/mayorista.mjs';
 import { syncFeria } from './sync/feria.mjs';
+import { syncCreditNotes } from './sync/creditNotes.mjs';
 import { syncMetaAds } from './sync/metaAds.mjs';
 import { syncGoogleAds } from './sync/googleAds.mjs';
 import { syncInflation } from './sync/inflation.mjs';
@@ -512,6 +513,11 @@ async function runFullSync() {
       await syncFeria(categoryBySku);
     } catch (err) {
       console.error('[cron] feria sync error:', err.message);
+    }
+    try {
+      await syncCreditNotes(categoryBySku);
+    } catch (err) {
+      console.error('[cron] creditNotes sync error:', err.message);
     }
     await syncMetaAds();
     try {

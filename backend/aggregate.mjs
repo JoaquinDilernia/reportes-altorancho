@@ -1,3 +1,7 @@
+// Notas de crédito (sync/creditNotes.mjs): restan facturación y unidades pero
+// no son pedidos, así que no cuentan en pedidos, ticket ni días con venta.
+export const isRefund = (doc) => doc.kind === 'refund';
+
 function completedOnly(salesDocs) {
   return salesDocs.filter(s => s.status === 'completed');
 }
@@ -16,7 +20,7 @@ export function computeTotals(salesDocs) {
   const revenue = completed.reduce((sum, s) => sum + s.total, 0);
   const shippingRevenue = completed.reduce((sum, s) => sum + (s.shippingRevenue || 0), 0);
   const units = completed.reduce((sum, s) => sum + s.items.reduce((u, i) => u + i.qty, 0), 0);
-  const orders = completed.length;
+  const orders = completed.filter(s => !isRefund(s)).length;
   const avgTicket = orders ? revenue / orders : 0;
 
   // Only mayorista docs carry amountCollected (facturación vs. cobro real
@@ -25,7 +29,7 @@ export function computeTotals(salesDocs) {
   const amountCollected = completed.reduce((sum, s) => sum + (s.amountCollected || 0), 0);
   const collectionRate = revenue ? Math.round((amountCollected / revenue) * 10000) / 100 : 0;
 
-  const uniqueDays = new Set(completed.map(s => argDayBucket(s.date)));
+  const uniqueDays = new Set(completed.filter(s => !isRefund(s)).map(s => argDayBucket(s.date)));
   const daysInRange = uniqueDays.size;
   const avgDailyRevenue = daysInRange ? revenue / daysInRange : 0;
 
@@ -50,7 +54,7 @@ export function computeDailyBreakdown(salesDocs) {
     if (!byDay.has(day)) byDay.set(day, { date: day, revenue: 0, units: 0, orders: 0 });
     const entry = byDay.get(day);
     entry.revenue += sale.total;
-    entry.orders += 1;
+    if (!isRefund(sale)) entry.orders += 1;
     entry.units += sale.items.reduce((u, i) => u + i.qty, 0);
   }
 
