@@ -9,7 +9,7 @@ const ODOO_URL = process.env.ODOO_URL || 'https://lett.exemax.ar';
 const PRODUCTS_COL = 'pickalto_products';
 const METADATA_REF = ['sync_metadata', 'latest'];
 const BATCH_SIZE = 500;
-const CASH_FACTOR = 0.75; // efectivo: 25% off sobre el precio vigente (promo si hay)
+const CASH_FACTOR = 0.80; // efectivo: 20% off sobre el precio vigente (promo si hay)
 
 export function formatARS(amount) {
   return '$ ' + Number(amount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

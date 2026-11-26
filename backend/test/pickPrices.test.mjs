@@ -7,12 +7,12 @@ test('formatARS', () => {
   assert.equal(formatARS(8990), '$ 8.990,00');
 });
 
-test('buildProduct sin promo: efectivo 25% off', () => {
+test('buildProduct sin promo: efectivo 20% off', () => {
   const p = buildProduct('ALF001BN', 'ALFOMBRA GRANDE', 38349, 99990, null);
   assert.equal(p.Name, 'ALF001BN');
   assert.equal(p.Precio, '$ 99.990,00');
   assert.equal(p.Descuento, 'NO');
-  assert.equal(p.Efecivo, '$ 74.992,50');
+  assert.equal(p.Efecivo, '$ 79.992,00');
   assert.ok(!p.Pdesceunto && !p.Porcentaje);
   assert.equal(p.img, 'https://lett.exemax.ar/web/image/product.template/38349/image_512');
 });
@@ -22,7 +22,7 @@ test('buildProduct con promo: efectivo sobre el precio promo', () => {
   assert.equal(p.Descuento, 'SI');
   assert.equal(p.Pdesceunto, '$ 65.994,00');
   assert.equal(p.Porcentaje, '34%');
-  assert.equal(p.Efecivo, '$ 49.495,50');
+  assert.equal(p.Efecivo, '$ 52.795,20');
 });
 
 test('buildProduct: promo igual o mayor no cuenta como descuento; sin imagen no hay img', () => {
