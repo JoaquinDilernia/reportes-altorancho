@@ -41,15 +41,16 @@ function useWakeLock() {
 }
 
 // Controls fade out after a few seconds without moving the mouse (TV look).
+// A touch or a scroll brings them back too, so on a phone they're reachable.
+const WAKE_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'scroll'];
 function useIdle(ms = 4000) {
   const [idle, setIdle] = useState(false);
   useEffect(() => {
     let t;
     const wake = () => { setIdle(false); clearTimeout(t); t = setTimeout(() => setIdle(true), ms); };
     wake();
-    globalThis.addEventListener('mousemove', wake);
-    globalThis.addEventListener('keydown', wake);
-    return () => { clearTimeout(t); globalThis.removeEventListener('mousemove', wake); globalThis.removeEventListener('keydown', wake); };
+    WAKE_EVENTS.forEach(e => globalThis.addEventListener(e, wake, { passive: true, capture: true }));
+    return () => { clearTimeout(t); WAKE_EVENTS.forEach(e => globalThis.removeEventListener(e, wake, { capture: true })); };
   }, [ms]);
   return idle;
 }

@@ -288,39 +288,54 @@
 @keyframes ev-fj-in { from { transform: translateY(16px); opacity: 0 } to { transform: none; opacity: 1 } }
 
 /* ── Modo tele: the whole screen, big type, made to be read from across the
-   room. Covers the app (fixed, above everything but the goal festejo). ── */
-.event-live .ev-tv { position: fixed; inset: 0; z-index: 900; display: flex; flex-direction: column; padding: 2.2vh 3vw 3vh; overflow: hidden;
+   room. Covers the app (fixed, above everything but the goal festejo).
+   Every size is in --u = 1% of the largest 16:9 frame that fits the screen:
+   on a wide/short screen (browser bars, 21:9 monitor) it follows the height,
+   on a narrow one the width. So the layout scales as one piece from a 4K TV
+   down to a notebook and nothing outgrows the screen or gets cut. Portrait
+   screens (phones) get their own stacked, scrollable layout below. ── */
+.event-live .ev-tv { --u: min(1vw, 1.778vh); position: fixed; inset: 0; z-index: 900; display: flex; flex-direction: column; overflow: hidden;
+  padding: calc(var(--u) * 2) calc(var(--u) * 3) calc(var(--u) * 4.5);
   background: radial-gradient(1600px 800px at 15% -10%, #1d3566 0%, #0b1020 50%, var(--bg) 100%); background-color: var(--bg); }
-.event-live .ev-tv.idle { cursor: none; }
-.event-live .ev-tv-top { display: flex; align-items: center; gap: 2vw; }
-.event-live .ev-tv-top .ev-brand { font-size: clamp(28px, 3.6vw, 64px); }
-.event-live .ev-tv-top .ev-live { font-size: clamp(12px, 1.2vw, 20px); }
-.event-live .ev-tv-clock { margin-left: auto; font-size: clamp(22px, 2.6vw, 48px); font-weight: 800; color: var(--mute); }
-.event-live .ev-tv-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.75fr 1fr; gap: 2.5vw; align-items: stretch; margin-top: 2vh; }
-.event-live .ev-tv-hero { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-.event-live .ev-tv .ev-l { font-size: clamp(11px, 1vw, 18px); }
-.event-live .ev-tv .ev-flap { margin: 2vh 0 1vh; }
-@supports (width: 1cqi) {
-  .event-live .ev-tv .ev-flap { --w: min(130px, calc(100cqi / var(--units, 12))); }
+@supports (height: 1dvh) {
+  .event-live .ev-tv { --u: min(1vw, 1.778dvh); }
 }
-.event-live .ev-tv .ev-track { margin-top: 3vh; }
-.event-live .ev-tv .ev-track .flag b { font-size: clamp(11px, .9vw, 16px); }
-.event-live .ev-tv-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5vw; margin-top: 5vh; }
-.event-live .ev-tv-stats > div { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 1.6vh 1.2vw; }
-.event-live .ev-tv-stats b { display: block; margin-top: .6vh; font-size: clamp(22px, 3vw, 56px); font-weight: 900; letter-spacing: -.02em; }
-.event-live .ev-tv-feed { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 2vh 1.6vw; min-height: 0; display: flex; flex-direction: column; }
-.event-live .ev-tv-feed .ev-feed { height: auto; flex: 1; }
-.event-live .ev-tv-feed .ev-sale { font-size: clamp(14px, 1.45vw, 26px); padding: 1.3vh 0; }
-.event-live .ev-tv-feed .ev-sale small { font-size: clamp(11px, .95vw, 17px); }
-.event-live .ev-tv-feed .ev-empty { font-size: clamp(14px, 1.3vw, 22px); color: var(--mute); padding: 2vh 0; }
+.event-live .ev-tv.idle { cursor: none; }
+.event-live .ev-tv-top { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.event-live .ev-tv-top .ev-brand { font-size: calc(var(--u) * 3.4); white-space: nowrap; }
+.event-live .ev-tv-top .ev-live { font-size: max(11px, calc(var(--u) * 1.15)); }
+.event-live .ev-tv-top .ev-dot { width: max(8px, calc(var(--u) * .7)); height: max(8px, calc(var(--u) * .7)); }
+.event-live .ev-tv-clock { margin-left: auto; font-size: calc(var(--u) * 2.6); font-weight: 800; color: var(--mute); }
+.event-live .ev-tv-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: stretch; margin-top: calc(var(--u) * 1.5); }
+.event-live .ev-tv-hero { display: flex; flex-direction: column; justify-content: safe center; min-width: 0; min-height: 0; }
+.event-live .ev-tv .ev-l { font-size: max(10px, calc(var(--u) * 1)); }
+.event-live .ev-tv .ev-flap { margin: calc(var(--u) * 1.5) 0 calc(var(--u) * .8); }
+@supports (width: 1cqi) {
+  .event-live .ev-tv .ev-flap { --w: min(calc(var(--u) * 6.5), calc(100cqi / var(--units, 12))); }
+}
+.event-live .ev-tv .ev-track { margin-top: calc(var(--u) * 2); }
+.event-live .ev-tv .ev-track .flag b { font-size: max(10px, calc(var(--u) * .9)); }
+.event-live .ev-tv-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--u) * 1.4); margin-top: calc(var(--u) * 3.5); }
+.event-live .ev-tv-stats > div { container-type: inline-size; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: calc(var(--u) * 1.2); padding: calc(var(--u) * 1.4) calc(var(--u) * 1.2); }
+.event-live .ev-tv-stats .ev-l { display: block; }
+/* The value shrinks with its tile so "$1.234M" never spills out of it. */
+.event-live .ev-tv-stats b { display: block; margin-top: calc(var(--u) * .5); font-size: calc(var(--u) * 2.6); font-weight: 900; letter-spacing: -.02em; white-space: nowrap; }
+@supports (width: 1cqi) {
+  .event-live .ev-tv-stats b { font-size: min(calc(var(--u) * 3), 19cqi); }
+}
+.event-live .ev-tv-feed { background: var(--panel); border: 1px solid var(--line); border-radius: calc(var(--u) * 1.6); padding: calc(var(--u) * 1.8) calc(var(--u) * 1.6); min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.event-live .ev-tv-feed .ev-feed { height: auto; flex: 1; min-height: 0; }
+.event-live .ev-tv-feed .ev-sale { font-size: calc(var(--u) * 1.45); padding: calc(var(--u) * 1.1) 0; }
+.event-live .ev-tv-feed .ev-sale small { font-size: max(10px, calc(var(--u) * .95)); }
+.event-live .ev-tv-feed .ev-empty { font-size: calc(var(--u) * 1.3); color: var(--mute); padding: calc(var(--u) * 2) 0; }
 
-.event-live .ev-tv-unlock { position: absolute; left: 50%; bottom: 7vh; transform: translateX(-50%); z-index: 2; font-family: inherit; font-weight: 800; font-size: clamp(16px, 1.6vw, 28px); padding: 1.4vh 2.4vw; border-radius: 999px; border: 0; cursor: pointer;
+.event-live .ev-tv-unlock { position: absolute; left: 50%; bottom: calc(var(--u) * 7); transform: translateX(-50%); z-index: 2; max-width: 92vw; font-family: inherit; font-weight: 800; font-size: max(14px, calc(var(--u) * 1.6)); padding: .6em 1.4em; border-radius: 999px; border: 0; cursor: pointer;
   background: linear-gradient(90deg, var(--mint), var(--sky)); color: #04121a; box-shadow: 0 10px 40px rgba(46,230,160,.45); animation: ev-fj-pulse 1.4s ease-in-out infinite; }
-.event-live .ev-tv-ctrl { position: absolute; right: 3vw; bottom: 2vh; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; transition: opacity .4s; z-index: 2; }
+.event-live .ev-tv-ctrl { position: absolute; left: calc(var(--u) * 3); right: calc(var(--u) * 3); bottom: calc(var(--u) * 1.2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; transition: opacity .4s; z-index: 2; font-size: max(12px, calc(var(--u) * .8)); }
 .event-live .ev-tv.idle .ev-tv-ctrl { opacity: 0; pointer-events: none; }
-.event-live .ev-tv-ctrl button { background: rgba(255,255,255,.08); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+.event-live .ev-tv-ctrl button { background: rgba(255,255,255,.08); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: .5em 1.05em; font-family: inherit; font-weight: 600; font-size: inherit; cursor: pointer; }
 .event-live .ev-tv-ctrl button:hover { background: rgba(255,255,255,.16); }
-.event-live .ev-tv-tests { display: inline-flex; gap: 6px; align-items: center; color: var(--mute); font-size: 13px; }
+.event-live .ev-tv-tests { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; color: var(--mute); }
 
 /* Celebration of one sale, louder the bigger the tier. */
 .event-live .ev-tv-cele { position: fixed; inset: 0; z-index: 950; background-color: #050814; display: grid; place-items: center; overflow: hidden; text-align: center; }
@@ -331,15 +346,47 @@
 .event-live .ev-tv-cele.t1 .ev-fj-rays { opacity: .5; }
 .event-live .ev-tv-cele.t2 .ev-fj-rays { opacity: .7; filter: hue-rotate(100deg); }
 .event-live .ev-tv-cele.t3 .ev-fj-rays { filter: hue-rotate(170deg); }
-.event-live .ev-tv-cele-body { position: relative; z-index: 1; padding: 0 4vw; animation: ev-fj-zoom .45s cubic-bezier(.2,1.4,.4,1) both; }
-.event-live .ev-tv-cele .kicker { font-size: clamp(16px, 2vw, 36px); letter-spacing: .2em; text-transform: uppercase; color: var(--ink); opacity: .85; }
-.event-live .ev-tv-cele .title { font-weight: 900; letter-spacing: -.03em; line-height: 1; margin: 1.5vh 0; font-size: clamp(48px, 9vw, 190px); color: var(--amber); text-shadow: 0 0 40px rgba(255,200,60,.55); }
+.event-live .ev-tv-cele-body { position: relative; z-index: 1; max-width: 100%; padding: 0 calc(var(--u) * 4); animation: ev-fj-zoom .45s cubic-bezier(.2,1.4,.4,1) both; }
+.event-live .ev-tv-cele .kicker { font-size: max(13px, calc(var(--u) * 2)); letter-spacing: .2em; text-transform: uppercase; color: var(--ink); opacity: .85; }
+.event-live .ev-tv-cele .title { font-weight: 900; letter-spacing: -.03em; line-height: 1; margin: calc(var(--u) * 1.2) 0; font-size: calc(var(--u) * 8.5); color: var(--amber); text-shadow: 0 0 40px rgba(255,200,60,.55); }
 .event-live .ev-tv-cele.t2 .title { color: var(--mint); text-shadow: 0 0 40px rgba(46,230,160,.6); }
 .event-live .ev-tv-cele.t3 .title { color: var(--sky); text-shadow: 0 0 50px rgba(124,196,255,.7); }
-.event-live .ev-tv-cele.t4 .title { font-size: clamp(56px, 11vw, 230px); background: linear-gradient(90deg, #ffc83c, #fff6c9, #ff7a45, #ffc83c); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ev-fj-shine 2.2s linear infinite, ev-fj-pulse 1s ease-in-out infinite; text-shadow: none; }
-.event-live .ev-tv-cele .amount { font-weight: 900; font-size: clamp(40px, 7vw, 150px); color: #fff; letter-spacing: -.02em; }
-.event-live .ev-tv-cele .what { margin-top: 1.5vh; font-size: clamp(16px, 2vw, 38px); color: var(--ink); opacity: .85; max-width: 80vw; margin-left: auto; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-live .ev-tv-cele.t4 .title { font-size: calc(var(--u) * 9.5); background: linear-gradient(90deg, #ffc83c, #fff6c9, #ff7a45, #ffc83c); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ev-fj-shine 2.2s linear infinite, ev-fj-pulse 1s ease-in-out infinite; text-shadow: none; }
+.event-live .ev-tv-cele .amount { font-weight: 900; font-size: calc(var(--u) * 7); color: #fff; letter-spacing: -.02em; white-space: nowrap; }
+.event-live .ev-tv-cele .what { margin-top: calc(var(--u) * 1.2); font-size: max(14px, calc(var(--u) * 2)); color: var(--ink); opacity: .85; max-width: 90vw; margin-left: auto; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event-live .ev-tv-rain { position: absolute; inset: 0; pointer-events: none; }
-.event-live .ev-tv-rain span { position: absolute; top: -10vh; font-size: clamp(26px, 3.4vw, 64px); animation-name: ev-tv-fall; animation-timing-function: linear; animation-iteration-count: infinite; }
+.event-live .ev-tv-rain span { position: absolute; top: -10vh; font-size: calc(var(--u) * 3.4); animation-name: ev-tv-fall; animation-timing-function: linear; animation-iteration-count: infinite; }
 @keyframes ev-tv-fall { from { transform: translateY(0) rotate(0deg); } to { transform: translateY(120vh) rotate(540deg); } }
 .event-live .ev-tv-btn { background: linear-gradient(90deg, var(--sky), var(--mint)); color: #04121a; box-shadow: 0 0 16px rgba(124,196,255,.45); }
+
+/* Portrait (phones, vertical tablets or TVs): one column that scrolls, the
+   counter first, 2x2 stats, then the feed and the controls in the flow. */
+@media (orientation: portrait) {
+  .event-live .ev-tv { --u: 2.2vw; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: calc(var(--u) * 4) calc(var(--u) * 4) calc(var(--u) * 5 + env(safe-area-inset-bottom, 0px)); }
+  .event-live .ev-tv-top { flex-wrap: wrap; row-gap: calc(var(--u) * 1); }
+  .event-live .ev-tv-top .ev-live { order: 3; flex-basis: 100%; }
+  .event-live .ev-tv-top .ev-brand { font-size: calc(var(--u) * 4.2); }
+  .event-live .ev-tv-clock { font-size: calc(var(--u) * 3.6); }
+  .event-live .ev-tv-main { flex: none; grid-template-columns: minmax(0, 1fr); gap: calc(var(--u) * 4); margin-top: calc(var(--u) * 3); }
+  .event-live .ev-tv .ev-l { font-size: max(10px, calc(var(--u) * 1.5)); }
+  .event-live .ev-tv .ev-track .flag b { font-size: max(10px, calc(var(--u) * 1.3)); }
+  .event-live .ev-tv-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 3); }
+  .event-live .ev-tv-stats > div { border-radius: calc(var(--u) * 2); padding: calc(var(--u) * 2.2) calc(var(--u) * 2.4); }
+  .event-live .ev-tv-stats b { font-size: calc(var(--u) * 4.4); }
+  @supports (width: 1cqi) {
+    .event-live .ev-tv-stats b { font-size: min(calc(var(--u) * 4.6), 19cqi); }
+  }
+  .event-live .ev-tv-feed { border-radius: calc(var(--u) * 2.4); padding: calc(var(--u) * 2.6) calc(var(--u) * 3); }
+  .event-live .ev-tv-feed .ev-feed { flex: none; max-height: 60vh; }
+  .event-live .ev-tv-feed .ev-sale { font-size: max(14px, calc(var(--u) * 2)); padding: calc(var(--u) * 1.6) 0; }
+  .event-live .ev-tv-feed .ev-sale small { font-size: max(11px, calc(var(--u) * 1.4)); }
+  .event-live .ev-tv-feed .ev-empty { font-size: max(14px, calc(var(--u) * 2)); }
+  .event-live .ev-tv-unlock { position: fixed; bottom: calc(var(--u) * 6 + env(safe-area-inset-bottom, 0px)); width: max-content; }
+  .event-live .ev-tv-ctrl { position: static; justify-content: center; margin-top: calc(var(--u) * 4); font-size: max(13px, calc(var(--u) * 1.5)); }
+  .event-live .ev-tv-tests { width: 100%; justify-content: center; }
+  .event-live .ev-tv-cele .title { font-size: calc(var(--u) * 7.5); overflow-wrap: anywhere; }
+  .event-live .ev-tv-cele.t4 .title { font-size: calc(var(--u) * 8); }
+  .event-live .ev-tv-cele .amount { font-size: calc(var(--u) * 5.4); }
+  .event-live .ev-tv-cele .kicker { font-size: max(12px, calc(var(--u) * 1.8)); }
+}
